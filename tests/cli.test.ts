@@ -1,0 +1,268 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { runInit, runBrain, runDoctor, runVerify, runMcpConfig, runInstallUnityPackage, runSetup } from "@uvibe/cli";
+import type { GlobalOptions } from "../apps/cli/src/options.js";
+
+const FIXTURE = path.resolve("tests/fixtures/sample-unity-project");
+let workDir: string;
+
+beforeAll(async () => {
+  workDir = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-cli-test-"));
+  await copyDir(FIXTURE, workDir);
+});
+
+afterAll(async () => {
+  if (workDir) await fs.rm(workDir, { recursive: true, force: true });
+});
+
+function g(extra: Partial<GlobalOptions> = {}): GlobalOptions {
+  return { project: workDir, mock: true, json: false, ...extra };
+}
+
+describe("cli/init", () => {
+  it("creates config.json, conventions.md, CLAUDE.md", async () => {
+    const r = await runInit(g());
+    expect(r.exitCode).toBe(0);
+    await fs.access(path.join(workDir, ".unity-vibe", "config.json"));
+    await fs.access(path.join(workDir, ".unity-vibe", "conventions.md"));
+    await fs.access(path.join(workDir, "CLAUDE.md"));
+  });
+});
+
+describe("cli/brain", () => {
+  it("writes brain files", async () => {
+    const r = await runBrain(g());
+    expect(r.exitCode).toBe(0);
+    await fs.access(path.join(workDir, ".unity-vibe", "project_brain.md"));
+    await fs.access(path.join(workDir, ".unity-vibe", "project_brain.json"));
+    await fs.access(path.join(workDir, ".unity-vibe", "claude_context.md"));
+    expect(r.stdout).toContain("scenes:");
+  });
+});
+
+describe("cli/doctor", () => {
+  it("does not crash without Unity bridge", async () => {
+    const r = await runDoctor(g());
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Doctor");
+    expect(r.stdout).toContain("Unity bridge:");
+  });
+
+  it("emits JSON when requested", async () => {
+    const r = await runDoctor(g({ json: true }));
+    expect(r.exitCode).toBe(0);
+    const obj = JSON.parse(r.stdout!);
+    expect(obj.product?.name).toBeDefined();
+    expect(obj.bridge?.reachable).toBe(false);
+  });
+});
+
+describe("cli/verify", () => {
+  it("passes all MVP acceptance checks against the mock bridge", async () => {
+    const r = await runVerify(g({ json: true }));
+    expect(r.exitCode).toBe(0);
+    const obj = JSON.parse(r.stdout!);
+    expect(obj.failed).toBe(0);
+    expect(obj.passed).toBe(obj.total);
+    expect(obj.total).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe("cli/mcp-config", () => {
+  it("emits a valid MCP config snippet using absolute paths by default", async () => {
+    const r = await runMcpConfig(g({ json: true }), { command: "mcp-config", positional: [], flags: {} });
+    expect(r.exitCode).toBe(0);
+    const obj = JSON.parse(r.stdout!);
+    const entry = obj.mcpServers["unity-vibe-os"];
+    // Default mode resolves absolute paths so PATH is irrelevant.
+    expect(path.isAbsolute(entry.command)).toBe(true);
+    expect(entry.args[1]).toBe("serve");
+    expect(entry.env.UVIBE_PROJECT).toBe(workDir);
+  });
+
+  it("respects --bare for users who linked uvibe globally", async () => {
+    const r = await runMcpConfig(g({ json: true }), {
+      command: "mcp-config",
+      positional: [],
+      flags: { bare: true },
+    });
+    expect(r.exitCode).toBe(0);
+    const obj = JSON.parse(r.stdout!);
+    expect(obj.mcpServers["unity-vibe-os"].command).toBe("uvibe");
+    expect(obj.mcpServers["unity-vibe-os"].args).toEqual(["serve"]);
+  });
+});
+
+describe("cli/setup", () => {
+  it("orchestrates init + install-unity-package + brain + .mcp.json + doctor in one call", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-setup-"));
+    try {
+      // Build a minimal Unity project shape.
+      await fs.mkdir(path.join(tmp, "Assets", "Scenes"), { recursive: true });
+      await fs.mkdir(path.join(tmp, "ProjectSettings"), { recursive: true });
+      await fs.mkdir(path.join(tmp, "Packages"), { recursive: true });
+      await fs.writeFile(
+        path.join(tmp, "ProjectSettings", "ProjectVersion.txt"),
+        "m_EditorVersion: 2022.3.42f1\n"
+      );
+      await fs.writeFile(
+        path.join(tmp, "Packages", "manifest.json"),
+        JSON.stringify({ dependencies: {} }, null, 2)
+      );
+      await fs.writeFile(path.join(tmp, "Assets", "Scenes", "Sample.unity"), "%YAML 1.1\n");
+
+      const r = await runSetup(
+        { project: tmp, mock: false, json: false },
+        { command: "setup", positional: [], flags: {} }
+      );
+      expect(r.exitCode).toBe(0);
+
+      // .unity-vibe scaffold exists
+      for (const f of ["config.json", "conventions.md", "project_brain.md", "project_brain.json", "claude_context.md"]) {
+        await fs.access(path.join(tmp, ".unity-vibe", f));
+      }
+      // Manifest got the dependency
+      const manifest = JSON.parse(await fs.readFile(path.join(tmp, "Packages", "manifest.json"), "utf8"));
+      expect(manifest.dependencies["com.uvibe.os"]).toMatch(/^file:.*UnityVibeOS$/);
+      // .mcp.json written with absolute paths
+      const mcp = JSON.parse(await fs.readFile(path.join(tmp, ".mcp.json"), "utf8"));
+      expect(mcp.mcpServers["unity-vibe-os"]).toBeDefined();
+      const entry = mcp.mcpServers["unity-vibe-os"];
+      expect(typeof entry.command).toBe("string");
+      expect(entry.args[0]).toMatch(/uvibe$/);
+      expect(entry.args[1]).toBe("serve");
+      expect(entry.env.UVIBE_PROJECT).toBe(tmp);
+      // CLAUDE.md written with marker block
+      const cmd = await fs.readFile(path.join(tmp, "CLAUDE.md"), "utf8");
+      expect(cmd).toContain("<!-- BEGIN unity-vibe-os -->");
+      expect(cmd).toContain("<!-- END unity-vibe-os -->");
+      expect(cmd).toContain("unity_inspect_selected");
+      expect(cmd).toContain("unity_capture_game_view");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects non-Unity project paths", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-setup-bad-"));
+    try {
+      const r = await runSetup(
+        { project: tmp, mock: false, json: false },
+        { command: "setup", positional: [], flags: {} }
+      );
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("Not a Unity project");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cli/init re-runs preserve user content in CLAUDE.md", () => {
+  it("inserts and updates a marker-delimited block; appends if file existed", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-init-claude-"));
+    try {
+      await fs.mkdir(path.join(tmp, ".unity-vibe"), { recursive: true });
+      const claudeMd = path.join(tmp, "CLAUDE.md");
+      await fs.writeFile(claudeMd, "# CLAUDE.md\n\n## My existing rules\n\n- never delete code\n", "utf8");
+
+      // First run: appends block.
+      let r = await runInit({ project: tmp, mock: false, json: false });
+      expect(r.exitCode).toBe(0);
+      let after = await fs.readFile(claudeMd, "utf8");
+      expect(after).toContain("never delete code"); // user content preserved
+      expect(after).toContain("<!-- BEGIN unity-vibe-os -->");
+
+      // Second run: updates the block in-place; user content still preserved.
+      r = await runInit({ project: tmp, mock: false, json: false });
+      expect(r.exitCode).toBe(0);
+      after = await fs.readFile(claudeMd, "utf8");
+      expect(after).toContain("never delete code");
+      expect((after.match(/<!-- BEGIN unity-vibe-os -->/g) ?? []).length).toBe(1); // only one block
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cli/mcp-config --write", () => {
+  it("writes .mcp.json with absolute uvibe path and merges with existing entries", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-mcpwrite-"));
+    try {
+      // Pre-existing .mcp.json with an unrelated server.
+      await fs.writeFile(
+        path.join(tmp, ".mcp.json"),
+        JSON.stringify({ mcpServers: { other: { command: "x", args: [], env: {} } } }, null, 2)
+      );
+      const r = await runMcpConfig(
+        { project: tmp, mock: false, json: true },
+        { command: "mcp-config", positional: [], flags: { write: true } }
+      );
+      expect(r.exitCode).toBe(0);
+      const cfg = JSON.parse(await fs.readFile(path.join(tmp, ".mcp.json"), "utf8"));
+      expect(cfg.mcpServers.other.command).toBe("x"); // preserved
+      const entry = cfg.mcpServers["unity-vibe-os"];
+      expect(entry.args[1]).toBe("serve");
+      expect(entry.env.UVIBE_PROJECT).toBe(tmp);
+      // command must be an absolute path to a node binary (not bare "uvibe")
+      expect(entry.command).not.toBe("uvibe");
+      expect(path.isAbsolute(entry.command)).toBe(true);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cli/install-unity-package", () => {
+  it("appends com.uvibe.os to a Unity project's Packages/manifest.json", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-install-"));
+    try {
+      await fs.mkdir(path.join(tmp, "Assets"), { recursive: true });
+      await fs.mkdir(path.join(tmp, "ProjectSettings"), { recursive: true });
+      await fs.mkdir(path.join(tmp, "Packages"), { recursive: true });
+      await fs.writeFile(
+        path.join(tmp, "Packages", "manifest.json"),
+        JSON.stringify({ dependencies: { "com.unity.textmeshpro": "3.0.6" } }, null, 2)
+      );
+      const r = await runInstallUnityPackage(g({ project: tmp, json: true }), {
+        command: "install-unity-package",
+        positional: [],
+        flags: { mode: "manifest" },
+      });
+      expect(r.exitCode).toBe(0);
+      const after = JSON.parse(await fs.readFile(path.join(tmp, "Packages", "manifest.json"), "utf8"));
+      expect(after.dependencies["com.uvibe.os"]).toMatch(/^file:.*UnityVibeOS$/);
+      expect(after.dependencies["com.unity.textmeshpro"]).toBe("3.0.6");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects targets that are not Unity projects", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-install-bad-"));
+    try {
+      const r = await runInstallUnityPackage(g({ project: tmp }), {
+        command: "install-unity-package",
+        positional: [],
+        flags: { mode: "manifest" },
+      });
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("Not a Unity project");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+async function copyDir(src: string, dst: string): Promise<void> {
+  await fs.mkdir(dst, { recursive: true });
+  const entries = await fs.readdir(src, { withFileTypes: true });
+  for (const e of entries) {
+    const s = path.join(src, e.name);
+    const d = path.join(dst, e.name);
+    if (e.isDirectory()) await copyDir(s, d);
+    else if (e.isFile()) await fs.copyFile(s, d);
+  }
+}

@@ -1,0 +1,21 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.tsbuild/
+.DS_Store
+.vscode/
+.idea/
+coverage/
+# This repo isn't itself a Unity project; ignore the self-generated brain.
+.unity-vibe/
+# In real Unity projects you may want to commit project_brain.* and conventions.md
+# and only ignore the volatile bits below:
+# .unity-vibe/snapshots/
+# .unity-vibe/runtime_logs/
+# .unity-vibe/asset_index.sqlite
+# .unity-vibe/trash/
+Library/
+Temp/
+Logs/
+UserSettings/
+*.log
