@@ -1,7 +1,7 @@
 import { ErrorCode } from "@uvibe/core";
 import { SafetyMode, UVibeConfig } from "./config.js";
 
-export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety";
+export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor";
 
 /**
  * Explicit classification of write tools to the kind of state they mutate. Used to gate writes
@@ -10,16 +10,25 @@ export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | 
  */
 export const WRITE_TOOLS: Record<string, WriteTarget> = {
   unity_set_serialized_field: "scene",
+  unity_set_transform: "scene",
+  unity_reparent: "scene",
   unity_add_component: "scene",
   unity_create_gameobject: "scene",
   unity_save_scene: "scene",
   unity_assign_reference: "scene",
   unity_instantiate_prefab: "scene",
+  unity_paint_tilemap: "scene",
   unity_create_scriptable_object: "asset",
   unity_create_material: "asset",
+  unity_import_asset: "asset",
+  unity_slice_sprite: "asset",
   unity_create_prefab_variant: "prefab",
+  unity_save_prefab: "prefab",
+  unity_apply_prefab_instance: "prefab",
+  unity_animator_edit_transition: "asset",
   unity_wire_ui_button: "scene",
   unity_clear_console: "console",
+  unity_execute_menu_item: "editor",
   unity_build_player: "build",
   unity_create_snapshot: "safety",
   unity_restore_snapshot: "safety",
@@ -85,6 +94,13 @@ export function gateWrite(config: UVibeConfig, toolName: string, target: WriteTa
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
           reason: `Script writes are disabled (allowScriptWrites=false in .unity-vibe/config.json).`,
+        };
+      }
+      if (target === "editor" && !config.allowMenuItems) {
+        return {
+          allowed: false,
+          errorCode: "SAFETY_MODE_BLOCKED",
+          reason: `Editor menu execution is disabled (allowMenuItems=false in .unity-vibe/config.json). Enable it and list exact paths in allowedMenuItems.`,
         };
       }
       return { allowed: true };

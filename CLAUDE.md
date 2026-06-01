@@ -31,6 +31,16 @@ For runtime / "does it actually play" questions:
 For "why is my scene/prefab broken":
 - `unity_find_missing_scripts`, `unity_find_missing_references` (dangling links → runtime NREs), and `unity_find_references` / `unity_find_dependencies` to trace the asset graph before deleting/renaming.
 
+For traversing the project / doing layout / editing prefabs:
+- `unity_open_scene` and `unity_load_scene_additive` let you move through scenes yourself (they work in `read_only` — navigation isn't a write — but refuse to discard unsaved changes unless `discardUnsavedChanges:true`, returning `UNSAVED_CHANGES`).
+- `unity_set_transform` / `unity_reparent` do real positioning/hierarchy work; `unity_paint_tilemap` for 2D levels.
+- `unity_open_prefab` enters prefab mode so the scene-edit tools operate on the prefab's own contents; persist with `unity_save_prefab`. `unity_apply_prefab_instance` pushes a scene instance's overrides back to the asset.
+
+For play-testing and animation:
+- In play mode, `unity_simulate_input` fires keys/clicks/axes (Input System) and `unity_set_animator_parameter` drives Animator params/triggers; read back with `unity_get_animator_state`. Edit the controller graph with `unity_animator_edit_transition`.
+
+`unity_execute_menu_item` is a generic escape hatch for any Editor command, but it only runs paths you've whitelisted (`allowMenuItems:true` + `allowedMenuItems` in config); otherwise it returns `MENU_ITEM_NOT_ALLOWED`. The 2D/asset pipeline tools are `unity_import_asset` and `unity_slice_sprite`.
+
 ### When the bridge is unavailable
 
 - `UNITY_RELOADING` — the bridge is mid script-domain reload (post-compile or entering play). It is **recoverable**; tool calls already retry for ~20s. Just wait; don't treat it as fatal.
@@ -54,5 +64,11 @@ Plan / phase / status / verify / decisions live in `.planning/`. The format mirr
 ## Limits
 
 - Unity Editor APIs cannot run from this shell. The Unity package compiles against documented APIs and follows standard idioms; runtime verification is the user's job (see `docs/UNITY_MANUAL_TEST_CHECKLIST.md`).
-- Write tools are wired and gated by `safetyMode`: scene edits (`unity_set_serialized_field`, `unity_assign_reference`, `unity_add_component`, `unity_create_gameobject`, `unity_instantiate_prefab`, `unity_wire_ui_button`, `unity_save_scene`), asset creators (`unity_create_scriptable_object`, `unity_create_material`), prefab (`unity_create_prefab_variant`), and `unity_clear_console`. All are blocked under the default `read_only`; the user must opt in via `.unity-vibe/config.json` (`confirm`/`autopilot` + the relevant `allow*Writes` flag — scene/prefab/script). Every Unity mutation is wrapped in Unity's Undo system (Ctrl+Z) and recorded to `.unity-vibe/action_log.jsonl`.
+- Write tools are wired and gated by `safetyMode` (per-target flags in `.unity-vibe/config.json`):
+  - **scene** (`allowSceneWrites`): `unity_set_serialized_field`, `unity_set_transform`, `unity_reparent`, `unity_assign_reference`, `unity_add_component`, `unity_create_gameobject`, `unity_instantiate_prefab`, `unity_paint_tilemap`, `unity_wire_ui_button`, `unity_save_scene`.
+  - **prefab** (`allowPrefabWrites`): `unity_create_prefab_variant`, `unity_save_prefab`, `unity_apply_prefab_instance`.
+  - **asset**: `unity_create_scriptable_object`, `unity_create_material`, `unity_import_asset`, `unity_slice_sprite`, `unity_animator_edit_transition`.
+  - **console**: `unity_clear_console`. **editor** (`allowMenuItems` + `allowedMenuItems` allowlist): `unity_execute_menu_item`.
+  - Non-write but state-touching: `unity_open_scene`/`unity_load_scene_additive`/`unity_open_prefab` (navigation; allowed in `read_only`, guarded against discarding unsaved changes) and `unity_simulate_input`/`unity_set_animator_parameter`/`unity_get_animator_state` (runtime/ephemeral).
+  - All write tools are blocked under the default `read_only`; the user opts in via `confirm`/`autopilot` + the relevant `allow*` flag. Every Unity mutation is wrapped in Unity's Undo system (Ctrl+Z) and recorded to `.unity-vibe/action_log.jsonl`.
 - The Test Framework integration lives in a separate assembly guarded by `UNITY_INCLUDE_TESTS`, so the core bridge still compiles when `com.unity.test-framework` is absent.

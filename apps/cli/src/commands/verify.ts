@@ -53,6 +53,27 @@ const ACCEPTANCE: Array<{ tool: string; args?: Record<string, unknown>; expectSh
   { tool: "unity_create_prefab_variant", args: { sourcePath: "Assets/Prefabs/Enemy.prefab", path: "Assets/Prefabs/EliteEnemy.prefab" }, expectShape: (d: any) => typeof d?.createdPath === "string" ? null : "missing createdPath" },
   { tool: "unity_wire_ui_button", args: { path: "/Canvas/PlayButton", handlerComponent: "GameManager", method: "StartGame" }, expectShape: (d: any) => d?.applied === true ? null : "wire not applied" },
   { tool: "unity_clear_console", expectShape: (d: any) => d?.applied === true ? null : "clear not applied" },
+  // Scene navigation
+  { tool: "unity_open_scene", args: { scenePath: "Assets/Scenes/Level1.unity" }, expectShape: (d: any) => Array.isArray(d?.scenes) ? null : "missing scenes[]" },
+  { tool: "unity_load_scene_additive", args: { scenePath: "Assets/Scenes/UI.unity" }, expectShape: (d: any) => Array.isArray(d?.scenes) ? null : "missing scenes[]" },
+  // Layout
+  { tool: "unity_set_transform", args: { path: "/Gameplay/Player", position: { x: 1, y: 2, z: 3 } }, expectShape: (d: any) => d?.applied === true ? null : "transform not applied" },
+  { tool: "unity_reparent", args: { path: "/Gameplay/Player", newParentPath: "/Gameplay/Container" }, expectShape: (d: any) => d?.applied === true ? null : "reparent not applied" },
+  // Prefab mode
+  { tool: "unity_open_prefab", args: { prefabPath: "Assets/Prefabs/Player.prefab" }, expectShape: (d: any) => d?.inPrefabMode === true ? null : "prefab not opened" },
+  { tool: "unity_save_prefab", expectShape: (d: any) => d?.applied === true ? null : "prefab not saved" },
+  { tool: "unity_apply_prefab_instance", args: { path: "/Gameplay/Player" }, expectShape: (d: any) => d?.applied === true ? null : "overrides not applied" },
+  // Play-test + animation
+  { tool: "unity_simulate_input", args: { control: "<Keyboard>/space" }, expectShape: (d: any) => d?.simulated === true ? null : "input not simulated" },
+  { tool: "unity_get_animator_state", args: { path: "/Gameplay/Player" }, expectShape: (d: any) => Array.isArray(d?.layers) ? null : "missing layers[]" },
+  { tool: "unity_set_animator_parameter", args: { path: "/Gameplay/Player", name: "Speed", value: 5 }, expectShape: (d: any) => d?.applied === true ? null : "parameter not set" },
+  { tool: "unity_animator_edit_transition", args: { controllerPath: "Assets/Animation/Crow.controller", fromState: "Run", toState: "Idle" }, expectShape: (d: any) => d?.applied === true ? null : "transition not edited" },
+  // Editor escape hatch (mock skips the whitelist)
+  { tool: "unity_execute_menu_item", args: { menuItem: "Assets/Refresh" }, expectShape: (d: any) => d?.applied === true ? null : "menu item not executed" },
+  // Asset pipeline
+  { tool: "unity_import_asset", args: { path: "Assets/Art/hero.png" }, expectShape: (d: any) => typeof d?.createdPath === "string" ? null : "missing createdPath" },
+  { tool: "unity_slice_sprite", args: { texturePath: "Assets/Art/tiles.png", cellWidth: 16, cellHeight: 16 }, expectShape: (d: any) => d?.applied === true ? null : "sprite not sliced" },
+  { tool: "unity_paint_tilemap", args: { tilemapPath: "/Grid/Tilemap", tileAssetPath: "Assets/Tiles/Grass.asset", cells: [{ x: 0, y: 0 }] }, expectShape: (d: any) => d?.applied === true ? null : "tilemap not painted" },
 ];
 
 export async function runVerify(g: GlobalOptions): Promise<CommandResult> {

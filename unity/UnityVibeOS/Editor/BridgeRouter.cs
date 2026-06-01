@@ -158,8 +158,43 @@ namespace UnityVibeOS
                     return AssetGraph.FindDependencies(path, recursive, limit);
                 }
 
+                case "scene.open":
+                    return SceneNavigator.OpenScene(p);
+                case "scene.loadAdditive":
+                    return SceneNavigator.LoadSceneAdditive(p);
+
+                case "prefab.open":
+                    return PrefabStageBridge.OpenPrefab(p);
+                case "prefab.save":
+                    return PrefabStageBridge.SavePrefab(p);
+                case "prefab.applyInstance":
+                    return PrefabStageBridge.ApplyInstance(p);
+
+                case "input.simulate":
+                    return InputSimulator.Simulate(p);
+                case "animator.getState":
+                    return AnimatorBridge.GetState(p);
+                case "animator.setParameter":
+                    return AnimatorBridge.SetParameter(p);
+                case "animator.editTransition":
+                    return AnimatorBridge.EditTransition(p);
+
+                case "editor.executeMenuItem":
+                    return MenuBridge.ExecuteMenuItem(p);
+
+                case "asset.import":
+                    return AssetMutators.ImportAsset(p);
+                case "asset.sliceSprite":
+                    return AssetMutators.SliceSprite(p);
+
                 case "edit.setSerializedField":
                     return Mutators.SetSerializedField(p);
+                case "edit.setTransform":
+                    return Mutators.SetTransform(p);
+                case "edit.reparent":
+                    return Mutators.Reparent(p);
+                case "edit.paintTilemap":
+                    return TilemapMutators.PaintTilemap(p);
                 case "edit.addComponent":
                     return Mutators.AddComponent(p);
                 case "edit.createGameObject":

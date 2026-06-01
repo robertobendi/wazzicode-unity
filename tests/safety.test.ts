@@ -40,4 +40,27 @@ describe("safety/policy", () => {
     expect(gateTool(cfg({ safetyMode: "autopilot", allowPrefabWrites: false }), "unity_create_prefab_variant").allowed).toBe(false);
     expect(gateTool(cfg({ safetyMode: "autopilot", allowPrefabWrites: true }), "unity_create_prefab_variant").allowed).toBe(true);
   });
+
+  it("classifies the new write tools (layout/prefab/asset/editor)", () => {
+    expect(writeTargetOf("unity_set_transform")).toBe("scene");
+    expect(writeTargetOf("unity_reparent")).toBe("scene");
+    expect(writeTargetOf("unity_paint_tilemap")).toBe("scene");
+    expect(writeTargetOf("unity_save_prefab")).toBe("prefab");
+    expect(writeTargetOf("unity_apply_prefab_instance")).toBe("prefab");
+    expect(writeTargetOf("unity_import_asset")).toBe("asset");
+    expect(writeTargetOf("unity_slice_sprite")).toBe("asset");
+    expect(writeTargetOf("unity_animator_edit_transition")).toBe("asset");
+    expect(writeTargetOf("unity_execute_menu_item")).toBe("editor");
+    // Non-write navigation/runtime tools must not be gated.
+    expect(writeTargetOf("unity_open_scene")).toBeUndefined();
+    expect(writeTargetOf("unity_simulate_input")).toBeUndefined();
+    expect(writeTargetOf("unity_get_animator_state")).toBeUndefined();
+  });
+
+  it("editor menu execution needs allowMenuItems", () => {
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowMenuItems: false }), "unity_execute_menu_item").allowed).toBe(false);
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowMenuItems: true }), "unity_execute_menu_item").allowed).toBe(true);
+    // read_only blocks it regardless of allowMenuItems.
+    expect(gateTool(cfg({ safetyMode: "read_only", allowMenuItems: true }), "unity_execute_menu_item").allowed).toBe(false);
+  });
 });

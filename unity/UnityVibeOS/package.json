@@ -1,6 +1,6 @@
 {
   "name": "com.uvibe.os",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "Unity Vibe OS",
   "description": "Editor-side bridge for Unity Vibe OS. Exposes scene, selection, console, and compile state over a localhost HTTP JSON-RPC endpoint so Claude Code (via the @uvibe/mcp-server) can read and reason about real Unity project state. Read-only by default.",
   "unity": "2021.3",

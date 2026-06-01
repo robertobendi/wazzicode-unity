@@ -8,6 +8,8 @@ export type ErrorCode =
   | "UNITY_RELOADING"
   | "TEST_FRAMEWORK_MISSING"
   | "PLAY_MODE_REQUIRED"
+  | "UNSAVED_CHANGES"
+  | "MENU_ITEM_NOT_ALLOWED"
   | "PROJECT_IDENTITY_MISMATCH"
   | "FEATURE_UNAVAILABLE"
   | "OBJECT_NOT_FOUND"
@@ -67,6 +69,18 @@ const ERROR_META: Record<ErrorCode, ErrorMeta> = {
     suggestedAction:
       "Enter play mode first with `unity_enter_play_mode`. Runtime inspection and live profiler counters only produce data while the game is running.",
     defaultMessage: "This operation requires the Editor to be in play mode.",
+  },
+  UNSAVED_CHANGES: {
+    recoverable: true,
+    suggestedAction:
+      "Save the open scene(s) first (unity_save_scene), or re-call with discardUnsavedChanges:true to abandon them. The details list which scenes are dirty.",
+    defaultMessage: "There are unsaved scene changes that this operation would discard.",
+  },
+  MENU_ITEM_NOT_ALLOWED: {
+    recoverable: true,
+    suggestedAction:
+      "Add the exact menu path to `allowedMenuItems` (and set `allowMenuItems:true`) in .unity-vibe/config.json. unity_execute_menu_item only runs whitelisted commands.",
+    defaultMessage: "Menu item is not in the configured allowlist.",
   },
   PROJECT_IDENTITY_MISMATCH: {
     recoverable: true,

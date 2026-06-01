@@ -8,7 +8,7 @@ export interface ToolContext {
   configMockMode: boolean;
 }
 
-export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety";
+export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor";
 
 export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unknown> {
   name: string;

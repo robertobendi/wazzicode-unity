@@ -211,7 +211,94 @@ namespace UnityVibeOS
                 SceneInspector.PathOf(buttonGo), dirtied);
         }
 
+        public static IDictionary<string, object> SetTransform(IDictionary<string, object> p)
+        {
+            var go = RequireTarget(p);
+            var t = go.transform;
+            bool world = string.Equals(Str(p, "space"), "world", StringComparison.OrdinalIgnoreCase);
+
+            Undo.RecordObject(t, $"UnityVibeOS set transform {go.name}");
+            var changed = new List<string>();
+            if (TryVec3(p, "position", out var pos))
+            {
+                if (world) t.position = pos; else t.localPosition = pos;
+                changed.Add("position");
+            }
+            if (TryVec3(p, "rotation", out var euler))
+            {
+                if (world) t.eulerAngles = euler; else t.localEulerAngles = euler;
+                changed.Add("rotation");
+            }
+            if (TryVec3(p, "scale", out var scale))
+            {
+                t.localScale = scale; // scale is always local
+                changed.Add("scale");
+            }
+            if (changed.Count == 0) throw Invalid("Nothing to set: provide position, rotation and/or scale.");
+
+            EditorUtility.SetDirty(t);
+            string dirtied = MarkDirty(go);
+            return EditOk(
+                $"Set transform ({string.Join(", ", changed)}; {(world ? "world" : "local")}) on {SceneInspector.PathOf(go)}",
+                SceneInspector.PathOf(go), dirtied);
+        }
+
+        public static IDictionary<string, object> Reparent(IDictionary<string, object> p)
+        {
+            var go = RequireTarget(p);
+
+            Transform newParent = null;
+            int parentId = Int(p, "newParentInstanceId", 0);
+            if (parentId != 0)
+            {
+                var parentGo = EditorCompat.IdToObject(parentId) as GameObject;
+                if (parentGo == null) throw new BridgeRouter.HandlerError("OBJECT_NOT_FOUND", $"New parent instanceId {parentId} not found.");
+                newParent = parentGo.transform;
+            }
+            else
+            {
+                string parentPath = Str(p, "newParentPath");
+                if (!string.IsNullOrEmpty(parentPath))
+                {
+                    var parentGo = FindByPath(parentPath);
+                    if (parentGo == null) throw new BridgeRouter.HandlerError("OBJECT_NOT_FOUND", $"New parent '{parentPath}' not found.");
+                    newParent = parentGo.transform;
+                }
+                // else: no parent given → move to scene root.
+            }
+
+            if (newParent != null && (newParent == go.transform || newParent.IsChildOf(go.transform)))
+                throw Invalid("Cannot reparent an object under itself or one of its descendants.");
+
+            bool worldPositionStays = !p.ContainsKey("worldPositionStays") || Convert.ToBoolean(p["worldPositionStays"]);
+            // 4-arg overload (Unity 2020.2+) registers the parent change for Undo while honouring
+            // whether the world transform is preserved.
+            Undo.SetTransformParent(go.transform, newParent, worldPositionStays, "UnityVibeOS reparent");
+
+            if (p.TryGetValue("siblingIndex", out var siv) && siv != null)
+            {
+                int idx = (int)Convert.ToInt64(siv);
+                Undo.RecordObject(go.transform, "UnityVibeOS sibling index");
+                go.transform.SetSiblingIndex(idx);
+            }
+
+            string dirtied = MarkDirty(go);
+            string parentDesc = newParent != null ? SceneInspector.PathOf(newParent.gameObject) : "(scene root)";
+            return EditOk(
+                $"Reparented {go.name} under {parentDesc}",
+                SceneInspector.PathOf(go), dirtied);
+        }
+
         // ---- helpers ----
+
+        static bool TryVec3(IDictionary<string, object> p, string key, out Vector3 v)
+        {
+            v = Vector3.zero;
+            if (p == null || !p.TryGetValue(key, out var raw) || !(raw is Dictionary<string, object>)) return false;
+            // F(object, key) already reads x/y/z out of a Dictionary<string,object>.
+            v = new Vector3(F(raw, "x"), F(raw, "y"), F(raw, "z"));
+            return true;
+        }
 
         static Component FindComponent(GameObject go, string name)
         {

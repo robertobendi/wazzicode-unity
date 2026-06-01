@@ -398,6 +398,116 @@ export function createMockBridgeClient(): BridgeClient {
       applied: true,
       summary: "Cleared 7 buffered log(s) and the Unity console",
     }),
+
+    "scene.open": () => ({
+      opened: "Assets/Scenes/Level1.unity",
+      scenes: [
+        { path: "Assets/Scenes/Level1.unity", name: "Level1", isLoaded: true, isDirty: false, rootCount: 5, buildIndex: 1 },
+      ],
+      activeScene: "Assets/Scenes/Level1.unity",
+    }),
+    "scene.loadAdditive": () => ({
+      opened: "Assets/Scenes/UI.unity",
+      scenes: [
+        { path: "Assets/Scenes/Sample.unity", name: "Sample", isLoaded: true, isDirty: false, rootCount: 4, buildIndex: 0 },
+        { path: "Assets/Scenes/UI.unity", name: "UI", isLoaded: true, isDirty: false, rootCount: 2, buildIndex: 2 },
+      ],
+      activeScene: "Assets/Scenes/Sample.unity",
+    }),
+
+    "prefab.open": () => ({
+      opened: true,
+      assetPath: "Assets/Prefabs/Player.prefab",
+      rootName: "Player",
+      inPrefabMode: true,
+    }),
+    "prefab.save": () => ({
+      applied: true,
+      summary: "Saved prefab Assets/Prefabs/Player.prefab",
+      target: "Assets/Prefabs/Player.prefab",
+      undoable: false,
+    }),
+    "prefab.applyInstance": () => ({
+      applied: true,
+      summary: "Applied overrides on /Gameplay/Player to Assets/Prefabs/Player.prefab",
+      target: "Assets/Prefabs/Player.prefab",
+      undoable: false,
+    }),
+
+    "input.simulate": () => ({
+      simulated: true,
+      control: "<Keyboard>/space",
+      action: "press",
+      backend: "InputSystem",
+      isPlaying: true,
+    }),
+    "animator.getState": () => ({
+      isPlaying: true,
+      animator: "/Gameplay/Player",
+      layers: [
+        { index: 0, name: "Base Layer", currentState: "Run", normalizedTime: 0.42, speed: 1, clips: ["Run"] },
+      ],
+      parameters: [
+        { name: "Speed", type: "Float", value: 5.2 },
+        { name: "Jump", type: "Trigger", value: false },
+      ],
+    }),
+    "animator.setParameter": () => ({
+      applied: true,
+      summary: "Set Animator parameter 'Speed' = 5.2 on /Gameplay/Player",
+      target: "/Gameplay/Player",
+    }),
+    "animator.editTransition": () => ({
+      applied: true,
+      summary: "Updated transition Run -> Idle on Assets/Animation/Crow.controller",
+      target: "Assets/Animation/Crow.controller",
+      undoable: false,
+    }),
+
+    "editor.executeMenuItem": () => ({
+      applied: true,
+      executed: true,
+      summary: "Executed menu item 'Assets/Refresh'",
+      menuItem: "Assets/Refresh",
+    }),
+
+    "asset.import": () => ({
+      applied: true,
+      summary: "Imported Assets/Art/hero.png",
+      createdPath: "Assets/Art/hero.png",
+      target: "Assets/Art/hero.png",
+      undoable: false,
+    }),
+    "asset.sliceSprite": () => ({
+      applied: true,
+      summary: "Sliced Assets/Art/tiles.png into 16 sprites (4x4 grid)",
+      target: "Assets/Art/tiles.png",
+      spriteCount: 16,
+      undoable: false,
+    }),
+
+    "edit.setTransform": () => ({
+      applied: true,
+      summary: "Set transform on /Gameplay/Player (position)",
+      target: "/Gameplay/Player",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.reparent": () => ({
+      applied: true,
+      summary: "Reparented /Gameplay/Player under /Gameplay/Container",
+      target: "/Gameplay/Container/Player",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.paintTilemap": () => ({
+      applied: true,
+      summary: "Painted 9 cell(s) on /Grid/Tilemap with Grass",
+      target: "/Grid/Tilemap",
+      cellsAffected: 9,
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
   };
 
   async function call<T>(

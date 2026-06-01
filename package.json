@@ -1,7 +1,7 @@
 {
   "name": "unity-vibe-os",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Unity Vibe OS — local Unity-aware operating layer for AI-assisted Unity game development with Claude Code.",
   "engines": {

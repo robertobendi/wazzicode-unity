@@ -12,6 +12,10 @@ export const UVibeConfigSchema = z.object({
   allowSceneWrites: z.boolean().default(false),
   allowPrefabWrites: z.boolean().default(false),
   allowScriptWrites: z.boolean().default(true),
+  /** unity_execute_menu_item is a generic Editor escape hatch; off unless explicitly enabled. */
+  allowMenuItems: z.boolean().default(false),
+  /** Exact menu paths unity_execute_menu_item may run (e.g. "Assets/Refresh"). Empty = none. */
+  allowedMenuItems: z.array(z.string()).default([]),
   autoSnapshot: z.boolean().default(true),
   unityProjectPath: z.string().default("."),
   mcpPort: z.number().int().default(DEFAULT_MCP_PORT),

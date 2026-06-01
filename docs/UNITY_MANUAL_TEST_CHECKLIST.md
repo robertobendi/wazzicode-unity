@@ -96,8 +96,28 @@ This checklist enumerates every assertion that should be hand-verified inside Un
 - [ ] Ask Claude "are there any compile errors?" → it calls `unity_wait_for_compile` then `unity_get_console_logs`.
 - [ ] Ask Claude "show me the game view" → it calls `unity_capture_game_view` and the rendered frame appears inline in chat.
 
+## 13. Navigation / layout / prefab / play-test / 2D tools (newest milestone)
+
+These ship in the bridge but their Unity-side behavior is **not** runtime-verified yet — validate each here. (For write tools, set `safetyMode` to `confirm`/`autopilot` and the matching `allow*` flag in `.unity-vibe/config.json`.)
+
+- [ ] `unity_open_scene` with a clean editor → target scene becomes the only open scene; returns the open-scenes summary.
+- [ ] `unity_open_scene` while a scene is dirty, no `discardUnsavedChanges` → `error.code: "UNSAVED_CHANGES"` listing the dirty scene(s); nothing is lost.
+- [ ] `unity_open_scene` with `discardUnsavedChanges:true` → opens, abandoning the edits.
+- [ ] `unity_load_scene_additive` → target scene is loaded alongside the existing scene(s).
+- [ ] `unity_set_transform` (position/rotation/scale, local and world) → only the provided fields change; Undo (Ctrl+Z) reverts it.
+- [ ] `unity_reparent` under a new parent, then to scene root; `worldPositionStays:false` keeps local values; self/descendant parent → `INVALID_ARGUMENT`.
+- [ ] `unity_open_prefab` → enters prefab mode; `unity_set_serialized_field`/`unity_set_transform` then affect the prefab contents; `unity_save_prefab` writes the asset; `closeAfter:true` exits prefab mode.
+- [ ] `unity_apply_prefab_instance` on a scene instance with overrides → overrides land on the source prefab; non-instance → `INVALID_ARGUMENT`.
+- [ ] In play mode: `unity_simulate_input` with `<Keyboard>/space` (and a mouse button, and a gamepad axis) → the game reacts; outside play mode → `PLAY_MODE_REQUIRED`; no Input System package → `FEATURE_UNAVAILABLE`.
+- [ ] In play mode: `unity_set_animator_parameter` (Bool/Float/Int and a Trigger) drives the Animator; `unity_get_animator_state` reports live layers/params; wrong type → `INVALID_ARGUMENT`.
+- [ ] In edit mode: `unity_get_animator_state` returns the controller graph (layers/states/parameters/transitions).
+- [ ] `unity_animator_edit_transition` sets duration/exitTime/conditions on an existing transition and (with `create:true`) adds a missing one; the `.controller` asset updates on disk.
+- [ ] `unity_execute_menu_item` with a path in `allowedMenuItems` runs; a path not in the list → `MENU_ITEM_NOT_ALLOWED`; `allowMenuItems:false` → `SAFETY_MODE_BLOCKED`.
+- [ ] `unity_import_asset` reimports a path; with `sourcePath` it copies an external file into `Assets/` first and a `.meta` is generated.
+- [ ] `unity_slice_sprite` (by cell size and by column/row count) sets the importer to Sprite/Multiple and produces the expected sprite sub-assets.
+- [ ] `unity_paint_tilemap` paints a tile across explicit cells and a `rect`; `erase:true` clears them; Undo reverts; no Tilemap component → `OBJECT_NOT_FOUND`.
+
 ## What is NOT verified by this checklist
 
-- Play-mode tools (not implemented).
-- Write tools (intentionally not exposed).
+- The new navigation/layout/prefab/play-test/2D tools above until section 13 is completed in a real project — in particular `unity_simulate_input` (Input System reflection) and `unity_slice_sprite` (uses the legacy `TextureImporter.spritesheet` path) are the most likely to need per-version adjustment.
 - Tests on Windows (the package is platform-agnostic but cross-OS HttpListener behavior should be re-verified on Windows specifically).

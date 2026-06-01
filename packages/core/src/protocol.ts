@@ -35,8 +35,32 @@ export const BRIDGE_METHODS = {
   assetFindReferences: "asset.findReferences",
   assetFindDependencies: "asset.findDependencies",
 
+  // Scene navigation (non-write; lets Claude traverse the project autonomously)
+  sceneOpen: "scene.open",
+  sceneLoadAdditive: "scene.loadAdditive",
+
+  // Prefab mode (open the prefab asset for editing, save it, apply instance overrides)
+  prefabOpen: "prefab.open",
+  prefabSave: "prefab.save",
+  prefabApplyInstance: "prefab.applyInstance",
+
+  // Play-mode input simulation + animator runtime/asset control
+  inputSimulate: "input.simulate",
+  animatorGetState: "animator.getState",
+  animatorSetParameter: "animator.setParameter",
+  animatorEditTransition: "animator.editTransition",
+
+  // Generic Editor menu escape hatch (whitelisted at the MCP layer)
+  editorExecuteMenuItem: "editor.executeMenuItem",
+
+  // Asset import / 2D pipeline
+  assetImport: "asset.import",
+  assetSliceSprite: "asset.sliceSprite",
+
   // Write operations (gated by safety mode at the MCP layer)
   editSetSerializedField: "edit.setSerializedField",
+  editSetTransform: "edit.setTransform",
+  editReparent: "edit.reparent",
   editAddComponent: "edit.addComponent",
   editCreateGameObject: "edit.createGameObject",
   editSaveScene: "edit.saveScene",
@@ -46,6 +70,7 @@ export const BRIDGE_METHODS = {
   editCreateMaterial: "edit.createMaterial",
   editCreatePrefabVariant: "edit.createPrefabVariant",
   editWireUiButton: "edit.wireUiButton",
+  editPaintTilemap: "edit.paintTilemap",
 } as const;
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[keyof typeof BRIDGE_METHODS];
