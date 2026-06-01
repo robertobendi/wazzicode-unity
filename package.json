@@ -17,7 +17,7 @@
     "typecheck": "pnpm -r --filter './packages/*' --filter './apps/*' typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "uvibe": "node apps/cli/dist/index.js"
+    "uvibe": "node apps/cli/bin/uvibe"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

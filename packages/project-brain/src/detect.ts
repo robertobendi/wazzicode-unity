@@ -49,10 +49,16 @@ export async function detectUnityProject(projectPath: string): Promise<UnityProj
     if (bundle) {
       // continue; bundleIdentifier comes below
     }
-    const bid = /applicationIdentifier:\s*\n?\s+\S+:\s*([\w.\-]+)/.exec(projectSettings);
-    if (bid) result.bundleIdentifier = bid[1];
-    const sb = /scriptingBackend:\s*\n?\s+\S+:\s*(\d+)/.exec(projectSettings);
-    if (sb) result.scriptingBackend = sb[1] === "1" ? "IL2CPP" : "Mono";
+    // applicationIdentifier and scriptingBackend are per-platform maps. The
+    // serialized order is arbitrary (often a stale Android/iPhone entry first),
+    // so grabbing the first sub-entry yields the wrong value. Prefer the
+    // Standalone key — that's what the editor surfaces for a desktop project —
+    // and fall back to any entry. (These remain heuristic; the live bridge,
+    // which applies defaults/migrations, is the ground truth.)
+    const appId = preferStandalone(extractPlatformMap(projectSettings, "applicationIdentifier"));
+    if (appId) result.bundleIdentifier = appId;
+    const sbVal = preferStandalone(extractPlatformMap(projectSettings, "scriptingBackend"));
+    if (sbVal !== undefined) result.scriptingBackend = sbVal === "1" ? "IL2CPP" : "Mono";
     const at = /activeBuildTarget:\s*(\d+)/.exec(projectSettings);
     if (at) result.defaultBuildTarget = mapBuildTarget(Number(at[1]));
   }
@@ -71,6 +77,37 @@ export async function detectUnityProject(projectPath: string): Promise<UnityProj
   }
 
   return result;
+}
+
+// Parse a YAML per-platform map nested under `key:` into { Platform: value }.
+// Handles both the empty inline form (`key: {}`) and the indented block form.
+function extractPlatformMap(text: string, key: string): Record<string, string> | null {
+  const re = new RegExp(`^([ \\t]*)${key}:[ \\t]*(\\{\\})?[ \\t]*$`, "m");
+  const m = re.exec(text);
+  if (!m) return null;
+  if (m[2] === "{}") return {}; // explicit empty map → no platform overrides
+  const parentIndent = m[1].length;
+  const lines = text.slice(m.index + m[0].length).split(/\r?\n/);
+  const map: Record<string, string> = {};
+  let childIndent: number | null = null;
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    const indent = line.length - line.trimStart().length;
+    if (indent <= parentIndent) break; // dedented to sibling/parent → block ended
+    if (childIndent === null) childIndent = indent;
+    if (indent !== childIndent) continue; // deeper nesting belongs to a child value
+    const kv = /^[ \t]*([A-Za-z0-9_]+):[ \t]*(.*)$/.exec(line);
+    if (!kv) break;
+    map[kv[1]] = kv[2].trim();
+  }
+  return map;
+}
+
+function preferStandalone(map: Record<string, string> | null): string | undefined {
+  if (!map) return undefined;
+  if (map.Standalone) return map.Standalone;
+  for (const v of Object.values(map)) if (v) return v;
+  return undefined;
 }
 
 function inferRenderPipeline(pkgs: Array<{ name: string; version: string }>): string {

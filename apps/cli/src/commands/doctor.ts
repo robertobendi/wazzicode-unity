@@ -26,6 +26,7 @@ export interface DoctorReport {
   };
   unityPackage: {
     detectedAt?: string;
+    manifestRef?: string;
     detected: boolean;
   };
   bridge: {
@@ -48,14 +49,17 @@ export interface DoctorReport {
 }
 
 export async function runDoctor(g: GlobalOptions): Promise<CommandResult> {
-  const report = await collectDoctorReport(g.project);
+  const report = await collectDoctorReport(g.project, { mock: g.mock });
   if (g.json) {
     return { exitCode: 0, stdout: JSON.stringify(report, null, 2) + "\n" };
   }
   return { exitCode: 0, stdout: formatDoctorReport(report) };
 }
 
-export async function collectDoctorReport(projectPath: string): Promise<DoctorReport> {
+export async function collectDoctorReport(
+  projectPath: string,
+  opts: { mock?: boolean } = {}
+): Promise<DoctorReport> {
   const cfg = await loadConfig(projectPath);
   const cfgPath = path.join(projectPath, ".unity-vibe", "config.json");
   const cfgExists = await fileExists(cfgPath);
@@ -83,7 +87,31 @@ export async function collectDoctorReport(projectPath: string): Promise<DoctorRe
     }
   }
 
-  const bridge = await probeBridge(DEFAULT_BRIDGE_HOST, DEFAULT_BRIDGE_PORT);
+  // The default install mode adds `com.uvibe.os` to Packages/manifest.json as a
+  // `file:` reference (Unity resolves/imports it lazily). That's a successful
+  // install even though there's no package.json under the project tree, so the
+  // on-disk probe above misses it. Read the manifest too.
+  let unityPackageManifestRef: string | undefined;
+  const manifestPath = path.join(projectPath, "Packages", "manifest.json");
+  if (await fileExists(manifestPath)) {
+    try {
+      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as {
+        dependencies?: Record<string, string>;
+      };
+      const dep = manifest.dependencies?.["com.uvibe.os"];
+      if (typeof dep === "string") unityPackageManifestRef = dep;
+    } catch {
+      // Malformed manifest — leave undefined; doctor still reports other facts.
+    }
+  }
+  const unityPackageDetected = Boolean(unityPackageAt || unityPackageManifestRef);
+
+  // In mock mode the diagnostic must be deterministic and must not report a
+  // real Unity Editor that happens to be running for some *other* project as
+  // this project's bridge. Skip the network probe entirely.
+  const bridge = opts.mock
+    ? { reachable: false, error: "mock mode (real bridge probe skipped)" }
+    : await probeBridge(DEFAULT_BRIDGE_HOST, DEFAULT_BRIDGE_PORT);
   const git = await probeGit(projectPath);
   const ageMs = await brainAgeMs(projectPath);
 
@@ -91,9 +119,9 @@ export async function collectDoctorReport(projectPath: string): Promise<DoctorRe
   if (!cfgExists) suggestions.push("Run `uvibe init` to create `.unity-vibe/config.json`.");
   if (!unityProjectDetected)
     suggestions.push("Project does not look like a Unity project (no ProjectSettings/ProjectVersion.txt). Pass --project=<unity-dir> if running from a different directory.");
-  if (!unityPackageAt)
+  if (!unityPackageDetected)
     suggestions.push(
-      "Install the UnityVibeOS Editor package in your Unity project (Packages/com.uvibe.os) so the bridge can run."
+      "Install the UnityVibeOS Editor package in your Unity project (`uvibe install-unity-package`) so the bridge can run."
     );
   if (!bridge.reachable)
     suggestions.push(
@@ -107,7 +135,7 @@ export async function collectDoctorReport(projectPath: string): Promise<DoctorRe
     projectPath,
     config: { path: cfgPath, exists: cfgExists, safetyMode: cfg.safetyMode, mockMode: cfg.mockMode },
     unityProject: { detected: unityProjectDetected, unityVersion },
-    unityPackage: { detectedAt: unityPackageAt, detected: Boolean(unityPackageAt) },
+    unityPackage: { detectedAt: unityPackageAt, manifestRef: unityPackageManifestRef, detected: unityPackageDetected },
     bridge: { host: DEFAULT_BRIDGE_HOST, port: DEFAULT_BRIDGE_PORT, reachable: bridge.reachable, error: bridge.error },
     git,
     brain: { exists: ageMs !== null, ageMs: ageMs ?? undefined },
@@ -125,7 +153,12 @@ export function formatDoctorReport(r: DoctorReport): string {
   if (r.config.exists) lines.push(`                safetyMode=${r.config.safetyMode}  mockMode=${r.config.mockMode}`);
   lines.push("");
   lines.push(`Unity project:  ${tick(r.unityProject.detected)} ${r.unityProject.detected ? `version ${r.unityProject.unityVersion ?? "(unknown)"}` : "(not detected)"}`);
-  lines.push(`Unity package:  ${tick(r.unityPackage.detected)} ${r.unityPackage.detectedAt ?? "(not detected)"}`);
+  const pkgWhere = r.unityPackage.detectedAt
+    ? r.unityPackage.detectedAt
+    : r.unityPackage.manifestRef
+      ? `Packages/manifest.json → ${r.unityPackage.manifestRef} (pending Unity import)`
+      : "(not detected)";
+  lines.push(`Unity package:  ${tick(r.unityPackage.detected)} ${pkgWhere}`);
   lines.push(`Unity bridge:   ${tick(r.bridge.reachable)} ${r.bridge.reachable ? `${r.bridge.host}:${r.bridge.port}` : `unreachable on ${r.bridge.host}:${r.bridge.port}${r.bridge.error ? ` (${r.bridge.error})` : ""}`}`);
   lines.push(`Git:            ${tick(r.git.isRepo)} ${r.git.isRepo ? `${r.git.branch ?? "(detached)"} — ${r.git.clean ? "clean" : "dirty"}` : r.git.available ? "(not a repo)" : "(git unavailable)"}`);
   lines.push(`Brain:          ${tick(r.brain.exists)} ${r.brain.exists ? `${formatAge(r.brain.ageMs!)} old` : "(missing — run `uvibe brain`)"}`);

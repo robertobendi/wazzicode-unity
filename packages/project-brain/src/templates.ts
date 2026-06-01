@@ -15,7 +15,7 @@ export function renderBrainMarkdown(brain: Brain): string {
   p("");
   p(`- **Project name**: ${brain.identity.productName ?? "(unknown)"}`);
   p(`- **Company**: ${brain.identity.companyName ?? "(unknown)"}`);
-  p(`- **Bundle id**: ${brain.identity.bundleIdentifier ?? "(unknown)"}`);
+  p(`- **Bundle id**: ${brain.identity.bundleIdentifier ?? "(unknown)"} _(heuristic — per-platform; live bridge is authoritative)_`);
   p(`- **Project path**: \`${brain.identity.projectPath}\``);
   p(`- **Is Unity project**: ${brain.identity.isUnityProject}`);
   p("");
@@ -24,8 +24,12 @@ export function renderBrainMarkdown(brain: Brain): string {
   p(`- **Unity version**: ${brain.engine.unityVersion ?? "(unknown)"}`);
   p(`- **Render pipeline**: ${brain.engine.renderPipeline ?? "(unknown)"}`);
   p(`- **Input system**: ${brain.engine.inputSystem ?? "(unknown)"}`);
-  p(`- **Scripting backend**: ${brain.engine.scriptingBackend ?? "(unknown)"}`);
+  p(`- **Scripting backend**: ${brain.engine.scriptingBackend ?? "(unknown)"} _(heuristic — verify via live bridge)_`);
   p(`- **Active build target**: ${brain.engine.defaultBuildTarget ?? "(unknown)"}`);
+  p("");
+  p("> Identity/engine fields are scanned statically from `ProjectSettings.asset`.");
+  p("> When Unity is running, the live bridge (`unity_*` summary) reflects the editor's");
+  p("> computed values (active build target, defaults, migrations) and overrides these.");
   p("");
   p(`## Packages (${brain.engine.packages?.length ?? 0})`);
   p("");
