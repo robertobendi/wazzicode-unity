@@ -1,0 +1,43 @@
+import { describe, it, expect } from "vitest";
+import { gateTool, writeTargetOf, UVibeConfigSchema } from "@uvibe/safety";
+
+const cfg = (over: Record<string, unknown> = {}) => UVibeConfigSchema.parse(over);
+
+describe("safety/policy", () => {
+  it("allows non-write tools regardless of mode", () => {
+    expect(gateTool(cfg({ safetyMode: "read_only" }), "unity_get_scene_hierarchy").allowed).toBe(true);
+  });
+
+  it("read_only blocks every write tool", () => {
+    for (const tool of ["unity_set_serialized_field", "unity_add_component", "unity_save_scene"]) {
+      const d = gateTool(cfg({ safetyMode: "read_only" }), tool);
+      expect(d.allowed, tool).toBe(false);
+      expect(d.errorCode).toBe("SAFETY_MODE_BLOCKED");
+    }
+  });
+
+  it("suggest mode proposes but does not apply", () => {
+    expect(gateTool(cfg({ safetyMode: "suggest" }), "unity_add_component").allowed).toBe(false);
+  });
+
+  it("confirm/autopilot honor per-target flags", () => {
+    // Scene writes off → blocked even in autopilot.
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowSceneWrites: false }), "unity_set_serialized_field").allowed).toBe(false);
+    // Scene writes on → allowed.
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowSceneWrites: true }), "unity_set_serialized_field").allowed).toBe(true);
+    expect(gateTool(cfg({ safetyMode: "confirm", allowSceneWrites: true }), "unity_save_scene").allowed).toBe(true);
+  });
+
+  it("classifies write targets explicitly (regression: no substring matching)", () => {
+    // The old substring gate matched 'scene' in unity_save_scene but missed set_serialized_field.
+    expect(writeTargetOf("unity_save_scene")).toBe("scene");
+    expect(writeTargetOf("unity_set_serialized_field")).toBe("scene");
+    expect(writeTargetOf("unity_create_prefab_variant")).toBe("prefab");
+    expect(writeTargetOf("unity_get_scene_hierarchy")).toBeUndefined();
+  });
+
+  it("prefab writes need allowPrefabWrites", () => {
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowPrefabWrites: false }), "unity_create_prefab_variant").allowed).toBe(false);
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowPrefabWrites: true }), "unity_create_prefab_variant").allowed).toBe(true);
+  });
+});

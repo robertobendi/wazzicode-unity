@@ -12,6 +12,40 @@ export const BRIDGE_METHODS = {
   screenshotGameView: "screenshot.gameView",
   screenshotSceneView: "screenshot.sceneView",
   screenshotSelected: "screenshot.selected",
+
+  // Performance probes (Unity.Profiling.ProfilerRecorder)
+  perfSample: "perf.sample",
+
+  // Test runner (optional; needs com.unity.test-framework)
+  testRun: "test.run",
+  testStatus: "test.status",
+  testCancel: "test.cancel",
+
+  // Play-mode control + runtime inspection
+  playModeEnter: "playmode.enter",
+  playModeExit: "playmode.exit",
+  playModeStep: "playmode.step",
+  playModeStatus: "playmode.status",
+  runtimeFindObjects: "runtime.findObjects",
+  runtimeInspect: "runtime.inspect",
+
+  // Asset / reference graph (read-only)
+  assetFindMissingScripts: "asset.findMissingScripts",
+  assetFindMissingReferences: "asset.findMissingReferences",
+  assetFindReferences: "asset.findReferences",
+  assetFindDependencies: "asset.findDependencies",
+
+  // Write operations (gated by safety mode at the MCP layer)
+  editSetSerializedField: "edit.setSerializedField",
+  editAddComponent: "edit.addComponent",
+  editCreateGameObject: "edit.createGameObject",
+  editSaveScene: "edit.saveScene",
+  editAssignReference: "edit.assignReference",
+  editInstantiatePrefab: "edit.instantiatePrefab",
+  editCreateScriptableObject: "edit.createScriptableObject",
+  editCreateMaterial: "edit.createMaterial",
+  editCreatePrefabVariant: "edit.createPrefabVariant",
+  editWireUiButton: "edit.wireUiButton",
 } as const;
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[keyof typeof BRIDGE_METHODS];

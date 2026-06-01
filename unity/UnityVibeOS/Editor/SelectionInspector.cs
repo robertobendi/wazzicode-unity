@@ -16,7 +16,19 @@ namespace UnityVibeOS
                     { "hasSelection", false }
                 };
             }
+            return new Dictionary<string, object>
+            {
+                { "hasSelection", true },
+                { "selected", Describe(go, includeFields) }
+            };
+        }
 
+        /// <summary>
+        /// Build the full inspector view of a GameObject. Shared by selection inspection and
+        /// runtime inspection (play-mode live objects).
+        /// </summary>
+        public static IDictionary<string, object> Describe(GameObject go, bool includeFields)
+        {
             var components = new List<object>();
             var warnings = new List<object>();
             var allComps = go.GetComponents<Component>();
@@ -113,11 +125,7 @@ namespace UnityVibeOS
             };
             if (warnings.Count > 0) selected["warnings"] = warnings;
 
-            return new Dictionary<string, object>
-            {
-                { "hasSelection", true },
-                { "selected", selected }
-            };
+            return selected;
         }
     }
 }

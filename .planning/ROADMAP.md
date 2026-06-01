@@ -17,11 +17,15 @@ Make Unity vibe-coding with Claude Code dramatically easier by exposing structur
 | 7 | Docs | done | architecture, MCP tools, Unity package, safety, troubleshooting, manual checklist |
 | 8 | Screenshots + polish | done | `unity_capture_game_view`, `unity_capture_scene_view`, `unity_capture_selected`; multimodal image content; `uvibe install-unity-package` |
 | 9 | One-command install + Claude onboarding | done | `bootstrap.mjs`, `uvibe setup`, `mcp-config --write`, marker-delimited CLAUDE.md, INSTALL.md |
-| 10 | Diagnostics tools | future | missing refs/scripts, prefab inspect, scriptable objects |
-| 10 | Runtime tools | future | play mode, runtime inspection |
-| 11 | Safety + write tools | future | snapshots, action log, GameObject mutators |
-| 12 | Automation loop (`uvibe loop`) | future | task-driven autonomous loop |
-| 13 | Dashboard | future | minimal web UI |
+| 10a | Reliability hardening | done | bridge discovery file, port auto-select, project-identity guard, UNITY_RELOADING + retry, per-method timeouts |
+| 10b | Performance probes | done | `unity_get_performance_stats` via ProfilerRecorder (FPS/draw calls/batches/GC/memory) |
+| 10c | Test runner | done | `unity_run_tests` (EditMode/PlayMode) via optional Test Framework assembly; survives domain reload |
+| 10d | Runtime tools | done | play-mode enter/exit/step/status, runtime find/inspect |
+| 10e | Asset/reference graph | done | missing scripts, missing refs, find references/dependencies |
+| 11 | Safety + write tools | done | gate wired into MCP server, action log, auto-snapshot. Full first-wave mutators (Undo-wrapped): set field, assign reference, add component, create GO, instantiate prefab, wire UI button, create ScriptableObject/material, create prefab variant, save scene, clear console. Remaining (post-wave): snapshot/restore/revert as exposed tools |
+| 12 | Diagnostic + workflow composites | future | `unity_diagnose_*`, `*_workflow` recipes built on the shipped primitives |
+| 13 | Automation loop (`uvibe loop`) | future | task-driven autonomous loop |
+| 14 | Dashboard | future | minimal web UI |
 
 ## Future tools (not yet implemented)
 See `docs/MCP_TOOLS.md` "Planned" section.

@@ -38,31 +38,96 @@ namespace UnityVibeOS
         {
             // Defer to next editor tick so static-init order across the package is settled.
             EditorApplication.delayCall += () => { try { Start(); } catch (Exception e) { Debug.LogError($"[UnityVibeOS] bridge auto-start failed: {e}"); } };
+            // On domain reload we only tear down the socket — the discovery file stays so the
+            // client knows a bridge exists here and treats the gap as UNITY_RELOADING, not a
+            // missing Editor. On quit we also remove the discovery file.
             AssemblyReloadEvents.beforeAssemblyReload -= Stop;
             AssemblyReloadEvents.beforeAssemblyReload += Stop;
-            EditorApplication.quitting -= Stop;
-            EditorApplication.quitting += Stop;
+            EditorApplication.quitting -= OnQuit;
+            EditorApplication.quitting += OnQuit;
         }
 
         public static void Start()
         {
             if (IsRunning) return;
+            // Resolve the port: explicit override (env) first, then probe upward from the
+            // default so a second Editor instance falls back cleanly instead of colliding.
+            int requested = ResolvePreferredPort();
+            for (int candidate = requested; candidate < requested + 16; candidate++)
+            {
+                try
+                {
+                    var listener = new HttpListener();
+                    var prefix = $"http://{DefaultHost}:{candidate}/";
+                    listener.Prefixes.Add(prefix);
+                    listener.Start();
+                    Listener = listener;
+                    Port = candidate;
+                    Cts = new CancellationTokenSource();
+                    StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    ServeTask = Task.Run(() => AcceptLoop(Cts.Token));
+                    WriteDiscovery();
+                    Debug.Log($"[UnityVibeOS] bridge listening on {prefix} (project {ProjectInfo.ProjectPath})");
+                    return;
+                }
+                catch (HttpListenerException)
+                {
+                    // Port busy (another Editor / leftover socket) — try the next one.
+                    continue;
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[UnityVibeOS] failed to start bridge on {DefaultHost}:{candidate}: {e.Message}");
+                    Listener = null;
+                    return;
+                }
+            }
+            Debug.LogError($"[UnityVibeOS] could not bind any port in [{requested}, {requested + 16}); bridge not started.");
+        }
+
+        static int ResolvePreferredPort()
+        {
+            var env = Environment.GetEnvironmentVariable("UVIBE_BRIDGE_PORT");
+            if (!string.IsNullOrEmpty(env) && int.TryParse(env, out var p) && p > 0 && p < 65536) return p;
+            return DefaultPort;
+        }
+
+        /// <summary>
+        /// Discovery file lets the MCP server find the actual bound port and verify it is
+        /// talking to the right project, even when the port was auto-selected.
+        /// </summary>
+        static void WriteDiscovery()
+        {
             try
             {
-                Listener = new HttpListener();
-                var prefix = $"http://{DefaultHost}:{DefaultPort}/";
-                Listener.Prefixes.Add(prefix);
-                Listener.Start();
-                Cts = new CancellationTokenSource();
-                StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                ServeTask = Task.Run(() => AcceptLoop(Cts.Token));
-                Debug.Log($"[UnityVibeOS] bridge listening on {prefix}");
+                var dir = Path.Combine(ProjectInfo.ProjectPath, "Library", "UnityVibeOS");
+                Directory.CreateDirectory(dir);
+                var payload = new Dictionary<string, object>
+                {
+                    { "port", Port },
+                    { "host", DefaultHost },
+                    { "projectPath", ProjectInfo.ProjectPath },
+                    { "unityVersion", ProjectInfo.UnityVersion },
+                    { "pid", System.Diagnostics.Process.GetCurrentProcess().Id },
+                    { "protocolVersion", ProtocolVersion },
+                    { "startedAt", StartedAt }
+                };
+                File.WriteAllText(Path.Combine(dir, "bridge.json"), MiniJson.Serialize(payload));
             }
             catch (Exception e)
             {
-                Debug.LogError($"[UnityVibeOS] failed to start bridge on {DefaultHost}:{DefaultPort}: {e.Message}");
-                Listener = null;
+                Debug.LogWarning($"[UnityVibeOS] failed to write discovery file: {e.Message}");
             }
+        }
+
+        static void DeleteDiscovery()
+        {
+            try
+            {
+                var file = Path.Combine(ProjectInfo.ProjectPath, "Library", "UnityVibeOS", "bridge.json");
+                if (File.Exists(file)) File.Delete(file);
+            }
+            catch { /* ignore */ }
         }
 
         public static void Stop()
@@ -82,6 +147,36 @@ namespace UnityVibeOS
                 Cts = null;
                 ServeTask = null;
                 StartedAt = 0;
+            }
+        }
+
+        static void OnQuit()
+        {
+            Stop();
+            DeleteDiscovery();
+        }
+
+        /// <summary>
+        /// Per-method main-thread budget. Most reads are sub-second, but test runs,
+        /// play-mode transitions, and asset graph scans can legitimately take longer.
+        /// </summary>
+        static TimeSpan TimeoutFor(string method)
+        {
+            switch (method)
+            {
+                case "playmode.enter":
+                case "playmode.exit":
+                    return TimeSpan.FromSeconds(60);
+                case "asset.findReferences":
+                case "asset.findDependencies":
+                case "asset.findMissingScripts":
+                case "asset.findMissingReferences":
+                    return TimeSpan.FromSeconds(120);
+                case "test.run":
+                case "test.status":
+                    return TimeSpan.FromSeconds(30);
+                default:
+                    return TimeSpan.FromSeconds(15);
             }
         }
 
@@ -113,14 +208,14 @@ namespace UnityVibeOS
                 var path = ctx.Request.Url?.AbsolutePath ?? "/";
                 if (ctx.Request.HttpMethod == "GET" && path == "/health")
                 {
-                    var body = MiniJson.Serialize(new Dictionary<string, object>
+                    var healthBody = MiniJson.Serialize(new Dictionary<string, object>
                     {
                         { "status", "ok" },
                         { "unityVersion", ProjectInfo.UnityVersion },
                         { "projectPath", ProjectInfo.ProjectPath },
                         { "uptimeMs", UptimeMs }
                     });
-                    WriteResponse(ctx, 200, body);
+                    WriteResponse(ctx, 200, healthBody);
                     return;
                 }
                 if (ctx.Request.HttpMethod == "OPTIONS")
@@ -186,9 +281,10 @@ namespace UnityVibeOS
                     finally { done.Set(); }
                 });
 
-                if (!done.Wait(TimeSpan.FromSeconds(15)))
+                var budget = TimeoutFor(method);
+                if (!done.Wait(budget))
                 {
-                    WriteResponse(ctx, 504, MakeErrorEnvelope(id, "BRIDGE_TIMEOUT", "Main-thread handler did not complete within 15s."));
+                    WriteResponse(ctx, 504, MakeErrorEnvelope(id, "BRIDGE_TIMEOUT", $"Main-thread handler for '{method}' did not complete within {budget.TotalSeconds:0}s."));
                     return;
                 }
 

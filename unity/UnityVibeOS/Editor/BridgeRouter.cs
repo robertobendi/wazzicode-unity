@@ -21,8 +21,26 @@ namespace UnityVibeOS
             }
         }
 
+        /// <summary>
+        /// Dynamic handler table for optional modules (e.g. the Test Framework integration)
+        /// that live in a separate assembly which may not be compiled in every project.
+        /// They self-register on load via <see cref="Register"/>; Dispatch checks this first.
+        /// </summary>
+        static readonly Dictionary<string, Func<IDictionary<string, object>, object>> Dynamic =
+            new Dictionary<string, Func<IDictionary<string, object>, object>>();
+
+        public static void Register(string method, Func<IDictionary<string, object>, object> handler)
+        {
+            if (string.IsNullOrEmpty(method) || handler == null) return;
+            Dynamic[method] = handler;
+        }
+
         public static object Dispatch(string method, IDictionary<string, object> p)
         {
+            if (Dynamic.TryGetValue(method, out var dyn))
+            {
+                return dyn(p ?? new Dictionary<string, object>());
+            }
             switch (method)
             {
                 case "system.health":
@@ -88,6 +106,82 @@ namespace UnityVibeOS
                     float padding = GetFloat(p, "paddingFactor", 3.5f);
                     return ScreenshotCapture.CaptureSelected(width, height, padding);
                 }
+
+                case "perf.sample":
+                    return PerformanceProbe.Sample();
+
+                case "playmode.enter":
+                    return PlayModeControl.Enter();
+                case "playmode.exit":
+                    return PlayModeControl.Exit();
+                case "playmode.step":
+                    return PlayModeControl.Step();
+                case "playmode.status":
+                    return PlayModeControl.Status();
+                case "runtime.findObjects":
+                {
+                    string query = GetString(p, "query", null);
+                    string component = GetString(p, "component", null);
+                    int limit = GetInt(p, "limit", 100);
+                    bool includeInactive = GetBool(p, "includeInactive", false);
+                    return RuntimeInspector.FindObjects(query, component, limit, includeInactive);
+                }
+                case "runtime.inspect":
+                {
+                    int instanceId = GetInt(p, "instanceId", 0);
+                    string path = GetString(p, "path", null);
+                    bool includeFields = GetBool(p, "includeFields", true);
+                    return RuntimeInspector.Inspect(instanceId, path, includeFields);
+                }
+
+                case "asset.findMissingScripts":
+                {
+                    int limit = GetInt(p, "limit", 200);
+                    return AssetGraph.FindMissingScripts(limit);
+                }
+                case "asset.findMissingReferences":
+                {
+                    int limit = GetInt(p, "limit", 200);
+                    return AssetGraph.FindMissingReferences(limit);
+                }
+                case "asset.findReferences":
+                {
+                    string path = GetString(p, "path", null);
+                    int limit = GetInt(p, "limit", 500);
+                    return AssetGraph.FindReferences(path, limit);
+                }
+                case "asset.findDependencies":
+                {
+                    string path = GetString(p, "path", null);
+                    bool recursive = GetBool(p, "recursive", true);
+                    int limit = GetInt(p, "limit", 500);
+                    return AssetGraph.FindDependencies(path, recursive, limit);
+                }
+
+                case "edit.setSerializedField":
+                    return Mutators.SetSerializedField(p);
+                case "edit.addComponent":
+                    return Mutators.AddComponent(p);
+                case "edit.createGameObject":
+                    return Mutators.CreateGameObject(p);
+                case "edit.saveScene":
+                    return Mutators.SaveScene(p);
+                case "edit.assignReference":
+                    return Mutators.AssignReference(p);
+                case "edit.wireUiButton":
+                    return Mutators.WireUiButton(p);
+                case "edit.instantiatePrefab":
+                    return AssetMutators.InstantiatePrefab(p);
+                case "edit.createScriptableObject":
+                    return AssetMutators.CreateScriptableObject(p);
+                case "edit.createMaterial":
+                    return AssetMutators.CreateMaterial(p);
+                case "edit.createPrefabVariant":
+                    return AssetMutators.CreatePrefabVariant(p);
+
+                case "console.clear":
+                    return ConsoleCapture.Clear();
+
                 default:
                     throw new HandlerError("INVALID_ARGUMENT", $"Unknown method: {method}");
             }

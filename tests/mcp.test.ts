@@ -4,25 +4,68 @@ import type { BridgeMethod, BridgeResponse } from "@uvibe/core";
 import type { BridgeClient } from "@uvibe/mcp-server";
 
 describe("mcp-server/registry", () => {
-  it("registers all 11 MVP tools with unique names", () => {
+  it("registers all tools with unique names and real descriptions", () => {
     const names = allTools.map((t) => t.name).sort();
     expect(names).toEqual([
+      "unity_add_component",
+      "unity_assign_reference",
       "unity_capture_game_view",
       "unity_capture_scene_view",
       "unity_capture_selected",
       "unity_check_git_status",
+      "unity_clear_console",
+      "unity_create_gameobject",
+      "unity_create_material",
+      "unity_create_prefab_variant",
+      "unity_create_scriptable_object",
+      "unity_enter_play_mode",
+      "unity_exit_play_mode",
+      "unity_find_dependencies",
+      "unity_find_missing_references",
+      "unity_find_missing_scripts",
+      "unity_find_references",
+      "unity_find_runtime_objects",
       "unity_generate_project_brain",
       "unity_get_console_logs",
       "unity_get_open_scenes",
+      "unity_get_performance_stats",
+      "unity_get_play_mode_status",
       "unity_get_scene_hierarchy",
+      "unity_inspect_runtime_object",
       "unity_inspect_selected",
+      "unity_instantiate_prefab",
       "unity_project_summary",
+      "unity_run_tests",
+      "unity_save_scene",
+      "unity_set_serialized_field",
+      "unity_step_frame",
       "unity_wait_for_compile",
+      "unity_wire_ui_button",
     ]);
     for (const t of allTools) {
       expect(t.description.length).toBeGreaterThan(20);
     }
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("marks exactly the mutating tools as write tools with a target", () => {
+    const writes = allTools.filter((t) => t.write).map((t) => t.name).sort();
+    expect(writes).toEqual([
+      "unity_add_component",
+      "unity_assign_reference",
+      "unity_clear_console",
+      "unity_create_gameobject",
+      "unity_create_material",
+      "unity_create_prefab_variant",
+      "unity_create_scriptable_object",
+      "unity_instantiate_prefab",
+      "unity_save_scene",
+      "unity_set_serialized_field",
+      "unity_wire_ui_button",
+    ]);
+    for (const t of allTools) {
+      if (t.write) expect(t.writeTarget).toBeDefined();
+    }
   });
 });
 
@@ -40,6 +83,31 @@ describe("mcp-server/mockBridge", () => {
       "screenshot.gameView",
       "screenshot.sceneView",
       "screenshot.selected",
+      "perf.sample",
+      "test.run",
+      "test.status",
+      "test.cancel",
+      "playmode.enter",
+      "playmode.exit",
+      "playmode.step",
+      "playmode.status",
+      "runtime.findObjects",
+      "runtime.inspect",
+      "asset.findMissingScripts",
+      "asset.findMissingReferences",
+      "asset.findReferences",
+      "asset.findDependencies",
+      "edit.setSerializedField",
+      "edit.addComponent",
+      "edit.createGameObject",
+      "edit.saveScene",
+      "edit.assignReference",
+      "edit.wireUiButton",
+      "edit.instantiatePrefab",
+      "edit.createScriptableObject",
+      "edit.createMaterial",
+      "edit.createPrefabVariant",
+      "console.clear",
     ];
     for (const m of methods) {
       const r = await bridge.call(m);

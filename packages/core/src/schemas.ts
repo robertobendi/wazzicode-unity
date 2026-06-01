@@ -195,3 +195,164 @@ export const ScreenshotResultSchema = z.object({
   cameraName: z.string().optional(),
 });
 export type ScreenshotResult = z.infer<typeof ScreenshotResultSchema>;
+
+// ----- Performance probes -----
+
+export const PerfCounterSchema = z.object({
+  name: z.string(),
+  /** Profiler category, e.g. "Render", "Memory", "Internal". */
+  category: z.string().optional(),
+  /** Rolling average across the sampled frames. */
+  average: z.number(),
+  last: z.number().optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  /** "ns", "bytes", "count", etc. */
+  unit: z.string().optional(),
+  /** Number of frame samples that backed this average. */
+  sampleCount: z.number().int().optional(),
+});
+export type PerfCounter = z.infer<typeof PerfCounterSchema>;
+
+export const PerfSampleResultSchema = z.object({
+  /** Recorders only advance while frames render; richest data is in play mode. */
+  isPlaying: z.boolean(),
+  /** True the very first time recorders are read (buffers not yet primed). */
+  warmingUp: z.boolean().optional(),
+  /** Derived FPS estimate from the main-thread counter, when available. */
+  estimatedFps: z.number().optional(),
+  /** Main-thread frame time in milliseconds, when available. */
+  mainThreadMs: z.number().optional(),
+  counters: z.array(PerfCounterSchema),
+  fallback: z.string().optional(),
+});
+export type PerfSampleResult = z.infer<typeof PerfSampleResultSchema>;
+
+// ----- Test runner -----
+
+export const TestModeSchema = z.enum(["EditMode", "PlayMode"]);
+export type TestMode = z.infer<typeof TestModeSchema>;
+
+export const TestCaseResultSchema = z.object({
+  name: z.string(),
+  fullName: z.string().optional(),
+  status: z.enum(["Passed", "Failed", "Skipped", "Inconclusive"]),
+  durationSec: z.number().optional(),
+  message: z.string().optional(),
+  stackTrace: z.string().optional(),
+});
+export type TestCaseResult = z.infer<typeof TestCaseResultSchema>;
+
+export const TestRunStatusSchema = z.object({
+  runId: z.string(),
+  /** Lifecycle of the async run; survives domain reloads triggered by PlayMode tests. */
+  state: z.enum(["running", "completed", "cancelled", "not_found"]),
+  mode: TestModeSchema.optional(),
+  total: z.number().int().optional(),
+  passed: z.number().int().optional(),
+  failed: z.number().int().optional(),
+  skipped: z.number().int().optional(),
+  durationSec: z.number().optional(),
+  results: z.array(TestCaseResultSchema).optional(),
+  startedAt: z.number().optional(),
+  finishedAt: z.number().optional(),
+});
+export type TestRunStatus = z.infer<typeof TestRunStatusSchema>;
+
+// ----- Play mode + runtime inspection -----
+
+export const PlayModeStatusSchema = z.object({
+  isPlaying: z.boolean(),
+  isPaused: z.boolean(),
+  /** True during the play-mode enter transition (domain reload in flight). */
+  isTransitioning: z.boolean().optional(),
+  /** Editor frame count, useful to confirm step/frame advances took effect. */
+  frameCount: z.number().int().optional(),
+  timeSinceLevelLoad: z.number().optional(),
+});
+export type PlayModeStatus = z.infer<typeof PlayModeStatusSchema>;
+
+export const RuntimeObjectRefSchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  instanceId: z.number().int(),
+  activeInHierarchy: z.boolean().optional(),
+  components: z.array(z.string()).optional(),
+});
+export type RuntimeObjectRef = z.infer<typeof RuntimeObjectRefSchema>;
+
+export const RuntimeFindResultSchema = z.object({
+  isPlaying: z.boolean(),
+  query: z.string().optional(),
+  matchCount: z.number().int(),
+  objects: z.array(RuntimeObjectRefSchema),
+  truncated: z.boolean().optional(),
+});
+export type RuntimeFindResult = z.infer<typeof RuntimeFindResultSchema>;
+
+// ----- Asset / reference graph -----
+
+export const AssetRefSchema = z.object({
+  path: z.string(),
+  guid: z.string().optional(),
+  type: z.string().optional(),
+});
+export type AssetRef = z.infer<typeof AssetRefSchema>;
+
+export const MissingScriptHitSchema = z.object({
+  assetPath: z.string(),
+  objectPath: z.string(),
+  missingCount: z.number().int(),
+});
+export type MissingScriptHit = z.infer<typeof MissingScriptHitSchema>;
+
+export const MissingReferenceHitSchema = z.object({
+  assetPath: z.string(),
+  objectPath: z.string(),
+  component: z.string(),
+  field: z.string(),
+});
+export type MissingReferenceHit = z.infer<typeof MissingReferenceHitSchema>;
+
+export const MissingScriptsResultSchema = z.object({
+  scanned: z.number().int(),
+  hits: z.array(MissingScriptHitSchema),
+  truncated: z.boolean().optional(),
+});
+export type MissingScriptsResult = z.infer<typeof MissingScriptsResultSchema>;
+
+export const MissingReferencesResultSchema = z.object({
+  scanned: z.number().int(),
+  hits: z.array(MissingReferenceHitSchema),
+  truncated: z.boolean().optional(),
+});
+export type MissingReferencesResult = z.infer<typeof MissingReferencesResultSchema>;
+
+export const AssetDependencyResultSchema = z.object({
+  /** The asset whose graph was queried. */
+  asset: AssetRefSchema,
+  /** "dependencies" = assets this one uses; "references" = assets that use this one. */
+  direction: z.enum(["dependencies", "references"]),
+  recursive: z.boolean().optional(),
+  count: z.number().int(),
+  assets: z.array(AssetRefSchema),
+  truncated: z.boolean().optional(),
+});
+export type AssetDependencyResult = z.infer<typeof AssetDependencyResultSchema>;
+
+// ----- Write operations -----
+
+export const EditResultSchema = z.object({
+  applied: z.boolean(),
+  /** What changed, human-readable, suitable for an action-log note. */
+  summary: z.string(),
+  /** Object affected, when applicable. */
+  target: z.string().optional(),
+  /** Path of the GameObject/asset created, when applicable. */
+  createdPath: z.string().optional(),
+  /** Scene marked dirty by this edit (caller may want to save). */
+  sceneDirtied: z.string().optional(),
+  /** Whether a Unity Undo entry was recorded (so the user can Ctrl+Z). */
+  undoable: z.boolean().optional(),
+});
+export type EditResult = z.infer<typeof EditResultSchema>;

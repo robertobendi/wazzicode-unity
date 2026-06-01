@@ -36,6 +36,23 @@ const ACCEPTANCE: Array<{ tool: string; args?: Record<string, unknown>; expectSh
     args: { save: false },
     expectShape: (d: any) => (typeof d?.pngBase64 === "string" && d.pngBase64.length > 0 ? null : "missing pngBase64"),
   },
+  { tool: "unity_get_performance_stats", expectShape: (d: any) => Array.isArray(d?.counters) ? null : "missing counters[]" },
+  { tool: "unity_run_tests", expectShape: (d: any) => "state" in (d ?? {}) ? null : "missing state" },
+  { tool: "unity_enter_play_mode", expectShape: (d: any) => "isPlaying" in (d ?? {}) ? null : "missing isPlaying" },
+  { tool: "unity_find_runtime_objects", expectShape: (d: any) => Array.isArray(d?.objects) ? null : "missing objects[]" },
+  { tool: "unity_inspect_runtime_object", expectShape: (d: any) => "selected" in (d ?? {}) ? null : "missing selected" },
+  { tool: "unity_find_missing_scripts", expectShape: (d: any) => Array.isArray(d?.hits) ? null : "missing hits[]" },
+  { tool: "unity_find_missing_references", expectShape: (d: any) => Array.isArray(d?.hits) ? null : "missing hits[]" },
+  { tool: "unity_find_dependencies", args: { path: "Assets/Prefabs/Player.prefab" }, expectShape: (d: any) => Array.isArray(d?.assets) ? null : "missing assets[]" },
+  { tool: "unity_find_references", args: { path: "Assets/Prefabs/Player.prefab" }, expectShape: (d: any) => Array.isArray(d?.assets) ? null : "missing assets[]" },
+  { tool: "unity_set_serialized_field", args: { component: "PlayerController", field: "moveSpeed", value: 9 }, expectShape: (d: any) => d?.applied === true ? null : "edit not applied" },
+  { tool: "unity_assign_reference", args: { component: "PlayerController", field: "currentWeapon", sourceAssetPath: "Assets/Prefabs/Sword.prefab" }, expectShape: (d: any) => d?.applied === true ? null : "assign not applied" },
+  { tool: "unity_instantiate_prefab", args: { prefabPath: "Assets/Prefabs/Enemy.prefab" }, expectShape: (d: any) => typeof d?.createdPath === "string" ? null : "missing createdPath" },
+  { tool: "unity_create_scriptable_object", args: { type: "WeaponData", path: "Assets/Data/NewWeapon.asset" }, expectShape: (d: any) => typeof d?.createdPath === "string" ? null : "missing createdPath" },
+  { tool: "unity_create_material", args: { path: "Assets/Materials/New.mat" }, expectShape: (d: any) => typeof d?.createdPath === "string" ? null : "missing createdPath" },
+  { tool: "unity_create_prefab_variant", args: { sourcePath: "Assets/Prefabs/Enemy.prefab", path: "Assets/Prefabs/EliteEnemy.prefab" }, expectShape: (d: any) => typeof d?.createdPath === "string" ? null : "missing createdPath" },
+  { tool: "unity_wire_ui_button", args: { path: "/Canvas/PlayButton", handlerComponent: "GameManager", method: "StartGame" }, expectShape: (d: any) => d?.applied === true ? null : "wire not applied" },
+  { tool: "unity_clear_console", expectShape: (d: any) => d?.applied === true ? null : "clear not applied" },
 ];
 
 export async function runVerify(g: GlobalOptions): Promise<CommandResult> {

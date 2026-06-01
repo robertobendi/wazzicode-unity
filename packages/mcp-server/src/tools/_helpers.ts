@@ -1,9 +1,13 @@
-import { BRIDGE_METHODS, BridgeMethod, ErrorCode, isErrorCode, ToolEnvelope, err, ok, timed } from "@uvibe/core";
+import { BRIDGE_METHODS, BridgeMethod, BridgeResponse, ErrorCode, isErrorCode, ToolEnvelope, err, ok, timed } from "@uvibe/core";
 import { BridgeClient } from "../bridgeClient.js";
 
 /**
  * Run a single bridge call and lift the bridge envelope into the MCP tool envelope.
  * Source is taken from the bridge ("unity_bridge" | "mock").
+ *
+ * Rides through script-domain reloads: a recompile (or entering play mode) briefly drops
+ * the bridge socket, surfaced as UNITY_RELOADING. Rather than fail the tool, we wait and
+ * retry for a few seconds so the agent's call simply resumes once Unity is back.
  */
 export async function bridgeCall<T>(
   bridge: BridgeClient,
@@ -11,7 +15,16 @@ export async function bridgeCall<T>(
   params: Record<string, unknown> = {},
   detailLevel: "summary" | "normal" | "full" = "normal"
 ): Promise<ToolEnvelope<T>> {
-  const { result, durationMs } = await timed(() => bridge.call<T>(method, params));
+  const reloadDeadline = Date.now() + 20_000;
+  let result: BridgeResponse<T>;
+  let durationMs = 0;
+  for (;;) {
+    const timedCall = await timed(() => bridge.call<T>(method, params));
+    result = timedCall.result;
+    durationMs += timedCall.durationMs;
+    if (result.ok || result.error.code !== "UNITY_RELOADING" || Date.now() >= reloadDeadline) break;
+    await new Promise((r) => setTimeout(r, 400));
+  }
   if (!result.ok) {
     const code: ErrorCode = isErrorCode(result.error.code)
       ? result.error.code

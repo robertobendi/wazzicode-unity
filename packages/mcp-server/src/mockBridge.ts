@@ -221,6 +221,183 @@ export function createMockBridgeClient(): BridgeClient {
         subject: "/Gameplay/Player",
       };
     },
+
+    "perf.sample": () => ({
+      isPlaying: true,
+      warmingUp: false,
+      mainThreadMs: 6.4,
+      estimatedFps: 156.25,
+      counters: [
+        { name: "Main Thread", category: "Internal", average: 6_400_000, last: 6_300_000, min: 5_900_000, max: 7_100_000, unit: "ns", sampleCount: 90 },
+        { name: "Draw Calls Count", category: "Render", average: 142, last: 140, min: 130, max: 160, unit: "count", sampleCount: 90 },
+        { name: "Batches Count", category: "Render", average: 98, last: 97, min: 90, max: 110, unit: "count", sampleCount: 90 },
+        { name: "SetPass Calls Count", category: "Render", average: 61, last: 60, min: 55, max: 70, unit: "count", sampleCount: 90 },
+        { name: "Triangles Count", category: "Render", average: 254_000, last: 251_000, min: 240_000, max: 270_000, unit: "count", sampleCount: 90 },
+        { name: "GC Allocated In Frame", category: "Memory", average: 2048, last: 1024, min: 0, max: 8192, unit: "bytes", sampleCount: 90 },
+        { name: "System Used Memory", category: "Memory", average: 412_000_000, last: 412_000_000, min: 410_000_000, max: 415_000_000, unit: "bytes", sampleCount: 90 },
+      ],
+    }),
+
+    "test.run": () => ({ runId: "mockrun", state: "running", mode: "EditMode" }),
+    "test.status": () => ({
+      runId: "mockrun",
+      state: "completed",
+      mode: "EditMode",
+      total: 3,
+      passed: 2,
+      failed: 1,
+      skipped: 0,
+      durationSec: 0.42,
+      results: [
+        { name: "Adds_TwoNumbers", fullName: "Calc.Adds_TwoNumbers", status: "Passed", durationSec: 0.01 },
+        { name: "Handles_Zero", fullName: "Calc.Handles_Zero", status: "Passed", durationSec: 0.01 },
+        {
+          name: "Divides_ByZero",
+          fullName: "Calc.Divides_ByZero",
+          status: "Failed",
+          durationSec: 0.02,
+          message: "Expected: throws DivideByZeroException But was: 0",
+          stackTrace: "at Calc.Divide (Calc.cs:14)",
+        },
+      ],
+    }),
+    "test.cancel": () => ({ runId: "mockrun", state: "cancelled" }),
+
+    "playmode.enter": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 1 }),
+    "playmode.exit": () => ({ isPlaying: false, isPaused: false, isTransitioning: false }),
+    "playmode.step": () => ({ isPlaying: true, isPaused: true, frameCount: 2 }),
+    "playmode.status": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 42, timeSinceLevelLoad: 0.7 }),
+
+    "runtime.findObjects": () => ({
+      isPlaying: true,
+      query: "",
+      matchCount: 2,
+      objects: [
+        { name: "Player", path: "/Gameplay/Player", instanceId: 1234, activeInHierarchy: true, components: ["Transform", "PlayerController", "Rigidbody"] },
+        { name: "Enemy(Clone)", path: "/Enemy(Clone)", instanceId: 5678, activeInHierarchy: true, components: ["Transform", "EnemyAI"] },
+      ],
+      truncated: false,
+    }),
+    "runtime.inspect": () => ({
+      isPlaying: true,
+      selected: {
+        name: "Player",
+        path: "/Gameplay/Player",
+        instanceId: 1234,
+        activeSelf: true,
+        activeInHierarchy: true,
+        tag: "Player",
+        layer: "Default",
+        scene: "Assets/Scenes/Sample.unity",
+        transform: {
+          position: { x: 3.2, y: 0, z: -1.5 },
+          rotation: { x: 0, y: 90, z: 0 },
+          localScale: { x: 1, y: 1, z: 1 },
+        },
+        components: [
+          { type: "PlayerController", assembly: "Assembly-CSharp", enabled: true, fields: { health: 72, moveSpeed: 7.5 } },
+        ],
+      },
+    }),
+
+    "asset.findMissingScripts": () => ({
+      scanned: 12,
+      hits: [{ assetPath: "Assets/Prefabs/Enemy.prefab", objectPath: "/Enemy/AI", missingCount: 1 }],
+      truncated: false,
+    }),
+    "asset.findMissingReferences": () => ({
+      scanned: 12,
+      hits: [{ assetPath: "Assets/Scenes/Sample.unity", objectPath: "/Gameplay/Player", component: "PlayerController", field: "currentWeapon" }],
+      truncated: false,
+    }),
+    "asset.findReferences": () => ({
+      asset: { path: "Assets/Prefabs/Player.prefab", guid: "abc123", type: "GameObject" },
+      direction: "references",
+      count: 1,
+      assets: [{ path: "Assets/Scenes/Sample.unity", guid: "def456", type: "SceneAsset" }],
+      truncated: false,
+    }),
+    "asset.findDependencies": () => ({
+      asset: { path: "Assets/Prefabs/Player.prefab", guid: "abc123", type: "GameObject" },
+      direction: "dependencies",
+      recursive: true,
+      count: 2,
+      assets: [
+        { path: "Assets/Scripts/PlayerController.cs", guid: "ghi789", type: "MonoScript" },
+        { path: "Assets/Materials/Player.mat", guid: "jkl012", type: "Material" },
+      ],
+      truncated: false,
+    }),
+
+    "edit.setSerializedField": () => ({
+      applied: true,
+      summary: "Set PlayerController.moveSpeed on /Gameplay/Player",
+      target: "/Gameplay/Player",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.addComponent": () => ({
+      applied: true,
+      summary: "Added Rigidbody to /Gameplay/Player",
+      target: "/Gameplay/Player",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.createGameObject": () => ({
+      applied: true,
+      summary: "Created GameObject 'NewObject'",
+      createdPath: "/NewObject",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.saveScene": () => ({
+      applied: true,
+      summary: "Saved scene Assets/Scenes/Sample.unity",
+      target: "Assets/Scenes/Sample.unity",
+    }),
+    "edit.assignReference": () => ({
+      applied: true,
+      summary: "Assigned PlayerController.currentWeapon = Sword on /Gameplay/Player",
+      target: "/Gameplay/Player",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.wireUiButton": () => ({
+      applied: true,
+      summary: "Wired /Canvas/PlayButton Button.onClick -> GameManager.StartGame()",
+      target: "/Canvas/PlayButton",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.instantiatePrefab": () => ({
+      applied: true,
+      summary: "Instantiated prefab 'Enemy' into the scene",
+      createdPath: "/Enemy",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.createScriptableObject": () => ({
+      applied: true,
+      summary: "Created WeaponData asset at Assets/Data/NewWeapon.asset",
+      createdPath: "Assets/Data/NewWeapon.asset",
+      undoable: false,
+    }),
+    "edit.createMaterial": () => ({
+      applied: true,
+      summary: "Created material with shader 'Universal Render Pipeline/Lit' at Assets/Materials/New.mat",
+      createdPath: "Assets/Materials/New.mat",
+      undoable: false,
+    }),
+    "edit.createPrefabVariant": () => ({
+      applied: true,
+      summary: "Created prefab variant of 'Enemy' at Assets/Prefabs/EliteEnemy.prefab",
+      createdPath: "Assets/Prefabs/EliteEnemy.prefab",
+      undoable: false,
+    }),
+    "console.clear": () => ({
+      applied: true,
+      summary: "Cleared 7 buffered log(s) and the Unity console",
+    }),
   };
 
   async function call<T>(

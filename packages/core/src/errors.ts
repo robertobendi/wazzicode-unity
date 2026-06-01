@@ -5,6 +5,11 @@
 export type ErrorCode =
   | "UNITY_NOT_CONNECTED"
   | "UNITY_COMPILING"
+  | "UNITY_RELOADING"
+  | "TEST_FRAMEWORK_MISSING"
+  | "PLAY_MODE_REQUIRED"
+  | "PROJECT_IDENTITY_MISMATCH"
+  | "FEATURE_UNAVAILABLE"
   | "OBJECT_NOT_FOUND"
   | "ASSET_NOT_FOUND"
   | "INVALID_ARGUMENT"
@@ -44,6 +49,36 @@ const ERROR_META: Record<ErrorCode, ErrorMeta> = {
     recoverable: true,
     suggestedAction: "Wait for compilation to finish. Use `unity_wait_for_compile`.",
     defaultMessage: "Unity is compiling.",
+  },
+  UNITY_RELOADING: {
+    recoverable: true,
+    suggestedAction:
+      "Unity is reloading the script domain (after a compile or on entering play mode). The bridge restarts automatically — retry the call shortly. `unity_wait_for_compile` rides through reloads.",
+    defaultMessage: "Unity is reloading the C# domain; the bridge is briefly unavailable.",
+  },
+  TEST_FRAMEWORK_MISSING: {
+    recoverable: false,
+    suggestedAction:
+      "Install the Unity Test Framework (com.unity.test-framework) via the Package Manager. The UnityVibeOS test bridge only compiles when it is present.",
+    defaultMessage: "Unity Test Framework is not installed in this project.",
+  },
+  PLAY_MODE_REQUIRED: {
+    recoverable: true,
+    suggestedAction:
+      "Enter play mode first with `unity_enter_play_mode`. Runtime inspection and live profiler counters only produce data while the game is running.",
+    defaultMessage: "This operation requires the Editor to be in play mode.",
+  },
+  PROJECT_IDENTITY_MISMATCH: {
+    recoverable: true,
+    suggestedAction:
+      "The Unity Editor that answered is for a different project than the one Claude is working in. Open the correct project, or set bridgePort in .unity-vibe/config.json to target the right Editor instance.",
+    defaultMessage: "Connected Unity Editor is for a different project.",
+  },
+  FEATURE_UNAVAILABLE: {
+    recoverable: false,
+    suggestedAction:
+      "This feature needs a newer Unity version or an optional package. Check the message for the specific requirement.",
+    defaultMessage: "Feature unavailable in this Unity version/configuration.",
   },
   OBJECT_NOT_FOUND: {
     recoverable: true,

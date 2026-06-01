@@ -72,6 +72,38 @@ namespace UnityVibeOS
 
         public static int BufferSize { get { lock (Lock) { return Buffer.Count; } } }
 
+        /// <summary>
+        /// Clears our captured buffer and the Unity Editor console. There is no public API for
+        /// the latter, so we use the documented reflection entry point (UnityEditor.LogEntries).
+        /// </summary>
+        public static IDictionary<string, object> Clear()
+        {
+            int cleared;
+            lock (Lock)
+            {
+                cleared = Buffer.Count;
+                Buffer.Clear();
+            }
+            bool consoleCleared = false;
+            try
+            {
+                var logEntries = System.Type.GetType("UnityEditor.LogEntries,UnityEditor");
+                var clearMethod = logEntries?.GetMethod("Clear", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
+                if (clearMethod != null)
+                {
+                    clearMethod.Invoke(null, null);
+                    consoleCleared = true;
+                }
+            }
+            catch { /* reflection entry point may move between versions; buffer is still cleared */ }
+
+            return new Dictionary<string, object>
+            {
+                { "applied", true },
+                { "summary", $"Cleared {cleared} buffered log(s)" + (consoleCleared ? " and the Unity console" : "") }
+            };
+        }
+
         static List<Entry> SnapshotEntries()
         {
             lock (Lock)

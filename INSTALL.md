@@ -39,7 +39,7 @@ node /absolute/path/to/wazzicode-unity/bootstrap.mjs
    Claude Code auto-discovers `.mcp.json` and prompts you to approve the `unity-vibe-os` server.
 3. **Verify**: `claude mcp list` (or `uvibe doctor`).
 
-That's it. Claude can now ask Unity questions through 11 MCP tools, including three that return **multimodal screenshots** so it can literally see your Game/Scene view.
+That's it. Claude can now drive Unity through 34 MCP tools — scene/selection inspection, console + compile, **multimodal screenshots** (it can literally see your Game/Scene view), live **performance counters**, the **Test Framework runner**, play-mode control + runtime inspection, asset/reference-graph diagnostics, and safety-gated write tools.
 
 ## Prerequisites
 
