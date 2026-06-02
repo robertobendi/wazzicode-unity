@@ -123,9 +123,10 @@ describe("cli/setup", () => {
       for (const f of ["config.json", "conventions.md", "project_brain.md", "project_brain.json", "claude_context.md"]) {
         await fs.access(path.join(tmp, ".unity-vibe", f));
       }
-      // Manifest got the dependency
+      // Package embedded as a portable copy (auto-discovered; no machine-specific manifest entry)
+      await fs.access(path.join(tmp, "Packages", "com.uvibe.os", "package.json"));
       const manifest = JSON.parse(await fs.readFile(path.join(tmp, "Packages", "manifest.json"), "utf8"));
-      expect(manifest.dependencies["com.uvibe.os"]).toMatch(/^file:.*UnityVibeOS$/);
+      expect(manifest.dependencies["com.uvibe.os"]).toBeUndefined();
       // .mcp.json written with absolute paths
       const mcp = JSON.parse(await fs.readFile(path.join(tmp, ".mcp.json"), "utf8"));
       expect(mcp.mcpServers["unity-vibe-os"]).toBeDefined();
@@ -235,6 +236,53 @@ describe("cli/install-unity-package", () => {
       const after = JSON.parse(await fs.readFile(path.join(tmp, "Packages", "manifest.json"), "utf8"));
       expect(after.dependencies["com.uvibe.os"]).toMatch(/^file:.*UnityVibeOS$/);
       expect(after.dependencies["com.unity.textmeshpro"]).toBe("3.0.6");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("default copy mode embeds a portable copy and strips a stale absolute manifest entry", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-install-embed-"));
+    try {
+      await fs.mkdir(path.join(tmp, "Assets"), { recursive: true });
+      await fs.mkdir(path.join(tmp, "ProjectSettings"), { recursive: true });
+      await fs.mkdir(path.join(tmp, "Packages"), { recursive: true });
+      // Simulate the bug: an absolute file: path pointing at someone else's machine.
+      await fs.writeFile(
+        path.join(tmp, "Packages", "manifest.json"),
+        JSON.stringify(
+          {
+            dependencies: {
+              "com.uvibe.os": "file:C:/Users/someoneelse/wazzicode-unity/unity/UnityVibeOS",
+              "com.unity.textmeshpro": "3.0.6",
+            },
+          },
+          null,
+          2
+        )
+      );
+      // No mode flag → default (copy/embed).
+      const r = await runInstallUnityPackage(g({ project: tmp, json: false }), {
+        command: "install-unity-package",
+        positional: [],
+        flags: {},
+      });
+      expect(r.exitCode).toBe(0);
+      // Embedded copy present, auto-discovered by Unity.
+      await fs.access(path.join(tmp, "Packages", "com.uvibe.os", "package.json"));
+      const after = JSON.parse(await fs.readFile(path.join(tmp, "Packages", "manifest.json"), "utf8"));
+      // The broken absolute entry is gone; unrelated deps are preserved.
+      expect(after.dependencies["com.uvibe.os"]).toBeUndefined();
+      expect(after.dependencies["com.unity.textmeshpro"]).toBe("3.0.6");
+      expect(r.stdout).toContain("Removed stale");
+      // Re-running is idempotent (overwrites the embedded copy, no error).
+      const r2 = await runInstallUnityPackage(g({ project: tmp, json: false }), {
+        command: "install-unity-package",
+        positional: [],
+        flags: {},
+      });
+      expect(r2.exitCode).toBe(0);
+      await fs.access(path.join(tmp, "Packages", "com.uvibe.os", "package.json"));
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }

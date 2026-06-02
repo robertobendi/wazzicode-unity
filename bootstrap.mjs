@@ -10,8 +10,8 @@
 //   --build-only               Recompile only: skip install, force rebuild (use after a `git pull` that only changed TS source).
 //   --skip-install             Skip the dependency install step (use existing node_modules).
 //   --skip-build               Skip the TypeScript build (use existing dist/).
-//   --skip-unity-install       Skip writing to Packages/manifest.json.
-//   --unity-install-mode=...   manifest | symlink | copy (default: manifest).
+//   --skip-unity-install       Skip installing the package into the Unity project.
+//   --unity-install-mode=...   copy | manifest | symlink (default: copy — embeds a portable copy).
 //
 // What it does:
 //   1) Detects the Unity project (or uses the path you pass).
@@ -19,7 +19,7 @@
 //   3) Builds the TypeScript packages in topological order.
 //   4) Calls `uvibe setup` against the Unity project, which:
 //        a) writes .unity-vibe/{config.json, conventions.md, project_brain.{md,json}, claude_context.md}
-//        b) adds com.uvibe.os to Packages/manifest.json
+//        b) embeds com.uvibe.os under the project's Packages/ (portable; auto-discovered)
 //        c) writes .mcp.json at the Unity project root (Claude Code auto-discovers)
 //        d) updates CLAUDE.md with usage rules (marker-delimited; preserves your content)
 //        e) runs `uvibe doctor`

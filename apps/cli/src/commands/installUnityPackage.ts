@@ -6,10 +6,10 @@ import { CommandResult, GlobalOptions, ParsedArgs } from "../options.js";
 const PACKAGE_NAME = "com.uvibe.os";
 
 export async function runInstallUnityPackage(g: GlobalOptions, parsed: ParsedArgs): Promise<CommandResult> {
-  const mode = (typeof parsed.flags.mode === "string" ? parsed.flags.mode : "manifest") as
-    | "manifest"
-    | "symlink"
-    | "copy";
+  // Default to an embedded copy: portable across machines (no absolute paths, no GitHub auth),
+  // auto-discovered by Unity. "embed" is an alias of "copy". manifest/symlink remain available.
+  const modeRaw = typeof parsed.flags.mode === "string" ? parsed.flags.mode : "copy";
+  const mode = (modeRaw === "embed" ? "copy" : modeRaw) as "manifest" | "symlink" | "copy";
 
   const sourcePkg = await locateUnityPackageSource();
   if (!sourcePkg) {
@@ -39,41 +39,52 @@ export async function runInstallUnityPackage(g: GlobalOptions, parsed: ParsedArg
   lines.push(`Mode:    ${mode}`);
   lines.push("");
 
+  const manifestPath = path.join(projectPackages, "manifest.json");
+
   if (mode === "manifest") {
-    const manifestPath = path.join(projectPackages, "manifest.json");
     if (!(await fileExists(manifestPath))) {
       return { exitCode: 1, stderr: `Packages/manifest.json missing at ${manifestPath}\n` };
     }
     const raw = await fs.readFile(manifestPath, "utf8");
     const manifest = JSON.parse(raw) as { dependencies?: Record<string, string> };
     manifest.dependencies = manifest.dependencies ?? {};
-    const rel = pathToFileUrl(sourceArg);
-    manifest.dependencies[PACKAGE_NAME] = rel;
+    // Prefer a path RELATIVE to Packages/ so the entry resolves on any clone; fall back to an
+    // absolute path only when the source lives on a different drive (then it is machine-specific).
+    const rel = relativeFileUrl(projectPackages, sourceArg);
+    const ref = rel ?? pathToFileUrl(sourceArg);
+    manifest.dependencies[PACKAGE_NAME] = ref;
     await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
     lines.push(`Wrote ${manifestPath}`);
-    lines.push(`  "${PACKAGE_NAME}": "${rel}"`);
-  } else if (mode === "symlink") {
-    const dest = path.join(projectPackages, PACKAGE_NAME);
-    if (await pathExists(dest)) {
-      return {
-        exitCode: 1,
-        stderr: `${dest} already exists. Remove it first or use --mode=manifest.\n`,
-      };
+    lines.push(`  "${PACKAGE_NAME}": "${ref}"`);
+    if (!rel) {
+      lines.push("");
+      lines.push("WARNING: emitted an ABSOLUTE path (source is on a different drive than the project).");
+      lines.push("It will NOT resolve on other machines. For a shared/team project use the default");
+      lines.push("--mode=copy, which embeds a portable copy under Packages/.");
     }
-    await fs.symlink(sourceArg, dest, "dir");
-    lines.push(`symlinked ${dest} → ${sourceArg}`);
-  } else if (mode === "copy") {
+  } else if (mode === "symlink" || mode === "copy") {
+    // Place the package under Packages/<name>, where Unity auto-discovers it as an embedded
+    // package — no manifest entry, no absolute paths. Also strip any stale com.uvibe.os entry
+    // (e.g. a prior absolute `file:` install) that would fail to resolve on a teammate's machine.
     const dest = path.join(projectPackages, PACKAGE_NAME);
-    if (await pathExists(dest)) {
-      return {
-        exitCode: 1,
-        stderr: `${dest} already exists. Remove it first or use --mode=manifest.\n`,
-      };
+    const removed = await removeManifestEntry(manifestPath, PACKAGE_NAME);
+    if (await pathExists(dest)) await fs.rm(dest, { recursive: true, force: true });
+
+    if (mode === "symlink") {
+      await fs.symlink(sourceArg, dest, "dir");
+      lines.push(`symlinked ${dest} → ${sourceArg}`);
+      lines.push("(symlink targets this machine only; use --mode=copy for a shareable project.)");
+    } else {
+      await copyDir(sourceArg, dest);
+      lines.push(`Embedded a portable copy at ${dest}`);
+      lines.push(`  (copied from ${sourceArg}; commit Packages/${PACKAGE_NAME}/ with your project).`);
     }
-    await copyDir(sourceArg, dest);
-    lines.push(`copied ${sourceArg} → ${dest}`);
+    if (removed) {
+      lines.push(`Removed stale manifest entry "${PACKAGE_NAME}": "${removed}".`);
+      lines.push("  (That absolute path is why the package failed to resolve on other machines.)");
+    }
   } else {
-    return { exitCode: 2, stderr: `unknown --mode=${mode}. Use manifest|symlink|copy.\n` };
+    return { exitCode: 2, stderr: `unknown --mode=${mode}. Use copy|manifest|symlink (copy is default).\n` };
   }
 
   lines.push("");
@@ -142,7 +153,38 @@ async function copyDir(src: string, dst: string): Promise<void> {
 }
 
 function pathToFileUrl(absPath: string): string {
-  // Unity Packages/manifest.json supports `file:<path>` (relative to manifest.json).
-  // Use the platform-appropriate format. We always emit absolute file: URLs for clarity.
-  return "file:" + absPath;
+  // Absolute `file:` URL. Machine-specific — only used as a last resort (cross-drive); prefer
+  // relativeFileUrl, or the default copy/embed which needs no path at all.
+  return "file:" + absPath.split(path.sep).join("/");
+}
+
+/**
+ * A `file:` URL relative to the project's Packages/ folder (how Unity resolves manifest file:
+ * paths). Portable across clones. Returns null when no relative path exists (different drive).
+ */
+function relativeFileUrl(packagesDir: string, sourceAbs: string): string | null {
+  const rel = path.relative(packagesDir, sourceAbs);
+  if (!rel || path.isAbsolute(rel)) return null;
+  return "file:" + rel.split(path.sep).join("/");
+}
+
+/**
+ * Remove a dependency from Packages/manifest.json if present. Returns the old value (so the
+ * caller can report it) or null. Used to clear a stale absolute-path entry before embedding.
+ */
+async function removeManifestEntry(manifestPath: string, name: string): Promise<string | null> {
+  if (!(await fileExists(manifestPath))) return null;
+  try {
+    const raw = await fs.readFile(manifestPath, "utf8");
+    const manifest = JSON.parse(raw) as { dependencies?: Record<string, string> };
+    if (manifest.dependencies && Object.prototype.hasOwnProperty.call(manifest.dependencies, name)) {
+      const old = manifest.dependencies[name];
+      delete manifest.dependencies[name];
+      await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+      return old;
+    }
+  } catch {
+    // Leave a malformed manifest untouched; the embed still works (auto-discovery).
+  }
+  return null;
 }

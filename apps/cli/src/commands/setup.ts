@@ -24,9 +24,11 @@ export async function runSetup(g: GlobalOptions, parsed: ParsedArgs): Promise<Co
   }
 
   const skipUnityInstall = parsed.flags["skip-unity-install"] === true;
+  // Default to embedding a portable copy so the package resolves on every machine that clones the
+  // project (an absolute manifest `file:` path only works on the installer's machine).
   const installMode = (typeof parsed.flags["unity-install-mode"] === "string"
     ? parsed.flags["unity-install-mode"]
-    : "manifest") as "manifest" | "symlink" | "copy";
+    : "copy") as "manifest" | "symlink" | "copy";
 
   // Step 1: init scaffold
   log("[1/5] init  — .unity-vibe/config.json + conventions.md + CLAUDE.md");
@@ -37,7 +39,7 @@ export async function runSetup(g: GlobalOptions, parsed: ParsedArgs): Promise<Co
   // Step 2: install Unity package (manifest entry by default)
   if (!skipUnityInstall) {
     log("");
-    log("[2/5] install-unity-package  — Packages/manifest.json");
+    log("[2/5] install-unity-package  — embed portable copy under Packages/");
     const ipRes = await runInstallUnityPackage(g, {
       command: "install-unity-package",
       positional: [],
