@@ -74,6 +74,10 @@ const ACCEPTANCE: Array<{ tool: string; args?: Record<string, unknown>; expectSh
   { tool: "unity_import_asset", args: { path: "Assets/Art/hero.png" }, expectShape: (d: any) => typeof d?.createdPath === "string" ? null : "missing createdPath" },
   { tool: "unity_slice_sprite", args: { texturePath: "Assets/Art/tiles.png", cellWidth: 16, cellHeight: 16 }, expectShape: (d: any) => d?.applied === true ? null : "sprite not sliced" },
   { tool: "unity_paint_tilemap", args: { tilemapPath: "/Grid/Tilemap", tileAssetPath: "Assets/Tiles/Grass.asset", cells: [{ x: 0, y: 0 }] }, expectShape: (d: any) => d?.applied === true ? null : "tilemap not painted" },
+  // Composition tools (one-call orient / verify / batch)
+  { tool: "unity_orient", expectShape: (d: any) => d?.summary?.unityVersion ? null : "missing summary" },
+  { tool: "unity_verify", expectShape: (d: any) => "compiled" in (d ?? {}) ? null : "missing verdict" },
+  { tool: "unity_batch", args: { operations: [{ tool: "unity_get_open_scenes" }] }, expectShape: (d: any) => d?.allOk === true ? null : "batch op failed" },
 ];
 
 export async function runVerify(g: GlobalOptions): Promise<CommandResult> {

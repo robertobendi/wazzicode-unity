@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { runInit, runBrain, runDoctor, runVerify, runMcpConfig, runInstallUnityPackage, runSetup } from "@uvibe/cli";
+import { runInit, runBrain, runDoctor, runVerify, runMcpConfig, runInstallUnityPackage, runSetup, runAutonomy } from "@uvibe/cli";
 import type { GlobalOptions } from "../apps/cli/src/options.js";
 
 const FIXTURE = path.resolve("tests/fixtures/sample-unity-project");
@@ -298,6 +298,44 @@ describe("cli/install-unity-package", () => {
       });
       expect(r.exitCode).toBe(1);
       expect(r.stderr).toContain("Not a Unity project");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cli/autonomy", () => {
+  it("on enables writes under autopilot; off restores read_only; status doesn't mutate", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-autonomy-"));
+    try {
+      const cfgPath = path.join(tmp, ".unity-vibe", "config.json");
+
+      // status on a fresh project → default read_only, writes nothing.
+      let r = await runAutonomy({ project: tmp, mock: false, json: true }, { command: "autonomy", positional: ["status"], flags: {} });
+      expect(r.exitCode).toBe(0);
+      expect(JSON.parse(r.stdout!).safetyMode).toBe("read_only");
+      await expect(fs.access(cfgPath)).rejects.toBeTruthy(); // status did not write a config
+
+      // on → autopilot + scene/prefab writes + autoSnapshot.
+      r = await runAutonomy({ project: tmp, mock: false, json: true }, { command: "autonomy", positional: ["on"], flags: {} });
+      expect(r.exitCode).toBe(0);
+      const onCfg = JSON.parse(await fs.readFile(cfgPath, "utf8"));
+      expect(onCfg.safetyMode).toBe("autopilot");
+      expect(onCfg.allowSceneWrites).toBe(true);
+      expect(onCfg.allowPrefabWrites).toBe(true);
+      expect(onCfg.autoSnapshot).toBe(true);
+      // Menu execution is NOT auto-enabled (broad escape hatch).
+      expect(onCfg.allowMenuItems).toBe(false);
+
+      // off → read_only again.
+      r = await runAutonomy({ project: tmp, mock: false, json: false }, { command: "autonomy", positional: ["off"], flags: {} });
+      expect(r.exitCode).toBe(0);
+      const offCfg = JSON.parse(await fs.readFile(cfgPath, "utf8"));
+      expect(offCfg.safetyMode).toBe("read_only");
+
+      // unknown mode → exit 2.
+      r = await runAutonomy({ project: tmp, mock: false, json: false }, { command: "autonomy", positional: ["bogus"], flags: {} });
+      expect(r.exitCode).toBe(2);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }

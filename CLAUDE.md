@@ -12,15 +12,18 @@ This repository builds **Unity Vibe OS**, a local Unity-aware operating layer fo
 
 ## How Claude (the agent reading this file) should behave
 
+- **Start a task with `unity_orient`** — one call returns project summary, open scenes, selection, compile status, recent warnings/errors, git status, and brain freshness. Don't issue those as separate reads.
+- **After any C# change, prefer `unity_verify`** — it runs wait-for-compile → console errors → tests and returns a single pass/fail verdict in one call (the canonical loop below, collapsed).
+- **Batch a known multi-step edit with `unity_batch`** — send the whole plan (e.g. create GameObject → add component → set fields → save) as one call instead of many round trips. Each op is still safety-gated and logged.
 - Prefer the `unity_*` MCP tools over reading raw `.unity` / `.prefab` YAML or shelling out to inspect the project.
 - When the user says "this object" or "the selected one", call `unity_inspect_selected` first.
-- Treat write tools as gated by `.unity-vibe/config.json#safetyMode`. Default is `read_only`. Do not bypass.
+- Treat write tools as gated by `.unity-vibe/config.json#safetyMode`. Default is `read_only`. Do not bypass — if writes are blocked, tell the user to run `uvibe autonomy on` (flips to autopilot + writes + autoSnapshot) rather than editing config by hand.
 - Use `unity_check_git_status` before suggesting any change that modifies tracked files.
 - Use `unity_generate_project_brain` (or `uvibe brain`) to refresh `.unity-vibe/` after major work.
 
 ### Canonical edit loop (follow this without being told)
 
-After **any** C# change:
+After **any** C# change, the fast path is a single `unity_verify` call. It performs the three steps below and returns `{pass, compiled, errorCount, problems, tests}`; use the individual tools only when you need finer control:
 1. `unity_wait_for_compile` (it rides through the script-domain reload automatically).
 2. `unity_get_console_logs` (level=`warning_or_error`) — confirm no new errors.
 3. `unity_run_tests` (EditMode; add PlayMode for runtime behaviour) — this is the ground truth that the code *works*, not just compiles. Use `filter` to scope to the area you touched.
@@ -57,6 +60,7 @@ For play-testing and animation:
 - `uvibe doctor` — health check (MCP, bridge, brain, git, config).
 - `uvibe brain` — refresh project brain.
 - `uvibe verify --mock` — MVP acceptance checks against the mock bridge.
+- `uvibe autonomy [on|off|status]` — toggle Claude's write access without hand-editing config.
 - `uvibe mcp-config` — print Claude MCP config snippet.
 - `uvibe init` — create `.unity-vibe/` scaffold.
 - `uvibe serve` — start the MCP server (used in your Claude config).

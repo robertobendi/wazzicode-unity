@@ -6,6 +6,8 @@ export interface ToolContext {
   bridge: BridgeClient;
   projectPath: string;
   configMockMode: boolean;
+  /** The full tool registry, so composite tools (e.g. unity_batch) can resolve tools by name. */
+  tools?: AnyToolDef[];
 }
 
 export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor";

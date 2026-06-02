@@ -11,6 +11,7 @@ describe("mcp-server/registry", () => {
       "unity_animator_edit_transition",
       "unity_apply_prefab_instance",
       "unity_assign_reference",
+      "unity_batch",
       "unity_capture_game_view",
       "unity_capture_scene_view",
       "unity_capture_selected",
@@ -42,6 +43,7 @@ describe("mcp-server/registry", () => {
       "unity_load_scene_additive",
       "unity_open_prefab",
       "unity_open_scene",
+      "unity_orient",
       "unity_paint_tilemap",
       "unity_project_summary",
       "unity_reparent",
@@ -54,6 +56,7 @@ describe("mcp-server/registry", () => {
       "unity_simulate_input",
       "unity_slice_sprite",
       "unity_step_frame",
+      "unity_verify",
       "unity_wait_for_compile",
       "unity_wire_ui_button",
     ]);
@@ -181,6 +184,69 @@ describe("mcp-server/tools (mock context)", () => {
         expect(env.meta.source === "mock" || env.meta.source === "git" || env.meta.source === "project_brain").toBe(true);
       }
     }
+  });
+});
+
+describe("mcp-server/composition tools", () => {
+  it("unity_orient aggregates summary/scenes/selection/compile/git in one call", async () => {
+    const ctx = buildContext({ mock: true, projectPath: process.cwd() });
+    const tool = allTools.find((t) => t.name === "unity_orient")!;
+    const env = await tool.run({}, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const d = env.data as Record<string, any>;
+      expect(d.bridgeReachable).toBe(true);
+      expect(d.summary?.unityVersion).toBeDefined();
+      expect(Array.isArray(d.openScenes?.scenes)).toBe(true);
+      expect("compile" in d).toBe(true);
+      expect("git" in d).toBe(true);
+    }
+  });
+
+  it("unity_verify returns a single pass/compiled verdict", async () => {
+    const ctx = buildContext({ mock: true, projectPath: process.cwd() });
+    const tool = allTools.find((t) => t.name === "unity_verify")!;
+    const env = await tool.run({}, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const d = env.data as Record<string, any>;
+      expect(typeof d.compiled).toBe("boolean");
+      expect("pass" in d).toBe(true);
+      expect(Array.isArray(d.problems)).toBe(true);
+    }
+  });
+
+  it("unity_batch runs ordered ops, reports per-op results, and refuses nesting", async () => {
+    const ctx = buildContext({ mock: true, projectPath: process.cwd() });
+    const tool = allTools.find((t) => t.name === "unity_batch")!;
+    const env = await tool.run(
+      {
+        operations: [
+          { tool: "unity_get_open_scenes", args: {} },
+          { tool: "unity_set_transform", args: { path: "/Gameplay/Player", position: { x: 1, y: 2, z: 3 } } },
+          { tool: "unity_batch", args: {} }, // nesting → rejected, but stopOnError=false to see it
+        ],
+        stopOnError: false,
+      },
+      ctx
+    );
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const d = env.data as { allOk: boolean; results: Array<{ ok: boolean; tool: string; error?: { code: string } }> };
+      expect(d.results).toHaveLength(3);
+      expect(d.results[0].ok).toBe(true);
+      expect(d.results[1].ok).toBe(true);
+      expect(d.results[2].ok).toBe(false);
+      expect(d.results[2].error?.code).toBe("INVALID_ARGUMENT");
+      expect(d.allOk).toBe(false);
+    }
+  });
+
+  it("unity_batch tolerates being called with no operations (well-formed envelope)", async () => {
+    const ctx = buildContext({ mock: true, projectPath: process.cwd() });
+    const tool = allTools.find((t) => t.name === "unity_batch")!;
+    const env = await tool.run({}, ctx);
+    expect(env.ok).toBe(true);
   });
 });
 

@@ -50,9 +50,15 @@ import {
 import { unityExecuteMenuItem } from "./unityMenu.js";
 import { unityImportAsset, unitySliceSprite } from "./unityAsset.js";
 import { unityPaintTilemap } from "./unityTilemap.js";
+import { unityOrient } from "./unityOrient.js";
+import { unityVerify } from "./unityVerify.js";
+import { unityBatch } from "./unityBatch.js";
 
 export const allTools: AnyToolDef[] = [
   // Context / inspection
+  unityOrient as unknown as AnyToolDef,
+  unityVerify as unknown as AnyToolDef,
+  unityBatch as unknown as AnyToolDef,
   unityProjectSummary as unknown as AnyToolDef,
   unityGenerateProjectBrain as unknown as AnyToolDef,
   unityGetOpenScenes as unknown as AnyToolDef,
@@ -162,4 +168,7 @@ export {
   unityImportAsset,
   unitySliceSprite,
   unityPaintTilemap,
+  unityOrient,
+  unityVerify,
+  unityBatch,
 };

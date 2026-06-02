@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import http from "node:http";
 import path from "node:path";
 import {
   BridgeDiscovery,
@@ -57,6 +58,10 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
   const projectPath = opts.projectPath;
   const timeoutMs = opts.timeoutMs ?? 5000;
 
+  // One keep-alive agent per client: the MCP server makes a steady stream of small RPC calls to
+  // the same localhost bridge, so reusing TCP connections removes a connect/handshake per call.
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 8, keepAliveMsecs: 1000 });
+
   let cached: { at: number; disco: BridgeDiscovery | null } | null = null;
   function discovery(): BridgeDiscovery | null {
     if (explicitPort !== undefined || !projectPath) return null;
@@ -78,92 +83,126 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
     return { host: opts.host ?? DEFAULT_BRIDGE_HOST, port: opts.port ?? DEFAULT_BRIDGE_PORT, bridgeKnown: false };
   }
 
-  async function call<T>(
+  function call<T>(
     method: BridgeMethod,
     params: Record<string, unknown> = {}
   ): Promise<BridgeResponse<T>> {
     const body = makeBridgeRequest(method, params);
+    const payload = JSON.stringify(body);
     const t = target();
-    const baseUrl = `http://${t.host}:${t.port}`;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${baseUrl}/rpc`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-        signal: ctrl.signal,
+
+    return new Promise<BridgeResponse<T>>((resolve) => {
+      let settled = false;
+      let timedOut = false;
+      const finish = (r: BridgeResponse<T>) => {
+        if (settled) return;
+        settled = true;
+        resolve(r);
+      };
+
+      const req = http.request(
+        {
+          host: t.host,
+          port: t.port,
+          path: "/rpc",
+          method: "POST",
+          agent,
+          timeout: timeoutMs,
+          headers: {
+            "content-type": "application/json",
+            "content-length": Buffer.byteLength(payload),
+            connection: "keep-alive",
+          },
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            const text = Buffer.concat(chunks).toString("utf8");
+            const status = res.statusCode ?? 0;
+            if (status < 200 || status >= 300) {
+              finish({
+                id: body.id,
+                ok: false,
+                result: null,
+                error: {
+                  code: "UNITY_NOT_CONNECTED",
+                  message: `Unity bridge HTTP ${status}: ${text.slice(0, 200)}`,
+                },
+                meta: {},
+              });
+              return;
+            }
+            let parsed: BridgeResponse<T>;
+            try {
+              parsed = JSON.parse(text) as BridgeResponse<T>;
+            } catch {
+              finish({
+                id: body.id,
+                ok: false,
+                result: null,
+                error: {
+                  code: "MALFORMED_BRIDGE_RESPONSE",
+                  message: `Bridge returned non-JSON payload (length=${text.length}).`,
+                  details: { sample: text.slice(0, 200) },
+                },
+                meta: {},
+              });
+              return;
+            }
+            // Identity guard: the Editor that answered must be the project Claude works in.
+            if (parsed.ok && t.expectProject && parsed.meta?.projectPath) {
+              if (!samePath(parsed.meta.projectPath, t.expectProject)) {
+                finish({
+                  id: body.id,
+                  ok: false,
+                  result: null,
+                  error: {
+                    code: "PROJECT_IDENTITY_MISMATCH",
+                    message: `Connected Unity is '${parsed.meta.projectPath}' but expected '${t.expectProject}'.`,
+                  },
+                  meta: parsed.meta,
+                });
+                return;
+              }
+            }
+            finish(parsed);
+          });
+        }
+      );
+
+      req.on("timeout", () => {
+        timedOut = true;
+        req.destroy();
       });
-      const text = await res.text();
-      if (!res.ok) {
-        return {
-          id: body.id,
-          ok: false,
-          result: null,
-          error: {
-            code: "UNITY_NOT_CONNECTED",
-            message: `Unity bridge HTTP ${res.status}: ${text.slice(0, 200)}`,
-          },
-          meta: {},
-        };
-      }
-      let parsed: BridgeResponse<T>;
-      try {
-        parsed = JSON.parse(text) as BridgeResponse<T>;
-      } catch {
-        return {
-          id: body.id,
-          ok: false,
-          result: null,
-          error: {
-            code: "MALFORMED_BRIDGE_RESPONSE",
-            message: `Bridge returned non-JSON payload (length=${text.length}).`,
-            details: { sample: text.slice(0, 200) },
-          },
-          meta: {},
-        };
-      }
-      // Identity guard: the Editor that answered must be the project Claude works in.
-      if (parsed.ok && t.expectProject && parsed.meta?.projectPath) {
-        if (!samePath(parsed.meta.projectPath, t.expectProject)) {
-          return {
+
+      req.on("error", (e: NodeJS.ErrnoException) => {
+        if (timedOut) {
+          finish({
             id: body.id,
             ok: false,
             result: null,
-            error: {
-              code: "PROJECT_IDENTITY_MISMATCH",
-              message: `Connected Unity is '${parsed.meta.projectPath}' but expected '${t.expectProject}'.`,
-            },
-            meta: parsed.meta,
-          };
+            error: { code: "BRIDGE_TIMEOUT", message: `Bridge call timed out after ${timeoutMs}ms.` },
+            meta: {},
+          });
+          return;
         }
-      }
-      return parsed;
-    } catch (e: unknown) {
-      const errLike = e as { name?: string; message?: string };
-      if (errLike?.name === "AbortError") {
-        return {
+        // Connection refused. If a discovery file exists, the bridge lives here but its socket
+        // is briefly down — almost always a script-domain reload (post-compile / entering play).
+        // Surface that as the recoverable UNITY_RELOADING so callers retry instead of giving up.
+        const code = t.bridgeKnown ? "UNITY_RELOADING" : "UNITY_NOT_CONNECTED";
+        finish({
           id: body.id,
           ok: false,
           result: null,
-          error: { code: "BRIDGE_TIMEOUT", message: errLike?.message ?? "Bridge call timed out." },
+          error: { code, message: e?.message ?? "Bridge call failed." },
           meta: {},
-        };
-      }
-      // Connection refused. If a discovery file exists, the bridge lives here but its socket
-      // is briefly down — almost always a script-domain reload (post-compile / entering play).
-      // Surface that as the recoverable UNITY_RELOADING so callers retry instead of giving up.
-      const code = t.bridgeKnown ? "UNITY_RELOADING" : "UNITY_NOT_CONNECTED";
-      return {
-        id: body.id,
-        ok: false,
-        result: null,
-        error: { code, message: errLike?.message ?? "Bridge call failed." },
-        meta: {},
-      };
-    } finally {
-      clearTimeout(timer);
-    }
+        });
+      });
+
+      req.write(payload);
+      req.end();
+    });
   }
 
   async function isConnected(): Promise<boolean> {

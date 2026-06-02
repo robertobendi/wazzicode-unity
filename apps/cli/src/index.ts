@@ -9,6 +9,7 @@ import { runMcpConfig } from "./commands/mcpConfig.js";
 import { runGsdAuto } from "./commands/gsdAuto.js";
 import { runInstallUnityPackage } from "./commands/installUnityPackage.js";
 import { runSetup } from "./commands/setup.js";
+import { runAutonomy } from "./commands/autonomy.js";
 
 const HELP = `${PRODUCT_NAME} v${PRODUCT_VERSION}
 
@@ -22,7 +23,8 @@ Commands:
   doctor                     Health check: MCP server, Unity bridge, brain, git, config.
   verify [--mock]            Run MVP acceptance checks against the mock bridge.
   mcp-config [--write]       Print or write .mcp.json. Use --write for the project-local file Claude Code auto-discovers.
-  install-unity-package      Install com.uvibe.os into a Unity project (--mode=manifest|symlink|copy).
+  autonomy [on|off|status]   Toggle Claude's write access (read_only ↔ autopilot+writes+autoSnapshot) without editing config by hand.
+  install-unity-package      Install com.uvibe.os into a Unity project (--mode=copy|manifest|symlink; copy is default & portable).
   gsd-auto                   Detect GSD CLI / show internal planning workflow status.
   help                       Show this help.
 
@@ -42,6 +44,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   doctor: runDoctor,
   verify: runVerify,
   "mcp-config": runMcpConfig,
+  autonomy: runAutonomy,
   "install-unity-package": runInstallUnityPackage,
   "gsd-auto": runGsdAuto,
 };
@@ -82,4 +85,5 @@ export {
   runMcpConfig,
   runGsdAuto,
   runInstallUnityPackage,
+  runAutonomy,
 };
