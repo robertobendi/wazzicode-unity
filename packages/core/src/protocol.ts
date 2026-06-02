@@ -12,6 +12,7 @@ export const BRIDGE_METHODS = {
   screenshotGameView: "screenshot.gameView",
   screenshotSceneView: "screenshot.sceneView",
   screenshotSelected: "screenshot.selected",
+  screenshotEditorWindow: "screenshot.editorWindow",
 
   // Performance probes (Unity.Profiling.ProfilerRecorder)
   perfSample: "perf.sample",

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `screenshot.editorWindow` method / `unity_capture_editor_window` tool: captures the entire Editor main window (all docked panels) from the OS framebuffer via `InternalEditorUtility.ReadScreenPixel`, with optional `maxWidth` downscale. Distinct from the existing camera-render captures (game/scene/selected).
+
 ## 0.1.0 — initial MVP
 
 - Editor-only HTTP JSON-RPC bridge on `127.0.0.1:38578`.

@@ -177,7 +177,12 @@ export const OpenScenesResultSchema = z.object({
 });
 export type OpenScenesResult = z.infer<typeof OpenScenesResultSchema>;
 
-export const ScreenshotSourceSchema = z.enum(["game_view", "scene_view", "selected_object"]);
+export const ScreenshotSourceSchema = z.enum([
+  "game_view",
+  "scene_view",
+  "selected_object",
+  "editor_window",
+]);
 export type ScreenshotSource = z.infer<typeof ScreenshotSourceSchema>;
 
 export const ScreenshotResultSchema = z.object({

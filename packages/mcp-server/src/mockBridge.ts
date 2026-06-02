@@ -221,6 +221,18 @@ export function createMockBridgeClient(): BridgeClient {
         subject: "/Gameplay/Player",
       };
     },
+    "screenshot.editorWindow": () => {
+      const img = makeMockPng(640, 400, [50, 55, 65], "MOCK EDITOR WINDOW");
+      return {
+        source: "editor_window",
+        width: img.width,
+        height: img.height,
+        mimeType: "image/png",
+        pngBase64: img.pngBase64,
+        cameraName: "EditorWindow",
+        subject: "Unity Editor main window",
+      };
+    },
 
     "perf.sample": () => ({
       isPlaying: true,

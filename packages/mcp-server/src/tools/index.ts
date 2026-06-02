@@ -10,6 +10,7 @@ import { unityCheckGitStatus } from "./unityCheckGitStatus.js";
 import { unityCaptureGameView } from "./unityCaptureGameView.js";
 import { unityCaptureSceneView } from "./unityCaptureSceneView.js";
 import { unityCaptureSelected } from "./unityCaptureSelected.js";
+import { unityCaptureEditorWindow } from "./unityCaptureEditorWindow.js";
 import { unityGetPerformanceStats } from "./unityGetPerformanceStats.js";
 import { unityRunTests } from "./unityRunTests.js";
 import {
@@ -71,6 +72,7 @@ export const allTools: AnyToolDef[] = [
   unityCaptureGameView as unknown as AnyToolDef,
   unityCaptureSceneView as unknown as AnyToolDef,
   unityCaptureSelected as unknown as AnyToolDef,
+  unityCaptureEditorWindow as unknown as AnyToolDef,
   // Performance
   unityGetPerformanceStats as unknown as AnyToolDef,
   // Tests
@@ -130,6 +132,7 @@ export {
   unityCaptureGameView,
   unityCaptureSceneView,
   unityCaptureSelected,
+  unityCaptureEditorWindow,
   unityGetPerformanceStats,
   unityRunTests,
   unityEnterPlayMode,

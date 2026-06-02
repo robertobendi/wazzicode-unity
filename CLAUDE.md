@@ -29,7 +29,7 @@ After **any** C# change, the fast path is a single `unity_verify` call. It perfo
 3. `unity_run_tests` (EditMode; add PlayMode for runtime behaviour) — this is the ground truth that the code *works*, not just compiles. Use `filter` to scope to the area you touched.
 
 For runtime / "does it actually play" questions:
-- `unity_enter_play_mode` → observe with `unity_get_console_logs`, `unity_find_runtime_objects` + `unity_inspect_runtime_object`, `unity_capture_game_view`, and `unity_get_performance_stats` → `unity_exit_play_mode`. Use `unity_step_frame` to advance deterministically. Profiler counters (draw calls, GC, FPS) only accrue while playing.
+- `unity_enter_play_mode` → observe with `unity_get_console_logs`, `unity_find_runtime_objects` + `unity_inspect_runtime_object`, `unity_capture_game_view`, and `unity_get_performance_stats` → `unity_exit_play_mode`. To see the Editor itself (panels, inspector, console layout) rather than a camera render, use `unity_capture_editor_window` — it grabs the whole Unity main window from the OS framebuffer. Use `unity_step_frame` to advance deterministically. Profiler counters (draw calls, GC, FPS) only accrue while playing.
 
 For "why is my scene/prefab broken":
 - `unity_find_missing_scripts`, `unity_find_missing_references` (dangling links → runtime NREs), and `unity_find_references` / `unity_find_dependencies` to trace the asset graph before deleting/renaming.

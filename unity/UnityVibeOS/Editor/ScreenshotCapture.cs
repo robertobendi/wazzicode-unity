@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 
 namespace UnityVibeOS
@@ -79,7 +80,111 @@ namespace UnityVibeOS
             return BuildResult("selected_object", width, height, png, "TempCamera", SceneInspector.PathOf(sel));
         }
 
+        /// <summary>
+        /// Captures the entire Unity Editor main window (all docked panels: toolbar, Hierarchy,
+        /// Scene/Game view, Inspector, Project, Console) as the OS sees it — not a camera render.
+        /// Reads the framebuffer for the main container window via InternalEditorUtility.ReadScreenPixel,
+        /// then optionally downscales so the longest side is at most maxWidth (0 = keep native size).
+        /// </summary>
+        public static IDictionary<string, object> CaptureEditorWindow(int maxWidth)
+        {
+            Rect r;
+            try
+            {
+                r = EditorGUIUtility.GetMainWindowPosition();
+            }
+            catch (Exception e)
+            {
+                throw new BridgeRouter.HandlerError(
+                    "INTERNAL_ERROR",
+                    "Could not resolve the main editor window rect: " + e.Message
+                );
+            }
+            if (r.width < 1f || r.height < 1f)
+            {
+                throw new BridgeRouter.HandlerError(
+                    "OBJECT_NOT_FOUND",
+                    "The Unity Editor main window has no resolvable bounds (is the editor minimized?)."
+                );
+            }
+
+            // ReadScreenPixel works in real device pixels; GetMainWindowPosition is in points.
+            float ppp = Mathf.Max(1f, EditorGUIUtility.pixelsPerPoint);
+            int nativeW = Mathf.Max(1, Mathf.RoundToInt(r.width * ppp));
+            int nativeH = Mathf.Max(1, Mathf.RoundToInt(r.height * ppp));
+            var origin = new Vector2(r.x * ppp, r.y * ppp);
+
+            Color[] pixels;
+            try
+            {
+                pixels = InternalEditorUtility.ReadScreenPixel(origin, nativeW, nativeH);
+            }
+            catch (Exception e)
+            {
+                throw new BridgeRouter.HandlerError(
+                    "INTERNAL_ERROR",
+                    "ReadScreenPixel failed (some platforms/headless modes disallow framebuffer reads): " + e.Message
+                );
+            }
+            if (pixels == null || pixels.Length < nativeW * nativeH)
+            {
+                throw new BridgeRouter.HandlerError(
+                    "INTERNAL_ERROR",
+                    "ReadScreenPixel returned no pixels for the editor window."
+                );
+            }
+
+            var tex = new Texture2D(nativeW, nativeH, TextureFormat.RGB24, false);
+            try
+            {
+                tex.SetPixels(pixels);
+                tex.Apply(false, false);
+
+                int outW = nativeW;
+                int outH = nativeH;
+                byte[] png;
+                if (maxWidth > 0 && Mathf.Max(nativeW, nativeH) > maxWidth)
+                {
+                    float scale = (float)maxWidth / Mathf.Max(nativeW, nativeH);
+                    outW = Mathf.Max(1, Mathf.RoundToInt(nativeW * scale));
+                    outH = Mathf.Max(1, Mathf.RoundToInt(nativeH * scale));
+                    png = DownscaleToPng(tex, outW, outH);
+                }
+                else
+                {
+                    png = tex.EncodeToPNG();
+                }
+                return BuildResult("editor_window", outW, outH, png ?? Array.Empty<byte>(), "EditorWindow", "Unity Editor main window");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(tex);
+            }
+        }
+
         // -------- helpers --------
+
+        static byte[] DownscaleToPng(Texture2D src, int width, int height)
+        {
+            var rt = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
+            var prevActive = RenderTexture.active;
+            try
+            {
+                Graphics.Blit(src, rt);
+                RenderTexture.active = rt;
+                var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                tex.Apply(false, false);
+                var png = tex.EncodeToPNG();
+                UnityEngine.Object.DestroyImmediate(tex);
+                return png ?? Array.Empty<byte>();
+            }
+            finally
+            {
+                RenderTexture.active = prevActive;
+                RenderTexture.ReleaseTemporary(rt);
+            }
+        }
 
         static IDictionary<string, object> BuildResult(string source, int width, int height, byte[] pngBytes, string cameraName, string subject)
         {

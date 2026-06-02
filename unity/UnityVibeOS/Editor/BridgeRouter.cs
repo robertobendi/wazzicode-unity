@@ -106,6 +106,11 @@ namespace UnityVibeOS
                     float padding = GetFloat(p, "paddingFactor", 3.5f);
                     return ScreenshotCapture.CaptureSelected(width, height, padding);
                 }
+                case "screenshot.editorWindow":
+                {
+                    int maxWidth = GetInt(p, "maxWidth", 0);
+                    return ScreenshotCapture.CaptureEditorWindow(maxWidth);
+                }
 
                 case "perf.sample":
                     return PerformanceProbe.Sample();

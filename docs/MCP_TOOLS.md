@@ -40,6 +40,7 @@ Stable error codes: `UNITY_NOT_CONNECTED`, `UNITY_COMPILING`, `UNITY_RELOADING`,
 | `unity_capture_game_view` | `unity_bridge` | Renders `Camera.main` (or specified) off-screen. Returns multimodal **image** content + base64 PNG. Auto-saves to `.unity-vibe/screenshots/`. |
 | `unity_capture_scene_view` | `unity_bridge` | Renders `SceneView.lastActiveSceneView` camera. Multimodal image. |
 | `unity_capture_selected` | `unity_bridge` | Spawns a temporary HideAndDontSave camera framing the selection's bounds; falls back to `AssetPreview` for prefab assets. Multimodal image. |
+| `unity_capture_editor_window` | `unity_bridge` | Captures the **whole Editor main window** (all docked panels — toolbar, Hierarchy, Scene/Game view, Inspector, Project, Console) from the OS framebuffer via `InternalEditorUtility.ReadScreenPixel`, not a camera render. Optional `maxWidth` downscales (longest side); omit for native resolution. Multimodal image. |
 
 Screenshot tools return `{source, width, height, mimeType, pngBase64, savedTo?, cameraName?, subject?}`. The MCP server detects `pngBase64` and emits an `image` content block alongside the JSON envelope so Claude sees the actual pixels — not just a data URL string.
 
