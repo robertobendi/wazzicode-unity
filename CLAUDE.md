@@ -41,6 +41,10 @@ For play-testing and animation:
 
 `unity_execute_menu_item` is a generic escape hatch for any Editor command, but it only runs paths you've whitelisted (`allowMenuItems:true` + `allowedMenuItems` in config); otherwise it returns `MENU_ITEM_NOT_ALLOWED`. The 2D/asset pipeline tools are `unity_import_asset` and `unity_slice_sprite`.
 
+### Editor focus
+
+- The bridge keeps Unity processing tool calls (and running play mode) even when the Editor window is **not focused**, so you don't have to click into Unity for compiles, play-mode steps, or captures to proceed. This "Keep Unity Awake" driver is on by default; the user can toggle it under `Window ▸ Unity Vibe OS ▸ Keep Unity Awake (background)` (it costs some background CPU). If a user reports tool calls only completing when they click Unity, that toggle is off.
+
 ### When the bridge is unavailable
 
 - `UNITY_RELOADING` — the bridge is mid script-domain reload (post-compile or entering play). It is **recoverable**; tool calls already retry for ~20s. Just wait; don't treat it as fatal.

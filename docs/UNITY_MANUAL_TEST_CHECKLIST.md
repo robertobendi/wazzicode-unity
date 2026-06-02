@@ -117,6 +117,14 @@ These ship in the bridge but their Unity-side behavior is **not** runtime-verifi
 - [ ] `unity_slice_sprite` (by cell size and by column/row count) sets the importer to Sprite/Multiple and produces the expected sprite sub-assets.
 - [ ] `unity_paint_tilemap` paints a tile across explicit cells and a `rect`; `erase:true` clears them; Undo reverts; no Tilemap component → `OBJECT_NOT_FOUND`.
 
+## 14. Keep-awake (background processing while unfocused)
+
+- [ ] With "Keep Unity Awake" ON (default; `Window ▸ Unity Vibe OS`, checkmark visible), click another app so Unity loses focus, then issue a bridge call (e.g. `unity_get_scene_hierarchy`) — it returns promptly without clicking back into Unity.
+- [ ] Enter play mode, unfocus Unity → the game keeps running (frame count advances via `unity_get_play_mode_status`); with keep-awake OFF it pauses until refocused.
+- [ ] Save a script while Unity is unfocused → compilation proceeds (with keep-awake ON) rather than waiting for focus.
+- [ ] Toggle keep-awake OFF → unfocused tool calls become slow/stall until the window is clicked; toggle ON restores responsiveness. (Confirms the `Window ▸ Unity Vibe OS ▸ Keep Unity Awake` checkmark drives it.)
+- [ ] Observe background CPU is modest while unfocused (a focused Editor is unaffected — the driver only ticks when in the background).
+
 ## What is NOT verified by this checklist
 
 - The new navigation/layout/prefab/play-test/2D tools above until section 13 is completed in a real project — in particular `unity_simulate_input` (Input System reflection) and `unity_slice_sprite` (uses the legacy `TextureImporter.spritesheet` path) are the most likely to need per-version adjustment.
