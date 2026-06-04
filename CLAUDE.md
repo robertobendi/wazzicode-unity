@@ -42,6 +42,10 @@ For traversing the project / doing layout / editing prefabs:
 For play-testing and animation:
 - In play mode, `unity_simulate_input` fires keys/clicks/axes (Input System) and `unity_set_animator_parameter` drives Animator params/triggers; read back with `unity_get_animator_state`. Edit the controller graph with `unity_animator_edit_transition`.
 
+Before writing C# against a Unity/package API, verify it exists (this is the #1 cause of broken compiles):
+- `unity_reflect` queries the live loaded assemblies of *this* project (exact Unity + package versions). `action:"search"` finds a type by name; `action:"get_type"` lists its methods/properties/fields + base/interfaces; `action:"get_member"` returns a member's real signatures (incl. overloads). Trust this over memory.
+- `unity_docs` fetches the official Scripting API page (prose/usage) for a type or member — best-effort over the network; it returns candidate URLs even when offline.
+
 For writing and editing C# (you can author game code directly — don't hand it back as text for the user to paste):
 - Read first: `unity_read_script` returns contents + a `sha256`; pass that back as `preconditionSha256` on the edit so a concurrent change can't be clobbered. `unity_find_in_file` locates a method/field/anchor (line+column) without reading the whole file; `unity_get_script_sha` is a cheap change check.
 - Create new files with `unity_create_script` (path under `Assets/`, ending `.cs`).

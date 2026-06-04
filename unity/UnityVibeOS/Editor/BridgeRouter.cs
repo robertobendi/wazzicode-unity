@@ -203,6 +203,9 @@ namespace UnityVibeOS
                 case "code.execute":
                     return CodeExecutor.Execute(p);
 
+                case "reflect.query":
+                    return ReflectionBridge.Handle(p);
+
                 case "asset.import":
                     return AssetMutators.ImportAsset(p);
                 case "asset.sliceSprite":

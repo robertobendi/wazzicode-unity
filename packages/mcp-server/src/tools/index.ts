@@ -63,6 +63,7 @@ import {
   unityScriptEdit,
 } from "./unityScript.js";
 import { unityExecuteCode } from "./unityCode.js";
+import { unityReflect, unityDocs } from "./unityReflect.js";
 
 export const allTools: AnyToolDef[] = [
   // Context / inspection
@@ -102,6 +103,9 @@ export const allTools: AnyToolDef[] = [
   unityReadScript as unknown as AnyToolDef,
   unityGetScriptSha as unknown as AnyToolDef,
   unityFindInFile as unknown as AnyToolDef,
+  // Anti-hallucination
+  unityReflect as unknown as AnyToolDef,
+  unityDocs as unknown as AnyToolDef,
   // Scene navigation (non-write)
   unityOpenScene as unknown as AnyToolDef,
   unityLoadSceneAdditive as unknown as AnyToolDef,
@@ -200,4 +204,6 @@ export {
   unityApplyTextEdits,
   unityScriptEdit,
   unityExecuteCode,
+  unityReflect,
+  unityDocs,
 };

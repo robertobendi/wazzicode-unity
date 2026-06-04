@@ -65,6 +65,9 @@ export const BRIDGE_METHODS = {
   // Arbitrary in-Editor C# execution (gated by allowCodeExecution)
   codeExecute: "code.execute",
 
+  // Live reflection over loaded assemblies (anti-hallucination: verify a type/member exists)
+  reflectQuery: "reflect.query",
+
   // Asset import / 2D pipeline
   assetImport: "asset.import",
   assetSliceSprite: "asset.sliceSprite",

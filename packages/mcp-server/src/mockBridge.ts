@@ -546,6 +546,16 @@ export function createMockBridgeClient(): BridgeClient {
       summary: "Compiled and executed; returned Int32.",
     }),
 
+    "reflect.query": () => ({
+      query: "Rigidbody",
+      scope: "all",
+      matchCount: 1,
+      types: [
+        { name: "Rigidbody", fullName: "UnityEngine.Rigidbody", namespace: "UnityEngine", kind: "class", assembly: "UnityEngine.PhysicsModule" },
+      ],
+      truncated: false,
+    }),
+
     "asset.import": () => ({
       applied: true,
       summary: "Imported Assets/Art/hero.png",

@@ -24,6 +24,7 @@ describe("mcp-server/registry", () => {
       "unity_create_prefab_variant",
       "unity_create_script",
       "unity_create_scriptable_object",
+      "unity_docs",
       "unity_enter_play_mode",
       "unity_execute_code",
       "unity_execute_menu_item",
@@ -53,6 +54,7 @@ describe("mcp-server/registry", () => {
       "unity_paint_tilemap",
       "unity_project_summary",
       "unity_read_script",
+      "unity_reflect",
       "unity_reparent",
       "unity_run_tests",
       "unity_save_prefab",
@@ -170,6 +172,7 @@ describe("mcp-server/mockBridge", () => {
       "script.applyEdits",
       "script.applyStructuredEdits",
       "code.execute",
+      "reflect.query",
     ];
     for (const m of methods) {
       const r = await bridge.call(m);
