@@ -417,3 +417,19 @@ export const ScriptEditResultSchema = z.object({
   undoable: z.boolean().optional(),
 });
 export type ScriptEditResult = z.infer<typeof ScriptEditResultSchema>;
+
+// ----- In-Editor C# execution -----
+
+export const CodeExecResultSchema = z.object({
+  compiled: z.boolean(),
+  executed: z.boolean(),
+  errorCount: z.number().int(),
+  errors: z.array(z.object({ line: z.number().int(), number: z.string().optional(), message: z.string() })).optional(),
+  warnings: z.array(z.object({ line: z.number().int(), number: z.string().optional(), message: z.string() })).optional(),
+  returnType: z.string().optional(),
+  returnValue: z.string().nullable().optional(),
+  logs: z.array(z.object({ type: z.string(), message: z.string() })).optional(),
+  runtimeError: z.string().optional(),
+  summary: z.string(),
+});
+export type CodeExecResult = z.infer<typeof CodeExecResultSchema>;

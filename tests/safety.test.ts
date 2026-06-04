@@ -73,4 +73,20 @@ describe("safety/policy", () => {
     // read_only blocks it regardless of allowMenuItems.
     expect(gateTool(cfg({ safetyMode: "read_only", allowMenuItems: true }), "unity_execute_menu_item").allowed).toBe(false);
   });
+
+  it("code execution is opt-in and off by default even under autopilot", () => {
+    expect(writeTargetOf("unity_execute_code")).toBe("code");
+    // Default config (allowCodeExecution=false) blocks it even in autopilot.
+    expect(gateTool(cfg({ safetyMode: "autopilot" }), "unity_execute_code").allowed).toBe(false);
+    // Explicit opt-in allows it.
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowCodeExecution: true }), "unity_execute_code").allowed).toBe(true);
+  });
+
+  it("script writes need allowScriptWrites", () => {
+    expect(writeTargetOf("unity_create_script")).toBe("script");
+    expect(writeTargetOf("unity_apply_text_edits")).toBe("script");
+    expect(writeTargetOf("unity_script_edit")).toBe("script");
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowScriptWrites: false }), "unity_create_script").allowed).toBe(false);
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowScriptWrites: true }), "unity_apply_text_edits").allowed).toBe(true);
+  });
 });

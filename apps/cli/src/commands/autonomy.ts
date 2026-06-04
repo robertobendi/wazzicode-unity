@@ -53,6 +53,7 @@ function report(g: GlobalOptions, cfg: UVibeConfig, title: string): CommandResul
             allowScriptWrites: cfg.allowScriptWrites,
             allowAssetWrites: cfg.allowAssetWrites,
             allowMenuItems: cfg.allowMenuItems,
+            allowCodeExecution: cfg.allowCodeExecution,
             autoSnapshot: cfg.autoSnapshot,
           },
           null,
@@ -69,6 +70,7 @@ function report(g: GlobalOptions, cfg: UVibeConfig, title: string): CommandResul
     `  allowScriptWrites: ${cfg.allowScriptWrites}`,
     `  allowAssetWrites:  ${cfg.allowAssetWrites}`,
     `  allowMenuItems:    ${cfg.allowMenuItems}  (enable separately; needs allowedMenuItems)`,
+    `  allowCodeExecution:${cfg.allowCodeExecution}  (enable separately; runs arbitrary C#)`,
     `  autoSnapshot:      ${cfg.autoSnapshot}`,
     "",
     cfg.safetyMode === "read_only"

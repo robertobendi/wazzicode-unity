@@ -10,7 +10,7 @@ export interface ToolContext {
   tools?: AnyToolDef[];
 }
 
-export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor";
+export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor" | "code";
 
 export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unknown> {
   name: string;

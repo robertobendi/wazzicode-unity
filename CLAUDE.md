@@ -50,6 +50,8 @@ For writing and editing C# (you can author game code directly — don't hand it 
 
 `unity_execute_menu_item` is a generic escape hatch for any Editor command, but it only runs paths you've whitelisted (`allowMenuItems:true` + `allowedMenuItems` in config); otherwise it returns `MENU_ITEM_NOT_ALLOWED`. The 2D/asset pipeline tools are `unity_import_asset` and `unity_slice_sprite`.
 
+`unity_execute_code` compiles and runs a C# snippet *inside* the Editor (the snippet is the body of `static object Execute()`; `return` a value to get it back, and logs are captured). Reach for it for one-off Editor automation that has no dedicated tool — bulk operations, recomputing data, probing an API — instead of writing a throwaway script. It is unsandboxed, so it is off by default and **not** enabled by `autonomy on`; the user enables `allowCodeExecution` explicitly. It needs the project's Api Compatibility Level set to ".NET Framework"; otherwise it returns `FEATURE_UNAVAILABLE` and you should use `unity_create_script` + `unity_verify` instead.
+
 ### Editor focus
 
 - The bridge keeps Unity processing tool calls (and running play mode) even when the Editor window is **not focused**, so you don't have to click into Unity for compiles, play-mode steps, or captures to proceed. This "Keep Unity Awake" driver is on by default; the user can toggle it under `Window ▸ Unity Vibe OS ▸ Keep Unity Awake (background)` (it costs some background CPU). If a user reports tool calls only completing when they click Unity, that toggle is off.

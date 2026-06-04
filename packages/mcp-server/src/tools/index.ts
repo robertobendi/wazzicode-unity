@@ -62,6 +62,7 @@ import {
   unityApplyTextEdits,
   unityScriptEdit,
 } from "./unityScript.js";
+import { unityExecuteCode } from "./unityCode.js";
 
 export const allTools: AnyToolDef[] = [
   // Context / inspection
@@ -124,6 +125,8 @@ export const allTools: AnyToolDef[] = [
   unityCreateScript as unknown as AnyToolDef,
   unityApplyTextEdits as unknown as AnyToolDef,
   unityScriptEdit as unknown as AnyToolDef,
+  // In-Editor C# execution (write; code target, opt-in)
+  unityExecuteCode as unknown as AnyToolDef,
   unitySavePrefab as unknown as AnyToolDef,
   unityApplyPrefabInstance as unknown as AnyToolDef,
   unityCreateScriptableObject as unknown as AnyToolDef,
@@ -196,4 +199,5 @@ export {
   unityCreateScript,
   unityApplyTextEdits,
   unityScriptEdit,
+  unityExecuteCode,
 };

@@ -62,6 +62,9 @@ export const BRIDGE_METHODS = {
   scriptApplyEdits: "script.applyEdits",
   scriptApplyStructuredEdits: "script.applyStructuredEdits",
 
+  // Arbitrary in-Editor C# execution (gated by allowCodeExecution)
+  codeExecute: "code.execute",
+
   // Asset import / 2D pipeline
   assetImport: "asset.import",
   assetSliceSprite: "asset.sliceSprite",

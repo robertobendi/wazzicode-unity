@@ -16,6 +16,9 @@ export const UVibeConfigSchema = z.object({
   allowAssetWrites: z.boolean().default(true),
   /** unity_execute_menu_item is a generic Editor escape hatch; off unless explicitly enabled. */
   allowMenuItems: z.boolean().default(false),
+  /** unity_execute_code runs arbitrary C# in the Editor; powerful and unsandboxed, so off by default
+   * and intentionally NOT flipped on by `autonomy on`. Enable explicitly when you want it. */
+  allowCodeExecution: z.boolean().default(false),
   /** Exact menu paths unity_execute_menu_item may run (e.g. "Assets/Refresh"). Empty = none. */
   allowedMenuItems: z.array(z.string()).default([]),
   autoSnapshot: z.boolean().default(true),

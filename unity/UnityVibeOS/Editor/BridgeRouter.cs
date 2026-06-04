@@ -200,6 +200,9 @@ namespace UnityVibeOS
                 case "script.applyStructuredEdits":
                     return ScriptEditor.ApplyStructuredEdits(p);
 
+                case "code.execute":
+                    return CodeExecutor.Execute(p);
+
                 case "asset.import":
                     return AssetMutators.ImportAsset(p);
                 case "asset.sliceSprite":

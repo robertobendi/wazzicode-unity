@@ -535,6 +535,17 @@ export function createMockBridgeClient(): BridgeClient {
       undoable: false,
     }),
 
+    "code.execute": () => ({
+      compiled: true,
+      executed: true,
+      errorCount: 0,
+      warnings: [],
+      returnType: "Int32",
+      returnValue: "42",
+      logs: [{ type: "Log", message: "mock snippet ran" }],
+      summary: "Compiled and executed; returned Int32.",
+    }),
+
     "asset.import": () => ({
       applied: true,
       summary: "Imported Assets/Art/hero.png",

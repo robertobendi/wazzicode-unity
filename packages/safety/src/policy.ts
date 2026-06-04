@@ -1,7 +1,7 @@
 import { ErrorCode } from "@uvibe/core";
 import { SafetyMode, UVibeConfig } from "./config.js";
 
-export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor";
+export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor" | "code";
 
 /**
  * Explicit classification of write tools to the kind of state they mutate. Used to gate writes
@@ -32,6 +32,7 @@ export const WRITE_TOOLS: Record<string, WriteTarget> = {
   unity_wire_ui_button: "scene",
   unity_clear_console: "console",
   unity_execute_menu_item: "editor",
+  unity_execute_code: "code",
   unity_create_snapshot: "safety",
   unity_restore_snapshot: "safety",
   unity_revert_last_action: "safety",
@@ -110,6 +111,13 @@ export function gateWrite(config: UVibeConfig, toolName: string, target: WriteTa
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
           reason: `Editor menu execution is disabled (allowMenuItems=false in .unity-vibe/config.json). Enable it and list exact paths in allowedMenuItems.`,
+        };
+      }
+      if (target === "code" && !config.allowCodeExecution) {
+        return {
+          allowed: false,
+          errorCode: "SAFETY_MODE_BLOCKED",
+          reason: `In-Editor code execution is disabled (allowCodeExecution=false in .unity-vibe/config.json). It runs arbitrary C# unsandboxed; enable it explicitly when you want unity_execute_code.`,
         };
       }
       return { allowed: true };
