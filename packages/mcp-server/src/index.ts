@@ -9,6 +9,7 @@ import { AnyToolDef, ToolContext } from "./registry.js";
 import { executeTool } from "./execute.js";
 import { ToolGroupController, defaultActiveGroups } from "./groups.js";
 import { toolAnnotations } from "./annotations.js";
+import { registerPrompts } from "./prompts.js";
 
 type McpContent =
   | { type: "text"; text: string }
@@ -103,6 +104,9 @@ export function createServer(ctx: ToolContext): McpServer {
     controller.register(tool.name, registered);
   }
 
+  // Claude Code surfaces these as /mcp__unity-vibe-os__<name> slash commands.
+  registerPrompts(server);
+
   return server;
 }
 
@@ -124,3 +128,4 @@ export { allTools } from "./tools/index.js";
 export type { ToolContext, ToolDef } from "./registry.js";
 export { ToolGroupController, defaultActiveGroups, groupOf, isKnownGroup, TOOL_GROUPS } from "./groups.js";
 export { toolAnnotations, type ToolAnnotations } from "./annotations.js";
+export { UNITY_PROMPTS, registerPrompts } from "./prompts.js";

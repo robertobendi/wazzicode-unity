@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations } from "@uvibe/mcp-server";
+import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations, UNITY_PROMPTS, createServer } from "@uvibe/mcp-server";
 import type { BridgeMethod, BridgeResponse } from "@uvibe/core";
 import type { BridgeClient } from "@uvibe/mcp-server";
 
@@ -137,6 +137,29 @@ describe("mcp-server/tool annotations", () => {
   it("treats batch and play-mode tools as mutating (not read-only)", () => {
     expect(toolAnnotations(allTools.find((t) => t.name === "unity_batch")!).readOnlyHint).toBe(false);
     expect(toolAnnotations(allTools.find((t) => t.name === "unity_enter_play_mode")!).readOnlyHint).toBe(false);
+  });
+});
+
+describe("mcp-server/prompts", () => {
+  it("every prompt builds non-empty guidance text", () => {
+    for (const p of UNITY_PROMPTS) {
+      const text = p.build({});
+      expect(typeof text, p.name).toBe("string");
+      expect(text.length, p.name).toBeGreaterThan(40);
+      expect(p.config.title.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("new_script interpolates its arguments", () => {
+    const p = UNITY_PROMPTS.find((x) => x.name === "new_script")!;
+    const text = p.build({ name: "EnemyAI", description: "chase the player" });
+    expect(text).toContain("EnemyAI");
+    expect(text).toContain("chase the player");
+  });
+
+  it("createServer registers prompts without throwing", () => {
+    const ctx = buildContext({ mock: true, projectPath: process.cwd() });
+    expect(() => createServer(ctx)).not.toThrow();
   });
 });
 
