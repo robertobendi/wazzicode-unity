@@ -35,7 +35,7 @@ namespace UnityVibeOS
             };
         }
 
-        public static IDictionary<string, object> GetHierarchy(string scenePath, int maxDepth, bool includeComponents)
+        public static IDictionary<string, object> GetHierarchy(string scenePath, int maxDepth, bool includeComponents, int maxNodes = 5000)
         {
             Scene target = default;
             int count = SceneManager.sceneCount;
@@ -65,19 +65,24 @@ namespace UnityVibeOS
 
             var roots = new List<object>();
             int total = 0;
+            bool truncated = false;
+            if (maxNodes <= 0) maxNodes = int.MaxValue;
             foreach (var root in target.GetRootGameObjects())
             {
-                roots.Add(BuildNode(root.transform, 0, maxDepth, includeComponents, ref total));
+                if (total >= maxNodes) { truncated = true; break; }
+                roots.Add(BuildNode(root.transform, 0, maxDepth, includeComponents, maxNodes, ref total, ref truncated));
             }
             return new Dictionary<string, object>
             {
                 { "scene", target.path },
                 { "roots", roots },
-                { "totalObjects", total }
+                { "totalObjects", total },
+                { "truncated", truncated },
+                { "nodeCap", maxNodes == int.MaxValue ? 0 : maxNodes }
             };
         }
 
-        static IDictionary<string, object> BuildNode(Transform t, int depth, int maxDepth, bool includeComponents, ref int total)
+        static IDictionary<string, object> BuildNode(Transform t, int depth, int maxDepth, bool includeComponents, int maxNodes, ref int total, ref bool truncated)
         {
             total++;
             var go = t.gameObject;
@@ -102,9 +107,14 @@ namespace UnityVibeOS
                 var children = new List<object>();
                 for (int i = 0; i < t.childCount; i++)
                 {
-                    children.Add(BuildNode(t.GetChild(i), depth + 1, maxDepth, includeComponents, ref total));
+                    if (total >= maxNodes) { truncated = true; break; }
+                    children.Add(BuildNode(t.GetChild(i), depth + 1, maxDepth, includeComponents, maxNodes, ref total, ref truncated));
                 }
                 node["children"] = children;
+            }
+            else if (depth >= maxDepth && t.childCount > 0)
+            {
+                node["childrenOmitted"] = true; // depth cap reached; deeper nodes not expanded
             }
             return node;
         }

@@ -7,6 +7,7 @@ import { createMockBridgeClient } from "./mockBridge.js";
 import { allTools } from "./tools/index.js";
 import { AnyToolDef, ToolContext } from "./registry.js";
 import { executeTool } from "./execute.js";
+import { ToolGroupController, defaultActiveGroups } from "./groups.js";
 
 type McpContent =
   | { type: "text"; text: string }
@@ -65,8 +66,13 @@ export function createServer(ctx: ToolContext): McpServer {
     version: PRODUCT_VERSION,
   });
 
+  // Tool-group controller: registers each tool's handle and disables the ones whose group is not
+  // active at startup (e.g. codegen). unity_manage_tools drives it live via the context.
+  const controller = ctx.toolGroups ?? new ToolGroupController(defaultActiveGroups());
+  ctx.toolGroups = controller;
+
   for (const tool of allTools) {
-    server.registerTool(
+    const registered = server.registerTool(
       tool.name,
       {
         description: tool.description,
@@ -92,6 +98,7 @@ export function createServer(ctx: ToolContext): McpServer {
         }
       }
     );
+    controller.register(tool.name, registered);
   }
 
   return server;
@@ -113,3 +120,4 @@ export {
 };
 export { allTools } from "./tools/index.js";
 export type { ToolContext, ToolDef } from "./registry.js";
+export { ToolGroupController, defaultActiveGroups, groupOf, isKnownGroup, TOOL_GROUPS } from "./groups.js";

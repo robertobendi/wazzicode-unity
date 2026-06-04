@@ -1,6 +1,7 @@
 import { z, ZodRawShape } from "zod";
 import { ToolEnvelope } from "@uvibe/core";
 import { BridgeClient } from "./bridgeClient.js";
+import type { ToolGroupController } from "./groups.js";
 
 export interface ToolContext {
   bridge: BridgeClient;
@@ -8,6 +9,8 @@ export interface ToolContext {
   configMockMode: boolean;
   /** The full tool registry, so composite tools (e.g. unity_batch) can resolve tools by name. */
   tools?: AnyToolDef[];
+  /** Live tool-group toggle controller; set by createServer (absent in direct/test contexts). */
+  toolGroups?: ToolGroupController;
 }
 
 export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor" | "code";

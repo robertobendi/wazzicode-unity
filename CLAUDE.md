@@ -20,6 +20,8 @@ This repository builds **Unity Vibe OS**, a local Unity-aware operating layer fo
 - Treat write tools as gated by `.unity-vibe/config.json#safetyMode`. Default is `read_only`. Do not bypass — if writes are blocked, tell the user to run `uvibe autonomy on` (flips to autopilot + writes + autoSnapshot) rather than editing config by hand.
 - Use `unity_check_git_status` before suggesting any change that modifies tracked files.
 - Use `unity_generate_project_brain` (or `uvibe brain`) to refresh `.unity-vibe/` after major work.
+- Tools are organized into groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`). All are active except `codegen` (in-Editor C# execution). Call `unity_manage_tools` to `list_groups` or `activate`/`deactivate` one — e.g. `activate codegen` before using `unity_execute_code`, or deactivate groups you aren't using to shrink the tool list. Toggling updates the tool list live (no reconnect).
+- `unity_get_scene_hierarchy` is capped at `maxNodes` (default 5000); a big scene returns `truncated:true` (and `childrenOmitted` on depth-clipped nodes) — narrow with `scenePath`/`maxDepth` rather than dumping everything.
 
 ### Canonical edit loop (follow this without being told)
 

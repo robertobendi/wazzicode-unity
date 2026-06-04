@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient } from "@uvibe/mcp-server";
+import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf } from "@uvibe/mcp-server";
 import type { BridgeMethod, BridgeResponse } from "@uvibe/core";
 import type { BridgeClient } from "@uvibe/mcp-server";
 
@@ -48,6 +48,7 @@ describe("mcp-server/registry", () => {
       "unity_inspect_selected",
       "unity_instantiate_prefab",
       "unity_load_scene_additive",
+      "unity_manage_tools",
       "unity_open_prefab",
       "unity_open_scene",
       "unity_orient",
@@ -107,6 +108,51 @@ describe("mcp-server/registry", () => {
     for (const t of allTools) {
       if (t.write) expect(t.writeTarget).toBeDefined();
     }
+  });
+});
+
+describe("mcp-server/tool groups", () => {
+  function fakeHandle() {
+    const state = { enabled: true };
+    return { state, enable: () => (state.enabled = true), disable: () => (state.enabled = false) };
+  }
+
+  it("disables non-active groups (codegen) at registration and keeps core always on", () => {
+    const controller = new ToolGroupController(defaultActiveGroups());
+    const handles = new Map<string, ReturnType<typeof fakeHandle>>();
+    for (const tool of allTools) {
+      const h = fakeHandle();
+      handles.set(tool.name, h);
+      controller.register(tool.name, h);
+    }
+    // execute_code is in the codegen group, off by default → disabled.
+    expect(groupOf("unity_execute_code")).toBe("codegen");
+    expect(handles.get("unity_execute_code")!.state.enabled).toBe(false);
+    // A core tool stays enabled.
+    expect(handles.get("unity_orient")!.state.enabled).toBe(true);
+    // A default-on group (scripting) stays enabled.
+    expect(handles.get("unity_create_script")!.state.enabled).toBe(true);
+  });
+
+  it("activate/deactivate flips the group's tool handles and never touches core", () => {
+    const controller = new ToolGroupController(defaultActiveGroups());
+    const handles = new Map<string, ReturnType<typeof fakeHandle>>();
+    for (const tool of allTools) {
+      const h = fakeHandle();
+      handles.set(tool.name, h);
+      controller.register(tool.name, h);
+    }
+    const activated = controller.setActive("codegen", true);
+    expect(activated.changed).toBe(true);
+    expect(handles.get("unity_execute_code")!.state.enabled).toBe(true);
+
+    const deactivated = controller.setActive("runtime", false);
+    expect(deactivated.changed).toBe(true);
+    expect(handles.get("unity_enter_play_mode")!.state.enabled).toBe(false);
+
+    // core can't be toggled.
+    expect(controller.setActive("core", false).changed).toBe(false);
+    expect(handles.get("unity_orient")!.state.enabled).toBe(true);
   });
 });
 

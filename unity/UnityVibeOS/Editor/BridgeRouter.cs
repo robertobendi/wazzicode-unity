@@ -58,7 +58,8 @@ namespace UnityVibeOS
                     string scenePath = GetString(p, "scenePath", null);
                     int maxDepth = GetInt(p, "maxDepth", 32);
                     bool includeComponents = GetBool(p, "includeComponents", true);
-                    return SceneInspector.GetHierarchy(scenePath, maxDepth, includeComponents);
+                    int maxNodes = GetInt(p, "maxNodes", 5000);
+                    return SceneInspector.GetHierarchy(scenePath, maxDepth, includeComponents, maxNodes);
                 }
                 case "selection.inspect":
                 {

@@ -64,12 +64,14 @@ import {
 } from "./unityScript.js";
 import { unityExecuteCode } from "./unityCode.js";
 import { unityReflect, unityDocs } from "./unityReflect.js";
+import { unityManageTools } from "./unityManageTools.js";
 
 export const allTools: AnyToolDef[] = [
   // Context / inspection
   unityOrient as unknown as AnyToolDef,
   unityVerify as unknown as AnyToolDef,
   unityBatch as unknown as AnyToolDef,
+  unityManageTools as unknown as AnyToolDef,
   unityProjectSummary as unknown as AnyToolDef,
   unityGenerateProjectBrain as unknown as AnyToolDef,
   unityGetOpenScenes as unknown as AnyToolDef,
@@ -206,4 +208,5 @@ export {
   unityExecuteCode,
   unityReflect,
   unityDocs,
+  unityManageTools,
 };
