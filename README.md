@@ -63,6 +63,28 @@ That's it.
 
 ---
 
+## 🧭 Session init prompt (optional)
+
+The MCP server already briefs Claude on the full toolset when it connects (see `SERVER_INSTRUCTIONS` in `packages/mcp-server/src/instructions.ts`), so you don't *need* a setup prompt. If you want to pin your house style and a hard "orient first / verify after" habit, paste this at the start of a session in your Unity project:
+
+```text
+This project has the unity-vibe-os MCP server connected — live unity_* tools over the running Unity Editor. The server briefs you on the full toolset on connect, so follow that; this is just my house style.
+
+- Start every task with unity_orient (one call: summary, open scenes, selection, compile status, errors, git). UNITY_NOT_CONNECTED → tell me to open the Unity Editor and stop. UNITY_RELOADING → just retry, it's mid-compile.
+- Before writing C# against any Unity/package API, confirm it exists with unity_reflect. You can author code directly (unity_create_script / unity_apply_text_edits / unity_script_edit) — don't hand me code to paste.
+- After ANY C# change, run unity_verify (compile → console → tests, one verdict). Don't claim it works until it passes.
+- "this object" / "the selected one" → unity_inspect_selected first.
+- "Does it play right?" → enter play mode, observe with console / unity_find_runtime_objects / unity_capture_game_view / perf stats, then exit. You can SEE the game via the screenshot tools.
+- "Why is it broken?" → unity_find_missing_scripts / unity_find_missing_references / unity_find_references before deleting or renaming.
+- Writes are gated by safetyMode. If one is blocked, tell me to run `uvibe autonomy on` — don't edit .unity-vibe/config.json yourself or bypass it. unity_execute_code stays off unless I enable allowCodeExecution. Every scene/prefab write is Undo-able and logged.
+
+Do the unity_orient check, then wait for my task.
+```
+
+Handy in-session shortcuts: slash commands `/mcp__unity-vibe-os__orient | analyze_scene | diagnose_scene | verify | new_script | play_test`, and `@unity://project-brain` / `@unity://scene-hierarchy` to pull context.
+
+---
+
 ## 🧰 Sample prompts you'll use again
 
 ### Sanity / health
