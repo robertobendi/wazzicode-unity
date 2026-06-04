@@ -433,16 +433,21 @@ namespace UnityVibeOS
                     else prop.enumValueIndex = (int)Convert.ToInt64(value);
                     break;
                 case SerializedPropertyType.Vector2:
-                    prop.vector2Value = new Vector2(F(value, "x"), F(value, "y"));
+                    RequireVectorValue(value, prop, "{x,y}");
+                    prop.vector2Value = new Vector2(C(value, "x", 0), C(value, "y", 1));
                     break;
                 case SerializedPropertyType.Vector3:
-                    prop.vector3Value = new Vector3(F(value, "x"), F(value, "y"), F(value, "z"));
+                    RequireVectorValue(value, prop, "{x,y,z}");
+                    prop.vector3Value = new Vector3(C(value, "x", 0), C(value, "y", 1), C(value, "z", 2));
                     break;
                 case SerializedPropertyType.Vector4:
-                    prop.vector4Value = new Vector4(F(value, "x"), F(value, "y"), F(value, "z"), F(value, "w"));
+                    RequireVectorValue(value, prop, "{x,y,z,w}");
+                    prop.vector4Value = new Vector4(C(value, "x", 0), C(value, "y", 1), C(value, "z", 2), C(value, "w", 3));
                     break;
                 case SerializedPropertyType.Color:
-                    prop.colorValue = new Color(F(value, "r"), F(value, "g"), F(value, "b"), HasKey(value, "a") ? F(value, "a") : 1f);
+                    RequireVectorValue(value, prop, "{r,g,b,a}");
+                    prop.colorValue = new Color(C(value, "r", 0), C(value, "g", 1), C(value, "b", 2),
+                        HasComp(value, "a", 3) ? C(value, "a", 3) : 1f);
                     break;
                 case SerializedPropertyType.ObjectReference:
                     prop.objectReferenceValue = ResolveObjectReference(value);
@@ -476,13 +481,36 @@ namespace UnityVibeOS
             throw Invalid("Object reference must be {path|guid} for an asset, or {path} for a scene object.");
         }
 
-        static bool HasKey(object value, string key) => value is Dictionary<string, object> d && d.ContainsKey(key);
-
         static float F(object value, string key)
         {
             if (value is Dictionary<string, object> d && d.TryGetValue(key, out var v) && v != null)
                 return (float)Convert.ToDouble(v);
             return 0f;
+        }
+
+        // A vector/color value may arrive as a named object ({x,y,z}) or a positional
+        // array ([x,y,z]). Read one component by name or by index, defaulting to 0.
+        static float C(object value, string key, int index)
+        {
+            if (value is Dictionary<string, object> d && d.TryGetValue(key, out var v) && v != null)
+                return (float)Convert.ToDouble(v);
+            if (value is List<object> a && index < a.Count && a[index] != null)
+                return (float)Convert.ToDouble(a[index]);
+            return 0f;
+        }
+
+        static bool HasComp(object value, string key, int index)
+            => (value is Dictionary<string, object> d && d.ContainsKey(key))
+               || (value is List<object> a && index < a.Count);
+
+        // Refuse to silently write a zero vector when the value isn't a usable shape.
+        // Without this guard, a value like a bare number or wrong-shaped object would
+        // fall through every component to 0 and collapse transforms/sizes to (0,0,0).
+        static void RequireVectorValue(object value, SerializedProperty prop, string shape)
+        {
+            if (value is Dictionary<string, object> || value is List<object>) return;
+            throw Invalid($"Field '{prop.name}' is a {prop.propertyType}; expected an object {shape} or array, " +
+                          $"got {(value == null ? "null" : value.GetType().Name)}.");
         }
 
         static string Str(IDictionary<string, object> p, string key)
