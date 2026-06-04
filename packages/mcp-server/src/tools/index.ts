@@ -54,6 +54,14 @@ import { unityPaintTilemap } from "./unityTilemap.js";
 import { unityOrient } from "./unityOrient.js";
 import { unityVerify } from "./unityVerify.js";
 import { unityBatch } from "./unityBatch.js";
+import {
+  unityReadScript,
+  unityGetScriptSha,
+  unityFindInFile,
+  unityCreateScript,
+  unityApplyTextEdits,
+  unityScriptEdit,
+} from "./unityScript.js";
 
 export const allTools: AnyToolDef[] = [
   // Context / inspection
@@ -89,6 +97,10 @@ export const allTools: AnyToolDef[] = [
   unityFindMissingReferences as unknown as AnyToolDef,
   unityFindDependencies as unknown as AnyToolDef,
   unityFindReferences as unknown as AnyToolDef,
+  // C# script editing (read)
+  unityReadScript as unknown as AnyToolDef,
+  unityGetScriptSha as unknown as AnyToolDef,
+  unityFindInFile as unknown as AnyToolDef,
   // Scene navigation (non-write)
   unityOpenScene as unknown as AnyToolDef,
   unityLoadSceneAdditive as unknown as AnyToolDef,
@@ -108,6 +120,10 @@ export const allTools: AnyToolDef[] = [
   unityWireUiButton as unknown as AnyToolDef,
   unityInstantiatePrefab as unknown as AnyToolDef,
   unityPaintTilemap as unknown as AnyToolDef,
+  // C# script editing (write; script target)
+  unityCreateScript as unknown as AnyToolDef,
+  unityApplyTextEdits as unknown as AnyToolDef,
+  unityScriptEdit as unknown as AnyToolDef,
   unitySavePrefab as unknown as AnyToolDef,
   unityApplyPrefabInstance as unknown as AnyToolDef,
   unityCreateScriptableObject as unknown as AnyToolDef,
@@ -174,4 +190,10 @@ export {
   unityOrient,
   unityVerify,
   unityBatch,
+  unityReadScript,
+  unityGetScriptSha,
+  unityFindInFile,
+  unityCreateScript,
+  unityApplyTextEdits,
+  unityScriptEdit,
 };

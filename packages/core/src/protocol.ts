@@ -54,6 +54,14 @@ export const BRIDGE_METHODS = {
   // Generic Editor menu escape hatch (whitelisted at the MCP layer)
   editorExecuteMenuItem: "editor.executeMenuItem",
 
+  // C# script editing (read + write; writes gated by the 'script' target)
+  scriptRead: "script.read",
+  scriptGetSha: "script.getSha",
+  scriptFindInFile: "script.findInFile",
+  scriptCreate: "script.create",
+  scriptApplyEdits: "script.applyEdits",
+  scriptApplyStructuredEdits: "script.applyStructuredEdits",
+
   // Asset import / 2D pipeline
   assetImport: "asset.import",
   assetSliceSprite: "asset.sliceSprite",

@@ -187,6 +187,19 @@ namespace UnityVibeOS
                 case "editor.executeMenuItem":
                     return MenuBridge.ExecuteMenuItem(p);
 
+                case "script.read":
+                    return ScriptEditor.Read(p);
+                case "script.getSha":
+                    return ScriptEditor.GetSha(p);
+                case "script.findInFile":
+                    return ScriptEditor.FindInFile(p);
+                case "script.create":
+                    return ScriptEditor.Create(p);
+                case "script.applyEdits":
+                    return ScriptEditor.ApplyTextEdits(p);
+                case "script.applyStructuredEdits":
+                    return ScriptEditor.ApplyStructuredEdits(p);
+
                 case "asset.import":
                     return AssetMutators.ImportAsset(p);
                 case "asset.sliceSprite":

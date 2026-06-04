@@ -361,3 +361,59 @@ export const EditResultSchema = z.object({
   undoable: z.boolean().optional(),
 });
 export type EditResult = z.infer<typeof EditResultSchema>;
+
+// ----- C# script editing -----
+
+export const ScriptReadResultSchema = z.object({
+  path: z.string(),
+  contents: z.string(),
+  /** SHA-256 of the file's UTF-8 bytes; pass back as a precondition to guard against races. */
+  sha256: z.string(),
+  lineCount: z.number().int(),
+  sizeBytes: z.number().int(),
+  /** True when contents were clipped to a requested line window. */
+  truncated: z.boolean().optional(),
+});
+export type ScriptReadResult = z.infer<typeof ScriptReadResultSchema>;
+
+export const ScriptShaResultSchema = z.object({
+  path: z.string(),
+  exists: z.boolean(),
+  sha256: z.string(),
+  sizeBytes: z.number().int(),
+  lineCount: z.number().int(),
+});
+export type ScriptShaResult = z.infer<typeof ScriptShaResultSchema>;
+
+export const ScriptFindMatchSchema = z.object({
+  line: z.number().int(),
+  column: z.number().int(),
+  match: z.string(),
+  lineText: z.string(),
+});
+export const ScriptFindResultSchema = z.object({
+  path: z.string(),
+  pattern: z.string(),
+  matchCount: z.number().int(),
+  matches: z.array(ScriptFindMatchSchema),
+  truncated: z.boolean().optional(),
+});
+export type ScriptFindResult = z.infer<typeof ScriptFindResultSchema>;
+
+export const ScriptEditResultSchema = z.object({
+  applied: z.boolean(),
+  summary: z.string(),
+  path: z.string(),
+  /** SHA of the file before/after the edit; lets a caller confirm what actually changed. */
+  sha256Before: z.string().optional(),
+  sha256After: z.string().optional(),
+  /** False when a no-op (e.g. preview, or new == old). */
+  changed: z.boolean().optional(),
+  /** Number of discrete edits applied. */
+  editCount: z.number().int().optional(),
+  /** Unified diff, when preview mode is requested (no write performed). */
+  diff: z.string().optional(),
+  createdPath: z.string().optional(),
+  undoable: z.boolean().optional(),
+});
+export type ScriptEditResult = z.infer<typeof ScriptEditResultSchema>;
