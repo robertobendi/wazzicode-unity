@@ -406,6 +406,26 @@ export function createMockBridgeClient(): BridgeClient {
       createdPath: "Assets/Prefabs/EliteEnemy.prefab",
       undoable: false,
     }),
+    "edit.deleteGameObject": () => ({
+      applied: true,
+      summary: "Deleted GameObject '/Gameplay/Enemy'",
+      target: "/Gameplay/Enemy",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.removeComponent": () => ({
+      applied: true,
+      summary: "Removed Rigidbody from /Gameplay/Player",
+      target: "/Gameplay/Player",
+      sceneDirtied: "Assets/Scenes/Sample.unity",
+      undoable: true,
+    }),
+    "edit.deleteAsset": () => ({
+      applied: true,
+      summary: "Deleted asset Assets/Prefabs/Enemy.prefab (moved to OS trash)",
+      target: "Assets/Prefabs/Enemy.prefab",
+      undoable: false,
+    }),
     "console.clear": () => ({
       applied: true,
       summary: "Cleared 7 buffered log(s) and the Unity console",

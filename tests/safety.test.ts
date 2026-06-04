@@ -51,6 +51,10 @@ describe("safety/policy", () => {
     expect(writeTargetOf("unity_slice_sprite")).toBe("asset");
     expect(writeTargetOf("unity_animator_edit_transition")).toBe("asset");
     expect(writeTargetOf("unity_execute_menu_item")).toBe("editor");
+    // Deletes are gated like their create counterparts.
+    expect(writeTargetOf("unity_delete_gameobject")).toBe("scene");
+    expect(writeTargetOf("unity_remove_component")).toBe("scene");
+    expect(writeTargetOf("unity_delete_asset")).toBe("asset");
     // Non-write navigation/runtime tools must not be gated.
     expect(writeTargetOf("unity_open_scene")).toBeUndefined();
     expect(writeTargetOf("unity_simulate_input")).toBeUndefined();
@@ -65,6 +69,18 @@ describe("safety/policy", () => {
     expect(gateTool(cfg({ safetyMode: "autopilot", allowAssetWrites: false }), "unity_import_asset").allowed).toBe(false);
     // read_only blocks regardless.
     expect(gateTool(cfg({ safetyMode: "read_only", allowAssetWrites: true }), "unity_create_material").allowed).toBe(false);
+  });
+
+  it("gates delete tools by their target flags", () => {
+    // Scene deletes follow allowSceneWrites.
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowSceneWrites: false }), "unity_delete_gameobject").allowed).toBe(false);
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowSceneWrites: true }), "unity_delete_gameobject").allowed).toBe(true);
+    expect(gateTool(cfg({ safetyMode: "confirm", allowSceneWrites: true }), "unity_remove_component").allowed).toBe(true);
+    // Asset deletes follow allowAssetWrites.
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowAssetWrites: false }), "unity_delete_asset").allowed).toBe(false);
+    expect(gateTool(cfg({ safetyMode: "autopilot" }), "unity_delete_asset").allowed).toBe(true);
+    // read_only blocks all of them.
+    expect(gateTool(cfg({ safetyMode: "read_only" }), "unity_delete_gameobject").allowed).toBe(false);
   });
 
   it("editor menu execution needs allowMenuItems", () => {

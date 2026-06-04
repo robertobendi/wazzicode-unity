@@ -95,9 +95,9 @@ Plan / phase / status / verify / decisions live in `.planning/`. The format mirr
 
 - Unity Editor APIs cannot run from this shell. The Unity package compiles against documented APIs and follows standard idioms; runtime verification is the user's job (see `docs/UNITY_MANUAL_TEST_CHECKLIST.md`).
 - Write tools are wired and gated by `safetyMode` (per-target flags in `.unity-vibe/config.json`):
-  - **scene** (`allowSceneWrites`): `unity_set_serialized_field`, `unity_set_transform`, `unity_reparent`, `unity_assign_reference`, `unity_add_component`, `unity_create_gameobject`, `unity_instantiate_prefab`, `unity_paint_tilemap`, `unity_wire_ui_button`, `unity_save_scene`.
+  - **scene** (`allowSceneWrites`): `unity_set_serialized_field`, `unity_set_transform`, `unity_reparent`, `unity_assign_reference`, `unity_add_component`, `unity_create_gameobject`, `unity_instantiate_prefab`, `unity_paint_tilemap`, `unity_wire_ui_button`, `unity_delete_gameobject`, `unity_remove_component`, `unity_save_scene`.
   - **prefab** (`allowPrefabWrites`): `unity_create_prefab_variant`, `unity_save_prefab`, `unity_apply_prefab_instance`.
-  - **asset** (`allowAssetWrites`, default true): `unity_create_scriptable_object`, `unity_create_material`, `unity_import_asset`, `unity_slice_sprite`, `unity_animator_edit_transition`.
+  - **asset** (`allowAssetWrites`, default true): `unity_create_scriptable_object`, `unity_create_material`, `unity_import_asset`, `unity_slice_sprite`, `unity_animator_edit_transition`, `unity_delete_asset`.
   - **script** (`allowScriptWrites`, default true): `unity_create_script`, `unity_apply_text_edits`, `unity_script_edit`. Read-side `unity_read_script`/`unity_get_script_sha`/`unity_find_in_file` are ungated. Script writes hit disk and trigger a recompile (not Unity-Undoable — recovery is git / autoSnapshot), so follow with `unity_verify`.
   - **console**: `unity_clear_console`. **editor** (`allowMenuItems` + `allowedMenuItems` allowlist): `unity_execute_menu_item`.
   - Non-write but state-touching: `unity_open_scene`/`unity_load_scene_additive`/`unity_open_prefab` (navigation; allowed in `read_only`, guarded against discarding unsaved changes) and `unity_simulate_input`/`unity_set_animator_parameter`/`unity_get_animator_state` (runtime/ephemeral).

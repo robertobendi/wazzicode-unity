@@ -38,6 +38,9 @@ import {
   unityCreateMaterial,
   unityCreatePrefabVariant,
   unityClearConsole,
+  unityDeleteGameObject,
+  unityRemoveComponent,
+  unityDeleteAsset,
 } from "./unityEdit.js";
 import { unityOpenScene, unityLoadSceneAdditive } from "./unityScene.js";
 import { unitySetTransform, unityReparent } from "./unityLayout.js";
@@ -127,6 +130,8 @@ export const allTools: AnyToolDef[] = [
   unityWireUiButton as unknown as AnyToolDef,
   unityInstantiatePrefab as unknown as AnyToolDef,
   unityPaintTilemap as unknown as AnyToolDef,
+  unityDeleteGameObject as unknown as AnyToolDef,
+  unityRemoveComponent as unknown as AnyToolDef,
   // C# script editing (write; script target)
   unityCreateScript as unknown as AnyToolDef,
   unityApplyTextEdits as unknown as AnyToolDef,
@@ -139,6 +144,7 @@ export const allTools: AnyToolDef[] = [
   unityCreateMaterial as unknown as AnyToolDef,
   unityImportAsset as unknown as AnyToolDef,
   unitySliceSprite as unknown as AnyToolDef,
+  unityDeleteAsset as unknown as AnyToolDef,
   unityCreatePrefabVariant as unknown as AnyToolDef,
   unityAnimatorEditTransition as unknown as AnyToolDef,
   unityExecuteMenuItem as unknown as AnyToolDef,
@@ -181,6 +187,9 @@ export {
   unityCreateMaterial,
   unityCreatePrefabVariant,
   unityClearConsole,
+  unityDeleteGameObject,
+  unityRemoveComponent,
+  unityDeleteAsset,
   unityOpenScene,
   unityLoadSceneAdditive,
   unitySetTransform,

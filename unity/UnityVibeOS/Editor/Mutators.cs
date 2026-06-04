@@ -117,6 +117,45 @@ namespace UnityVibeOS
             };
         }
 
+        public static IDictionary<string, object> DeleteGameObject(IDictionary<string, object> p)
+        {
+            var go = RequireTarget(p);
+            string path = SceneInspector.PathOf(go);
+            // Capture the dirtied scene before the object (and its scene reference) is destroyed.
+            string dirtied = MarkDirty(go);
+            Undo.DestroyObjectImmediate(go);
+            return new Dictionary<string, object>
+            {
+                { "applied", true },
+                { "summary", $"Deleted GameObject '{path}'" },
+                { "target", path },
+                { "sceneDirtied", dirtied },
+                { "undoable", true }
+            };
+        }
+
+        public static IDictionary<string, object> RemoveComponent(IDictionary<string, object> p)
+        {
+            var go = RequireTarget(p);
+            string componentName = Str(p, "component");
+            if (string.IsNullOrEmpty(componentName)) throw Invalid("Missing 'component'.");
+            var comp = FindComponent(go, componentName); // throws OBJECT_NOT_FOUND if absent
+            if (comp is Transform)
+                throw Invalid("Cannot remove the Transform component — every GameObject must have one.");
+
+            string path = SceneInspector.PathOf(go);
+            Undo.DestroyObjectImmediate(comp);
+            string dirtied = MarkDirty(go);
+            return new Dictionary<string, object>
+            {
+                { "applied", true },
+                { "summary", $"Removed {componentName} from {path}" },
+                { "target", path },
+                { "sceneDirtied", dirtied },
+                { "undoable", true }
+            };
+        }
+
         public static IDictionary<string, object> SaveScene(IDictionary<string, object> p)
         {
             string scenePath = Str(p, "scenePath");

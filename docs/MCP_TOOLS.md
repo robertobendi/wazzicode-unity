@@ -86,8 +86,11 @@ Screenshot tools return `{source, width, height, mimeType, pngBase64, savedTo?, 
 | `unity_create_gameobject` | scene | Create an empty or primitive GameObject, optionally parented. |
 | `unity_instantiate_prefab` | scene | Instantiate a prefab into the active scene as a linked instance. |
 | `unity_wire_ui_button` | scene | Add a persistent `Button.onClick` listener calling a component method (UGUI accessed reflectively — no hard dependency). |
+| `unity_delete_gameobject` | scene | Delete a GameObject (and its children) from the active scene, recorded as an Undo step. |
+| `unity_remove_component` | scene | Remove a component from a scene GameObject (Undo-wrapped; refuses the Transform). |
 | `unity_create_scriptable_object` | asset | Create a ScriptableObject asset of a named type under `Assets/`. |
 | `unity_create_material` | asset | Create a Material asset with a shader (pipeline default if unspecified). |
+| `unity_delete_asset` | asset | Delete an asset file (to the OS trash by default, recoverable; `permanent:true` removes it outright). |
 | `unity_create_prefab_variant` | prefab | Create a prefab variant of an existing prefab. |
 | `unity_save_scene` | scene | Save an open scene (snapshotted first when `autoSnapshot` is on). |
 | `unity_clear_console` | console | Clear the Editor console + the bridge log buffer. |
@@ -115,8 +118,8 @@ Every tool supports a `detailLevel` input of `summary | normal | full` (default 
 | `playmode.enter` / `.exit` / `.step` / `.status` | Play-mode state machine |
 | `runtime.findObjects` / `runtime.inspect` | Live object discovery + inspection |
 | `asset.findMissingScripts` / `.findMissingReferences` / `.findReferences` / `.findDependencies` | Asset/reference graph |
-| `edit.setSerializedField` / `.addComponent` / `.createGameObject` / `.saveScene` / `.assignReference` / `.wireUiButton` | Scene mutators (Undo-wrapped) |
-| `edit.instantiatePrefab` / `.createScriptableObject` / `.createMaterial` / `.createPrefabVariant` | Asset/prefab mutators |
+| `edit.setSerializedField` / `.addComponent` / `.createGameObject` / `.saveScene` / `.assignReference` / `.wireUiButton` / `.deleteGameObject` / `.removeComponent` | Scene mutators (Undo-wrapped) |
+| `edit.instantiatePrefab` / `.createScriptableObject` / `.createMaterial` / `.createPrefabVariant` / `.deleteAsset` | Asset/prefab mutators |
 | `console.clear` | Clear console + capture buffer |
 
 `BridgeRouter` checks a dynamic handler table first (so optional assemblies like the Test Framework integration can register `test.*` without the core needing a compile-time reference) and falls back to the built-in switch. `console.clear` is reserved for a future `unity_clear_console` tool but isn't routed yet.

@@ -120,6 +120,31 @@ namespace UnityVibeOS
             }
         }
 
+        public static IDictionary<string, object> DeleteAsset(IDictionary<string, object> p)
+        {
+            string path = Str(p, "path");
+            string guid = Str(p, "guid");
+            if (string.IsNullOrEmpty(path) && !string.IsNullOrEmpty(guid)) path = AssetDatabase.GUIDToAssetPath(guid);
+            if (string.IsNullOrEmpty(path)) throw Invalid("Missing 'path' (or 'guid') of the asset to delete.");
+            path = path.Replace('\\', '/');
+            if (!path.StartsWith("Assets/")) throw Invalid("'path' must be under Assets/.");
+            if (string.IsNullOrEmpty(AssetDatabase.AssetPathToGUID(path)))
+                throw new BridgeRouter.HandlerError("ASSET_NOT_FOUND", $"No asset at '{path}'.");
+
+            // Default to the OS trash (recoverable); 'permanent:true' deletes outright.
+            bool permanent = p != null && p.TryGetValue("permanent", out var pv) && pv != null && Convert.ToBoolean(pv);
+            bool ok = permanent ? AssetDatabase.DeleteAsset(path) : AssetDatabase.MoveAssetToTrash(path);
+            if (!ok) throw new BridgeRouter.HandlerError("INTERNAL_ERROR", $"Failed to delete asset '{path}'.");
+
+            return new Dictionary<string, object>
+            {
+                { "applied", true },
+                { "summary", $"Deleted asset {path}{(permanent ? " (permanently)" : " (moved to OS trash)")}" },
+                { "target", path },
+                { "undoable", false }
+            };
+        }
+
         public static IDictionary<string, object> ImportAsset(IDictionary<string, object> p)
         {
             string path = Str(p, "path");

@@ -125,12 +125,12 @@ Enter play mode, press jump a few times, capture the game view, and tell me if i
 
 ## 🛠 What ships
 
-- **MCP server** with **63 tools** across groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`):
+- **MCP server** with **66 tools** across groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`):
   - **Orientation & inspection** — `unity_orient` (one-call status), `unity_get_scene_hierarchy`, `unity_inspect_selected`, `unity_get_console_logs`, `unity_wait_for_compile`, `unity_check_git_status`.
   - **See it** — multimodal screenshots `unity_capture_game_view` / `unity_capture_scene_view` / `unity_capture_selected` / `unity_capture_editor_window` return real images.
   - **Write & edit C#** — `unity_read_script`, `unity_find_in_file`, `unity_create_script`, `unity_apply_text_edits`, `unity_script_edit`; verify with `unity_verify` (compile → console → tests in one call).
   - **Don't hallucinate APIs** — `unity_reflect` (live type system of *your* Unity + packages) and `unity_docs`.
-  - **Build scenes/prefabs** — create GameObjects, add components, set/assign fields, transforms, instantiate prefabs, paint tilemaps, prefab mode, wire UI buttons, materials/ScriptableObjects — 24 gated write tools, each Undo-able and logged. `unity_batch` bundles a multi-step plan into one call.
+  - **Build scenes/prefabs** — create GameObjects, add components, set/assign fields, transforms, instantiate prefabs, paint tilemaps, prefab mode, wire UI buttons, materials/ScriptableObjects, plus delete GameObjects / remove components / delete assets — 27 gated write tools, each Undo-able (or recoverable) and logged. `unity_batch` bundles a multi-step plan into one call.
   - **Play mode & runtime** — enter/exit/step, inspect runtime objects, simulate input, drive the Animator, read performance stats.
   - **Power tools** — `unity_execute_code` (run C# in the Editor, opt-in) and `unity_manage_tools` (toggle tool groups live).
 - **Claude Code native** — server instructions teach the toolset on connect, MCP slash commands (`/mcp__unity-vibe-os__orient | analyze_scene | diagnose_scene | verify | new_script | play_test`), `@`-mentionable resources (`unity://project-brain | conventions | action-log | scene-hierarchy | console`), and tool annotations so reads auto-run and risky writes are flagged.
@@ -163,7 +163,7 @@ Common fixes:
 bootstrap.mjs              one-command install
 apps/cli/                  uvibe CLI (TypeScript)
 packages/core/             protocol, schemas, errors, envelope
-packages/mcp-server/       MCP server, bridge client, mock bridge, 63 tools,
+packages/mcp-server/       MCP server, bridge client, mock bridge, 66 tools,
                            tool groups, annotations, prompts, resources, instructions
 packages/project-brain/    Unity-project detector + brain generator
 packages/safety/           config, safety modes + per-target gates, snapshot + action log

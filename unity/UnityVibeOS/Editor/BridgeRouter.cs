@@ -238,6 +238,12 @@ namespace UnityVibeOS
                     return AssetMutators.CreateMaterial(p);
                 case "edit.createPrefabVariant":
                     return AssetMutators.CreatePrefabVariant(p);
+                case "edit.deleteGameObject":
+                    return Mutators.DeleteGameObject(p);
+                case "edit.removeComponent":
+                    return Mutators.RemoveComponent(p);
+                case "edit.deleteAsset":
+                    return AssetMutators.DeleteAsset(p);
 
                 case "console.clear":
                     return ConsoleCapture.Clear();

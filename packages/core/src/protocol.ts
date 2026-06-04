@@ -86,6 +86,9 @@ export const BRIDGE_METHODS = {
   editCreatePrefabVariant: "edit.createPrefabVariant",
   editWireUiButton: "edit.wireUiButton",
   editPaintTilemap: "edit.paintTilemap",
+  editDeleteGameObject: "edit.deleteGameObject",
+  editRemoveComponent: "edit.removeComponent",
+  editDeleteAsset: "edit.deleteAsset",
 } as const;
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[keyof typeof BRIDGE_METHODS];

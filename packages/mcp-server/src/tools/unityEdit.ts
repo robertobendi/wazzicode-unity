@@ -87,6 +87,76 @@ export const unityCreateGameObject: ToolDef<typeof CreateGoShape, EditResult> = 
   },
 };
 
+const DeleteGoShape = {
+  instanceId: z.number().int().optional().describe("Target GameObject by instanceId (preferred)."),
+  path: z.string().optional().describe("Target GameObject by hierarchy path; falls back to current selection if neither given."),
+};
+
+export const unityDeleteGameObject: ToolDef<typeof DeleteGoShape, EditResult> = {
+  name: "unity_delete_gameobject",
+  description:
+    "Deletes a GameObject (and its children) from the active scene, recorded as an Undo step (Ctrl+Z restores it). Target by instanceId, hierarchy path, or current selection. Gated by safetyMode (confirm/autopilot + allowSceneWrites). Marks the scene dirty.",
+  requires: ["unity_bridge"],
+  write: true,
+  writeTarget: "scene",
+  inputShape: DeleteGoShape,
+  async run(args, ctx) {
+    return bridgeCall<EditResult>(ctx.bridge, BRIDGE_METHODS.editDeleteGameObject, {
+      instanceId: args.instanceId ?? 0,
+      path: args.path,
+    });
+  },
+};
+
+const RemoveComponentShape = {
+  component: z.string().describe("Component type name to remove, e.g. 'Rigidbody'."),
+  instanceId: z.number().int().optional(),
+  path: z.string().optional(),
+};
+
+export const unityRemoveComponent: ToolDef<typeof RemoveComponentShape, EditResult> = {
+  name: "unity_remove_component",
+  description:
+    "Removes a component from a scene GameObject (Undo.DestroyObjectImmediate; Ctrl+Z restores it). Refuses to remove the Transform. Gated by safetyMode (confirm/autopilot + allowSceneWrites). Marks the scene dirty.",
+  requires: ["unity_bridge"],
+  write: true,
+  writeTarget: "scene",
+  inputShape: RemoveComponentShape,
+  async run(args, ctx) {
+    return bridgeCall<EditResult>(ctx.bridge, BRIDGE_METHODS.editRemoveComponent, {
+      component: args.component,
+      instanceId: args.instanceId ?? 0,
+      path: args.path,
+    });
+  },
+};
+
+const DeleteAssetShape = {
+  path: z.string().optional().describe("Asset path under Assets/, e.g. 'Assets/Prefabs/Enemy.prefab'."),
+  guid: z.string().optional().describe("Asset by GUID (alternative to path)."),
+  permanent: z
+    .boolean()
+    .optional()
+    .describe("Delete permanently instead of moving to the OS trash (default false — trash is recoverable)."),
+};
+
+export const unityDeleteAsset: ToolDef<typeof DeleteAssetShape, EditResult> = {
+  name: "unity_delete_asset",
+  description:
+    "Deletes an asset file from the project. Defaults to moving it to the OS trash (recoverable); set permanent:true to remove it outright. Not Unity-Undoable — recover via the OS trash or git. Gated by safetyMode (confirm/autopilot + allowAssetWrites; asset target).",
+  requires: ["unity_bridge"],
+  write: true,
+  writeTarget: "asset",
+  inputShape: DeleteAssetShape,
+  async run(args, ctx) {
+    return bridgeCall<EditResult>(ctx.bridge, BRIDGE_METHODS.editDeleteAsset, {
+      path: args.path,
+      guid: args.guid,
+      permanent: args.permanent,
+    });
+  },
+};
+
 const SaveSceneShape = {
   scenePath: z.string().optional().describe("Scene to save; defaults to the active scene."),
 };

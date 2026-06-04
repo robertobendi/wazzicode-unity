@@ -32,7 +32,8 @@ const MUTATING_NON_WRITE = new Set<string>([
 ]);
 
 // Writes that overwrite/erase or run code — hard to undo (no Unity Undo entry). Scene/prefab edits
-// are Undo-wrapped and additive, so they are NOT marked destructive.
+// are Undo-wrapped and additive, so they are NOT marked destructive — except deletes, which erase
+// existing state and warrant an approval prompt even though they're Undo-wrapped.
 const DESTRUCTIVE = new Set<string>([
   "unity_create_script",
   "unity_apply_text_edits",
@@ -44,6 +45,9 @@ const DESTRUCTIVE = new Set<string>([
   "unity_save_prefab",
   "unity_apply_prefab_instance",
   "unity_animator_edit_transition",
+  "unity_delete_gameobject",
+  "unity_remove_component",
+  "unity_delete_asset",
 ]);
 
 // Repeating with the same args lands on the same state (vs. create/instantiate which add each time).
