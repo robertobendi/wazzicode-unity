@@ -62,6 +62,13 @@ For writing and editing C# (you can author game code directly — don't hand it 
 
 - The bridge keeps Unity processing tool calls (and running play mode) even when the Editor window is **not focused**, so you don't have to click into Unity for compiles, play-mode steps, or captures to proceed. This "Keep Unity Awake" driver is on by default; the user can toggle it under `Window ▸ Unity Vibe OS ▸ Keep Unity Awake (background)` (it costs some background CPU). If a user reports tool calls only completing when they click Unity, that toggle is off.
 
+### Claude Code integration
+
+This server is built for Claude Code specifically and leans on MCP features Claude Code surfaces natively:
+- **Tool annotations** — every tool advertises `readOnlyHint`/`destructiveHint`/`idempotentHint`, so read-only tools (orient, inspect, find, capture, reflect) can be auto-approved while hard-to-undo writes (script edits, `unity_execute_code`, menu items, saves) are flagged. Additive, Undo-wrapped scene edits are intentionally *not* marked destructive.
+- **Slash commands (MCP prompts)** — `/mcp__unity-vibe-os__orient`, `…__diagnose_scene`, `…__verify`, `…__new_script`, `…__play_test`, `…__enable_autonomy` expand to the matching tool workflow.
+- **`@`-mentionable resources** — `unity://project-brain`, `unity://conventions`, `unity://action-log`, and live `unity://scene-hierarchy` / `unity://console`.
+
 ### When the bridge is unavailable
 
 - `UNITY_RELOADING` — the bridge is mid script-domain reload (post-compile or entering play). It is **recoverable**; tool calls already retry for ~20s. Just wait; don't treat it as fatal.

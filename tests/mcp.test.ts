@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations, UNITY_PROMPTS, createServer } from "@uvibe/mcp-server";
+import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations, UNITY_PROMPTS, createServer, readSceneHierarchyResource, readConsoleResource, readActionLogResource } from "@uvibe/mcp-server";
 import type { BridgeMethod, BridgeResponse } from "@uvibe/core";
 import type { BridgeClient } from "@uvibe/mcp-server";
 
@@ -158,6 +158,31 @@ describe("mcp-server/prompts", () => {
   });
 
   it("createServer registers prompts without throwing", () => {
+    const ctx = buildContext({ mock: true, projectPath: process.cwd() });
+    expect(() => createServer(ctx)).not.toThrow();
+  });
+});
+
+describe("mcp-server/resources", () => {
+  it("scene-hierarchy and console resources return live JSON via the bridge", async () => {
+    const ctx = buildContext({ mock: true, projectPath: process.cwd() });
+    const hier = await readSceneHierarchyResource(ctx);
+    expect(hier.contents[0].uri).toBe("unity://scene-hierarchy");
+    expect(hier.contents[0].mimeType).toBe("application/json");
+    expect(hier.contents[0].text).toContain("roots");
+
+    const console = await readConsoleResource(ctx);
+    expect(console.contents[0].text).toContain("logs");
+  });
+
+  it("action-log resource is safe when nothing has been logged", async () => {
+    const ctx = buildContext({ mock: true, projectPath: process.cwd() });
+    const log = await readActionLogResource(ctx);
+    expect(log.contents[0].uri).toBe("unity://action-log");
+    expect(typeof log.contents[0].text).toBe("string");
+  });
+
+  it("createServer registers resources without throwing", () => {
     const ctx = buildContext({ mock: true, projectPath: process.cwd() });
     expect(() => createServer(ctx)).not.toThrow();
   });

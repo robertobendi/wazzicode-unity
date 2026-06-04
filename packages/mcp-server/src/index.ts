@@ -10,6 +10,7 @@ import { executeTool } from "./execute.js";
 import { ToolGroupController, defaultActiveGroups } from "./groups.js";
 import { toolAnnotations } from "./annotations.js";
 import { registerPrompts } from "./prompts.js";
+import { registerResources } from "./resources.js";
 
 type McpContent =
   | { type: "text"; text: string }
@@ -106,6 +107,8 @@ export function createServer(ctx: ToolContext): McpServer {
 
   // Claude Code surfaces these as /mcp__unity-vibe-os__<name> slash commands.
   registerPrompts(server);
+  // Claude Code lets the user @-mention these unity:// resources.
+  registerResources(server, ctx);
 
   return server;
 }
@@ -129,3 +132,4 @@ export type { ToolContext, ToolDef } from "./registry.js";
 export { ToolGroupController, defaultActiveGroups, groupOf, isKnownGroup, TOOL_GROUPS } from "./groups.js";
 export { toolAnnotations, type ToolAnnotations } from "./annotations.js";
 export { UNITY_PROMPTS, registerPrompts } from "./prompts.js";
+export { registerResources, readSceneHierarchyResource, readConsoleResource, readActionLogResource } from "./resources.js";
