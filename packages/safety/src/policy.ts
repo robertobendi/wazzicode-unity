@@ -1,7 +1,7 @@
 import { ErrorCode } from "@uvibe/core";
 import { SafetyMode, UVibeConfig } from "./config.js";
 
-export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor" | "code";
+export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "editor" | "code";
 
 /**
  * Explicit classification of write tools to the kind of state they mutate. Used to gate writes
@@ -33,9 +33,6 @@ export const WRITE_TOOLS: Record<string, WriteTarget> = {
   unity_clear_console: "console",
   unity_execute_menu_item: "editor",
   unity_execute_code: "code",
-  unity_create_snapshot: "safety",
-  unity_restore_snapshot: "safety",
-  unity_revert_last_action: "safety",
 };
 
 export interface ToolGateDecision {

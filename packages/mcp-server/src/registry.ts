@@ -13,7 +13,7 @@ export interface ToolContext {
   toolGroups?: ToolGroupController;
 }
 
-export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "build" | "safety" | "editor" | "code";
+export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "editor" | "code";
 
 export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unknown> {
   name: string;

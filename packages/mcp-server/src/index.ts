@@ -11,6 +11,7 @@ import { ToolGroupController, defaultActiveGroups } from "./groups.js";
 import { toolAnnotations } from "./annotations.js";
 import { registerPrompts } from "./prompts.js";
 import { registerResources } from "./resources.js";
+import { SERVER_INSTRUCTIONS } from "./instructions.js";
 
 type McpContent =
   | { type: "text"; text: string }
@@ -64,10 +65,16 @@ export function buildContext(opts: ServeOptions = {}): ToolContext {
 }
 
 export function createServer(ctx: ToolContext): McpServer {
-  const server = new McpServer({
-    name: "unity-vibe-os",
-    version: PRODUCT_VERSION,
-  });
+  const server = new McpServer(
+    {
+      name: "unity-vibe-os",
+      version: PRODUCT_VERSION,
+    },
+    {
+      // Delivered to Claude Code on connect — teaches the toolset + workflows in the user's project.
+      instructions: SERVER_INSTRUCTIONS,
+    }
+  );
 
   // Tool-group controller: registers each tool's handle and disables the ones whose group is not
   // active at startup (e.g. codegen). unity_manage_tools drives it live via the context.
@@ -133,3 +140,4 @@ export { ToolGroupController, defaultActiveGroups, groupOf, isKnownGroup, TOOL_G
 export { toolAnnotations, type ToolAnnotations } from "./annotations.js";
 export { UNITY_PROMPTS, registerPrompts } from "./prompts.js";
 export { registerResources, readSceneHierarchyResource, readConsoleResource, readActionLogResource } from "./resources.js";
+export { SERVER_INSTRUCTIONS } from "./instructions.js";

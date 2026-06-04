@@ -1,13 +1,15 @@
 {
   "safetyMode": "read_only",
-  "maxLoopIterations": 5,
   "allowSceneWrites": false,
   "allowPrefabWrites": false,
   "allowScriptWrites": true,
+  "allowAssetWrites": true,
+  "allowMenuItems": false,
+  "allowedMenuItems": [],
+  "allowCodeExecution": false,
   "autoSnapshot": true,
   "unityProjectPath": ".",
   "mcpPort": 38577,
   "bridgePort": 38578,
-  "enableDashboard": false,
   "mockMode": false
 }

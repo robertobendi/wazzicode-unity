@@ -65,8 +65,9 @@ For writing and editing C# (you can author game code directly — don't hand it 
 ### Claude Code integration
 
 This server is built for Claude Code specifically and leans on MCP features Claude Code surfaces natively:
+- **Server instructions** (`SERVER_INSTRUCTIONS` in `packages/mcp-server/src/instructions.ts`) — sent to Claude Code on connect, so the agent learns the toolset + canonical workflows *in the user's Unity project* (where there's no wazzicode CLAUDE.md). This is what lets the user "just write prompts" and trust the agent knows the tools. A test asserts every tool it names actually exists.
 - **Tool annotations** — every tool advertises `readOnlyHint`/`destructiveHint`/`idempotentHint`, so read-only tools (orient, inspect, find, capture, reflect) can be auto-approved while hard-to-undo writes (script edits, `unity_execute_code`, menu items, saves) are flagged. Additive, Undo-wrapped scene edits are intentionally *not* marked destructive.
-- **Slash commands (MCP prompts)** — `/mcp__unity-vibe-os__orient`, `…__diagnose_scene`, `…__verify`, `…__new_script`, `…__play_test`, `…__enable_autonomy` expand to the matching tool workflow.
+- **Slash commands (MCP prompts)** — `/mcp__unity-vibe-os__orient`, `…__diagnose_scene`, `…__analyze_scene`, `…__verify`, `…__new_script`, `…__play_test`, `…__enable_autonomy` expand to the matching tool workflow.
 - **`@`-mentionable resources** — `unity://project-brain`, `unity://conventions`, `unity://action-log`, and live `unity://scene-hierarchy` / `unity://console`.
 
 ### When the bridge is unavailable

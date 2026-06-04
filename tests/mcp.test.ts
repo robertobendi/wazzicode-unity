@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations, UNITY_PROMPTS, createServer, readSceneHierarchyResource, readConsoleResource, readActionLogResource } from "@uvibe/mcp-server";
+import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations, UNITY_PROMPTS, createServer, readSceneHierarchyResource, readConsoleResource, readActionLogResource, SERVER_INSTRUCTIONS } from "@uvibe/mcp-server";
 import type { BridgeMethod, BridgeResponse } from "@uvibe/core";
 import type { BridgeClient } from "@uvibe/mcp-server";
 
@@ -137,6 +137,25 @@ describe("mcp-server/tool annotations", () => {
   it("treats batch and play-mode tools as mutating (not read-only)", () => {
     expect(toolAnnotations(allTools.find((t) => t.name === "unity_batch")!).readOnlyHint).toBe(false);
     expect(toolAnnotations(allTools.find((t) => t.name === "unity_enter_play_mode")!).readOnlyHint).toBe(false);
+  });
+});
+
+describe("mcp-server/instructions", () => {
+  it("ships a server-instructions primer that names the core workflow tools", () => {
+    expect(SERVER_INSTRUCTIONS.length).toBeGreaterThan(400);
+    for (const t of ["unity_orient", "unity_reflect", "unity_verify", "unity_manage_tools"]) {
+      expect(SERVER_INSTRUCTIONS, t).toContain(t);
+    }
+  });
+
+  it("every tool named in the instructions actually exists", () => {
+    const names = new Set(allTools.map((t) => t.name));
+    const referenced = SERVER_INSTRUCTIONS.match(/unity_[a-z_]+/g) ?? [];
+    for (const name of referenced) {
+      // Strip trailing underscores from prose, then check membership.
+      const clean = name.replace(/_+$/, "");
+      expect(names.has(clean), `instructions reference unknown tool ${clean}`).toBe(true);
+    }
   });
 });
 

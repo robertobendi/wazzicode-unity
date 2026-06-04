@@ -8,7 +8,6 @@ export type SafetyMode = z.infer<typeof SafetyModeSchema>;
 
 export const UVibeConfigSchema = z.object({
   safetyMode: SafetyModeSchema.default("read_only"),
-  maxLoopIterations: z.number().int().min(1).max(50).default(5),
   allowSceneWrites: z.boolean().default(false),
   allowPrefabWrites: z.boolean().default(false),
   allowScriptWrites: z.boolean().default(true),
@@ -25,7 +24,6 @@ export const UVibeConfigSchema = z.object({
   unityProjectPath: z.string().default("."),
   mcpPort: z.number().int().default(DEFAULT_MCP_PORT),
   bridgePort: z.number().int().default(DEFAULT_BRIDGE_PORT),
-  enableDashboard: z.boolean().default(false),
   mockMode: z.boolean().default(false),
 });
 

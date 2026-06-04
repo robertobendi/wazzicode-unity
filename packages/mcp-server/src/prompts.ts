@@ -29,6 +29,12 @@ export const UNITY_PROMPTS: UnityPrompt[] = [
       "Diagnose why the current scene/prefab might be broken. Run `unity_find_missing_scripts` and `unity_find_missing_references`, then summarize each missing script and dangling reference (object path, component, field) and the most likely fix. Use `unity_find_references`/`unity_find_dependencies` to trace anything before suggesting a rename or delete. Don't change anything yet — just report.",
   },
   {
+    name: "analyze_scene",
+    config: { title: "Analyze the current scene", description: "Review the scene for issues and optimization opportunities." },
+    build: () =>
+      "Analyze the current Unity scene and report issues + optimization opportunities. Inspect structure with `unity_get_scene_hierarchy`; find broken links with `unity_find_missing_scripts` and `unity_find_missing_references`; for performance, read `unity_get_performance_stats` (enter play mode first if needed — draw calls, batches, GC alloc, FPS). Then give a prioritized report: structural problems, missing/dangling references, and performance concerns, each with a concrete fix ranked by impact. Don't change anything yet — propose, and ask before applying.",
+  },
+  {
     name: "verify",
     config: { title: "Verify the latest changes", description: "Run the compile → console → tests verdict." },
     build: () =>
