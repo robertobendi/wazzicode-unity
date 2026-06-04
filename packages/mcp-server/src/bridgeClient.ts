@@ -23,6 +23,11 @@ export interface HttpBridgeOptions {
   host?: string;
   /** Explicit port. When set, discovery is skipped (used by tests and manual overrides). */
   port?: number;
+  /**
+   * Force a single timeout for every call, overriding the per-method budget. Mainly for tests
+   * (e.g. timeoutMs:500 against an unbound port). In normal operation leave this unset so each
+   * method gets a budget that matches what the Unity side actually allows it (see timeoutForMethod).
+   */
   timeoutMs?: number;
   /**
    * Project root. When set (and no explicit port given), the client reads
@@ -30,6 +35,38 @@ export interface HttpBridgeOptions {
    * talking to the right Unity Editor instance.
    */
   projectPath?: string;
+}
+
+/**
+ * Per-method client-side timeout, in milliseconds. The Unity bridge gives each method its own
+ * main-thread budget (BridgeServer.TimeoutFor) — up to 120s for asset-graph scans and 60s for
+ * play-mode transitions — and returns its own BRIDGE_TIMEOUT at that budget. A flat 5s client
+ * timeout would abort those calls long before Unity finished, so we mirror the server budgets
+ * here with a few seconds of network slack on top. Anything not listed gets a safe default.
+ */
+const METHOD_TIMEOUT_MS: Record<string, number> = {
+  // Asset / reference-graph scans walk the whole AssetDatabase.
+  "asset.findReferences": 125_000,
+  "asset.findDependencies": 125_000,
+  "asset.findMissingScripts": 125_000,
+  "asset.findMissingReferences": 125_000,
+  // Play-mode transitions trigger a domain reload / scene (un)load.
+  "playmode.enter": 65_000,
+  "playmode.exit": 65_000,
+  // Test runner kicks off an async job; the polling tool calls these repeatedly.
+  "test.run": 35_000,
+  "test.status": 35_000,
+  // Script edits and in-Editor code execution can trigger an import / compile.
+  "script.create": 40_000,
+  "script.applyEdits": 40_000,
+  "script.applyStructuredEdits": 40_000,
+  "code.execute": 60_000,
+};
+
+const DEFAULT_TIMEOUT_MS = 20_000;
+
+export function timeoutForMethod(method: string): number {
+  return METHOD_TIMEOUT_MS[method] ?? DEFAULT_TIMEOUT_MS;
 }
 
 function readDiscovery(projectPath: string): BridgeDiscovery | null {
@@ -56,7 +93,9 @@ function readDiscovery(projectPath: string): BridgeDiscovery | null {
 export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClient {
   const explicitPort = opts.port;
   const projectPath = opts.projectPath;
-  const timeoutMs = opts.timeoutMs ?? 5000;
+  // An explicit timeoutMs forces one budget for every call (tests). Otherwise each method gets
+  // its own budget via timeoutForMethod, resolved per call below.
+  const forcedTimeoutMs = opts.timeoutMs;
 
   // One keep-alive agent per client: the MCP server makes a steady stream of small RPC calls to
   // the same localhost bridge, so reusing TCP connections removes a connect/handshake per call.
@@ -90,6 +129,7 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
     const body = makeBridgeRequest(method, params);
     const payload = JSON.stringify(body);
     const t = target();
+    const timeoutMs = forcedTimeoutMs ?? timeoutForMethod(method);
 
     return new Promise<BridgeResponse<T>>((resolve) => {
       let settled = false;

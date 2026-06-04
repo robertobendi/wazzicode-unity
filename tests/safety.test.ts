@@ -57,6 +57,16 @@ describe("safety/policy", () => {
     expect(writeTargetOf("unity_get_animator_state")).toBeUndefined();
   });
 
+  it("asset writes need allowAssetWrites", () => {
+    // Default config has allowAssetWrites=true, so asset creation is allowed under autopilot.
+    expect(gateTool(cfg({ safetyMode: "autopilot" }), "unity_create_material").allowed).toBe(true);
+    // Turning it off blocks asset creation even in autopilot.
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowAssetWrites: false }), "unity_create_material").allowed).toBe(false);
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowAssetWrites: false }), "unity_import_asset").allowed).toBe(false);
+    // read_only blocks regardless.
+    expect(gateTool(cfg({ safetyMode: "read_only", allowAssetWrites: true }), "unity_create_material").allowed).toBe(false);
+  });
+
   it("editor menu execution needs allowMenuItems", () => {
     expect(gateTool(cfg({ safetyMode: "autopilot", allowMenuItems: false }), "unity_execute_menu_item").allowed).toBe(false);
     expect(gateTool(cfg({ safetyMode: "autopilot", allowMenuItems: true }), "unity_execute_menu_item").allowed).toBe(true);

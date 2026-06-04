@@ -12,6 +12,8 @@ export const UVibeConfigSchema = z.object({
   allowSceneWrites: z.boolean().default(false),
   allowPrefabWrites: z.boolean().default(false),
   allowScriptWrites: z.boolean().default(true),
+  /** Asset creation/import (materials, ScriptableObjects, sprites, generated C# files on disk). */
+  allowAssetWrites: z.boolean().default(true),
   /** unity_execute_menu_item is a generic Editor escape hatch; off unless explicitly enabled. */
   allowMenuItems: z.boolean().default(false),
   /** Exact menu paths unity_execute_menu_item may run (e.g. "Assets/Refresh"). Empty = none. */

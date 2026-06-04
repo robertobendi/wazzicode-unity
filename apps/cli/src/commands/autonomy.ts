@@ -24,6 +24,7 @@ export async function runAutonomy(g: GlobalOptions, parsed: ParsedArgs): Promise
       allowSceneWrites: true,
       allowPrefabWrites: true,
       allowScriptWrites: true,
+      allowAssetWrites: true,
       autoSnapshot: true,
     };
   } else if (mode === "off") {
@@ -50,6 +51,7 @@ function report(g: GlobalOptions, cfg: UVibeConfig, title: string): CommandResul
             allowSceneWrites: cfg.allowSceneWrites,
             allowPrefabWrites: cfg.allowPrefabWrites,
             allowScriptWrites: cfg.allowScriptWrites,
+            allowAssetWrites: cfg.allowAssetWrites,
             allowMenuItems: cfg.allowMenuItems,
             autoSnapshot: cfg.autoSnapshot,
           },
@@ -65,6 +67,7 @@ function report(g: GlobalOptions, cfg: UVibeConfig, title: string): CommandResul
     `  allowSceneWrites:  ${cfg.allowSceneWrites}`,
     `  allowPrefabWrites: ${cfg.allowPrefabWrites}`,
     `  allowScriptWrites: ${cfg.allowScriptWrites}`,
+    `  allowAssetWrites:  ${cfg.allowAssetWrites}`,
     `  allowMenuItems:    ${cfg.allowMenuItems}  (enable separately; needs allowedMenuItems)`,
     `  autoSnapshot:      ${cfg.autoSnapshot}`,
     "",

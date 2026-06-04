@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createHttpBridgeClient } from "@uvibe/mcp-server";
+import { createHttpBridgeClient, timeoutForMethod } from "@uvibe/mcp-server";
 import { BRIDGE_DISCOVERY_REL } from "@uvibe/core";
 
 function makeProject(disco: Record<string, unknown>): string {
@@ -45,5 +45,23 @@ describe("reliability/bridge discovery + reload survival", () => {
     if (!res.ok) {
       expect(["UNITY_NOT_CONNECTED", "BRIDGE_TIMEOUT"]).toContain(res.error.code);
     }
+  });
+});
+
+describe("reliability/per-method timeouts", () => {
+  it("gives slow methods a budget that exceeds the Unity-side main-thread budget", () => {
+    // Asset-graph scans get 120s on the Unity side; the client must wait longer, not abort at 5s.
+    expect(timeoutForMethod("asset.findReferences")).toBeGreaterThan(120_000);
+    expect(timeoutForMethod("asset.findDependencies")).toBeGreaterThan(120_000);
+    // Play-mode transitions get 60s on the Unity side.
+    expect(timeoutForMethod("playmode.enter")).toBeGreaterThan(60_000);
+    // In-Editor code execution can compile.
+    expect(timeoutForMethod("code.execute")).toBeGreaterThanOrEqual(60_000);
+  });
+
+  it("uses a safe default for ordinary fast reads", () => {
+    const fast = timeoutForMethod("scene.getHierarchy");
+    expect(fast).toBeGreaterThanOrEqual(15_000);
+    expect(fast).toBeLessThan(60_000);
   });
 });

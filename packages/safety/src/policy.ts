@@ -29,7 +29,6 @@ export const WRITE_TOOLS: Record<string, WriteTarget> = {
   unity_wire_ui_button: "scene",
   unity_clear_console: "console",
   unity_execute_menu_item: "editor",
-  unity_build_player: "build",
   unity_create_snapshot: "safety",
   unity_restore_snapshot: "safety",
   unity_revert_last_action: "safety",
@@ -94,6 +93,13 @@ export function gateWrite(config: UVibeConfig, toolName: string, target: WriteTa
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
           reason: `Script writes are disabled (allowScriptWrites=false in .unity-vibe/config.json).`,
+        };
+      }
+      if (target === "asset" && !config.allowAssetWrites) {
+        return {
+          allowed: false,
+          errorCode: "SAFETY_MODE_BLOCKED",
+          reason: `Asset writes are disabled (allowAssetWrites=false in .unity-vibe/config.json).`,
         };
       }
       if (target === "editor" && !config.allowMenuItems) {

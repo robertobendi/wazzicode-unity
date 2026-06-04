@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z, ZodRawShape } from "zod";
 import { PRODUCT_VERSION, ToolEnvelope, err } from "@uvibe/core";
-import { BridgeClient, createHttpBridgeClient, HttpBridgeOptions } from "./bridgeClient.js";
+import { BridgeClient, createHttpBridgeClient, HttpBridgeOptions, timeoutForMethod } from "./bridgeClient.js";
 import { createMockBridgeClient } from "./mockBridge.js";
 import { allTools } from "./tools/index.js";
 import { AnyToolDef, ToolContext } from "./registry.js";
@@ -107,6 +107,7 @@ export async function startMcpServer(opts: ServeOptions = {}): Promise<void> {
 export {
   createHttpBridgeClient,
   createMockBridgeClient,
+  timeoutForMethod,
   type BridgeClient,
   type HttpBridgeOptions,
 };
