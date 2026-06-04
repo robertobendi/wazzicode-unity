@@ -2,7 +2,7 @@
 
 **Make Claude Code see and edit your Unity project.**
 
-A local MCP server + Unity Editor package + project brain. Claude gets 11 tools, including 3 multimodal screenshots — it literally sees your Game and Scene views. Read-only by default. Everything runs on `127.0.0.1`.
+A local MCP server + Unity Editor package + project brain. Claude Code gets **60+ live `unity_*` tools** — inspect scenes, **write & verify C#**, run play mode, edit prefabs, and literally **see** your Game and Scene views via real screenshots. Read-only by default; writes are opt-in, Undo-able, and action-logged. Everything runs on `127.0.0.1`.
 
 ---
 
@@ -52,6 +52,10 @@ Inspect the selected object, capture it, and suggest three improvements.
 ```
 
 ```
+Write a PlayerController that moves with WASD and jumps. Verify it compiles and passes tests.
+```
+
+```
 Generate the project brain so future Claude sessions understand this game.
 ```
 
@@ -92,7 +96,7 @@ Handy in-session shortcuts: slash commands `/mcp__unity-vibe-os__orient | analyz
 Run `uvibe doctor` and tell me if anything is red.
 ```
 ```
-Run `uvibe verify --mock` to confirm all 10 MVP tools are wired without Unity.
+Run `uvibe verify --mock` to confirm the tools are wired without Unity.
 ```
 
 ### After a `git pull` of this repo
@@ -108,25 +112,33 @@ Compile, then check console for warnings/errors. Summarize anything new.
 Show me the scene view. What's wrong with the framing?
 ```
 ```
-List the prefabs in this project that depend on the WeaponData ScriptableObject.
-(Note: ScriptableObject deep-inspect tools land in a future phase; for now Claude
-will use unity_inspect_selected + filesystem search.)
+List the prefabs and scenes that depend on the WeaponData ScriptableObject.
+```
+```
+Refactor the TakeDamage method in @Assets/Scripts/Health.cs to clamp at zero, then verify.
+```
+```
+Enter play mode, press jump a few times, capture the game view, and tell me if it feels right.
 ```
 
 ---
 
 ## 🛠 What ships
 
-- **MCP server** with **11 tools**, three of them multimodal screenshots:
-  `unity_project_summary`, `unity_get_open_scenes`, `unity_get_scene_hierarchy`,
-  `unity_inspect_selected`, `unity_get_console_logs`, `unity_wait_for_compile`,
-  `unity_check_git_status`, `unity_generate_project_brain`,
-  **`unity_capture_game_view`**, **`unity_capture_scene_view`**, **`unity_capture_selected`**.
-- **Unity Editor package** (`unity/UnityVibeOS`) — localhost HTTP JSON-RPC bridge, scene/selection inspectors, console capture, compile watcher, screenshot capture.
-- **CLI** (`uvibe`) — `setup`, `init`, `serve`, `brain`, `doctor`, `verify`, `mcp-config`, `install-unity-package`.
+- **MCP server** with **63 tools** across groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`):
+  - **Orientation & inspection** — `unity_orient` (one-call status), `unity_get_scene_hierarchy`, `unity_inspect_selected`, `unity_get_console_logs`, `unity_wait_for_compile`, `unity_check_git_status`.
+  - **See it** — multimodal screenshots `unity_capture_game_view` / `unity_capture_scene_view` / `unity_capture_selected` / `unity_capture_editor_window` return real images.
+  - **Write & edit C#** — `unity_read_script`, `unity_find_in_file`, `unity_create_script`, `unity_apply_text_edits`, `unity_script_edit`; verify with `unity_verify` (compile → console → tests in one call).
+  - **Don't hallucinate APIs** — `unity_reflect` (live type system of *your* Unity + packages) and `unity_docs`.
+  - **Build scenes/prefabs** — create GameObjects, add components, set/assign fields, transforms, instantiate prefabs, paint tilemaps, prefab mode, wire UI buttons, materials/ScriptableObjects — 24 gated write tools, each Undo-able and logged. `unity_batch` bundles a multi-step plan into one call.
+  - **Play mode & runtime** — enter/exit/step, inspect runtime objects, simulate input, drive the Animator, read performance stats.
+  - **Power tools** — `unity_execute_code` (run C# in the Editor, opt-in) and `unity_manage_tools` (toggle tool groups live).
+- **Claude Code native** — server instructions teach the toolset on connect, MCP slash commands (`/mcp__unity-vibe-os__orient | analyze_scene | diagnose_scene | verify | new_script | play_test`), `@`-mentionable resources (`unity://project-brain | conventions | action-log | scene-hierarchy | console`), and tool annotations so reads auto-run and risky writes are flagged.
+- **Unity Editor package** (`unity/UnityVibeOS`) — localhost HTTP JSON-RPC bridge, scene/selection inspectors, console + compile watch, screenshots, scene/prefab/asset mutators, script editor, reflection, in-Editor C# execution, test runner, play-mode control. Survives domain reloads; keeps working when the Editor is unfocused.
+- **CLI** (`uvibe`) — `setup`, `init`, `serve`, `brain`, `doctor`, `verify`, `mcp-config`, `autonomy`, `install-unity-package`, `gsd-auto`.
 - **Project brain** — filesystem scan (no Unity needed) → `.unity-vibe/project_brain.{md,json}`, `claude_context.md`, `conventions.md`, `config.json`.
-- **Mock bridge** — every MCP tool, including screenshots, works without Unity for testing.
-- **Safety layer** — read-only by default; snapshot + action-log primitives ready for write tools (not yet exposed).
+- **Mock bridge** — every MCP tool works without Unity for testing.
+- **Safety layer** — read-only by default; one-command `uvibe autonomy on` flips on writes (autopilot + Undo + autoSnapshot + action log). Per-target flags: `allowScene/Prefab/Asset/ScriptWrites`, `allowMenuItems`, `allowCodeExecution`.
 
 ---
 
@@ -151,9 +163,10 @@ Common fixes:
 bootstrap.mjs              one-command install
 apps/cli/                  uvibe CLI (TypeScript)
 packages/core/             protocol, schemas, errors, envelope
-packages/mcp-server/       MCP server, bridge client, mock bridge, 11 tools
+packages/mcp-server/       MCP server, bridge client, mock bridge, 63 tools,
+                           tool groups, annotations, prompts, resources, instructions
 packages/project-brain/    Unity-project detector + brain generator
-packages/safety/           config, safety mode, snapshot+action-log primitives
+packages/safety/           config, safety modes + per-target gates, snapshot + action log
 unity/UnityVibeOS/         Unity Editor package (C#) — installs in Unity projects
 docs/                      architecture, MCP tools, Unity package, safety, manual checklist
 .planning/                 plan/phases/status/verify/decisions (GSD-style)
@@ -181,10 +194,11 @@ INSTALL.md                 install detail (prerequisites, flags, uninstall)
 
 ## 📊 Status
 
-- ✅ Vertical slice green: 32/32 vitest, end-to-end MCP exchange verified against the mock bridge, multimodal images decoded and rendered.
+- ✅ **67/67 vitest** green — registry, safety gates, tool groups, annotations, prompts, resources, server instructions, and end-to-end MCP exchange against the mock bridge (multimodal images decoded and rendered).
+- ✅ Shipped: full inspection, **C# script editing + `unity_verify`**, **`unity_reflect`/`unity_docs`**, scene/prefab/asset writes (gated, Undo-able), play-mode/runtime, screenshots, tool groups, Claude-Code-native slash commands/resources/annotations, one-command `uvibe autonomy on`.
 - ✅ One-command install: `bootstrap.mjs` → idempotent, per-project `.mcp.json` with absolute paths, marker-delimited `CLAUDE.md` block.
-- ⚠ The Unity Editor package compiles against documented Editor APIs but **runtime verification requires opening the package inside a Unity Editor**. See [`docs/UNITY_MANUAL_TEST_CHECKLIST.md`](docs/UNITY_MANUAL_TEST_CHECKLIST.md).
-- 🚧 Diagnostics, runtime/play-mode, write tools, dashboard, and `uvibe loop` are planned — see `.planning/ROADMAP.md`.
+- ⚠ The TypeScript/MCP layer is fully tested here, but the **Unity Editor C# package must be compiled inside a Unity Editor to runtime-verify** — especially the newer `ScriptEditor` / `CodeExecutor` / `ReflectionBridge`. See [`docs/UNITY_MANUAL_TEST_CHECKLIST.md`](docs/UNITY_MANUAL_TEST_CHECKLIST.md).
+- 🚧 Broader domains (physics, VFX, ProBuilder, UI Toolkit, profiler) are out of scope for now — see `.planning/ROADMAP.md`.
 
 ## License
 
