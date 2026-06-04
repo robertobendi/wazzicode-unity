@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf } from "@uvibe/mcp-server";
+import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations } from "@uvibe/mcp-server";
 import type { BridgeMethod, BridgeResponse } from "@uvibe/core";
 import type { BridgeClient } from "@uvibe/mcp-server";
 
@@ -108,6 +108,35 @@ describe("mcp-server/registry", () => {
     for (const t of allTools) {
       if (t.write) expect(t.writeTarget).toBeDefined();
     }
+  });
+});
+
+describe("mcp-server/tool annotations", () => {
+  it("marks every non-write tool readOnly and every write tool not-readOnly", () => {
+    for (const tool of allTools) {
+      const a = toolAnnotations(tool);
+      if (tool.write) {
+        expect(a.readOnlyHint, tool.name).toBe(false);
+      }
+    }
+    // A pure read tool is read-only; a Unity write is not.
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_get_scene_hierarchy")!).readOnlyHint).toBe(true);
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_set_serialized_field")!).readOnlyHint).toBe(false);
+  });
+
+  it("flags hard-to-undo writes destructive and additive scene edits non-destructive", () => {
+    const destructive = toolAnnotations(allTools.find((t) => t.name === "unity_script_edit")!);
+    expect(destructive.destructiveHint).toBe(true);
+    const additive = toolAnnotations(allTools.find((t) => t.name === "unity_create_gameobject")!);
+    expect(additive.destructiveHint).toBe(false);
+    // execute_code is destructive; docs touches the network.
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_execute_code")!).destructiveHint).toBe(true);
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_docs")!).openWorldHint).toBe(true);
+  });
+
+  it("treats batch and play-mode tools as mutating (not read-only)", () => {
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_batch")!).readOnlyHint).toBe(false);
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_enter_play_mode")!).readOnlyHint).toBe(false);
   });
 });
 

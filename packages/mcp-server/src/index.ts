@@ -8,6 +8,7 @@ import { allTools } from "./tools/index.js";
 import { AnyToolDef, ToolContext } from "./registry.js";
 import { executeTool } from "./execute.js";
 import { ToolGroupController, defaultActiveGroups } from "./groups.js";
+import { toolAnnotations } from "./annotations.js";
 
 type McpContent =
   | { type: "text"; text: string }
@@ -77,6 +78,7 @@ export function createServer(ctx: ToolContext): McpServer {
       {
         description: tool.description,
         inputSchema: tool.inputShape as ZodRawShape,
+        annotations: toolAnnotations(tool as AnyToolDef),
       },
       async (rawArgs: unknown) => {
         try {
@@ -121,3 +123,4 @@ export {
 export { allTools } from "./tools/index.js";
 export type { ToolContext, ToolDef } from "./registry.js";
 export { ToolGroupController, defaultActiveGroups, groupOf, isKnownGroup, TOOL_GROUPS } from "./groups.js";
+export { toolAnnotations, type ToolAnnotations } from "./annotations.js";
