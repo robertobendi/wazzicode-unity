@@ -14,7 +14,13 @@ const SetFieldShape = {
   field: z.string().describe("Serialized property path, e.g. 'm_Mass' or 'moveSpeed'."),
   value: z
     .unknown()
-    .describe("New value. Primitives for int/float/bool/string/enum; {x,y,z} for vectors; {path|guid} for object references."),
+    .describe(
+      "New value, shaped to the field type. Primitives for int/float/bool/string; enum name or index for enums; " +
+        "{x,y,z}/{r,g,b,a}/{x,y,z,w} (or positional arrays) for vectors/colors; {x,y,z} euler or {x,y,z,w} for quaternions; " +
+        "{x,y} / {x,y,z} for int-vectors; {x,y,width,height} for Rect/RectInt; {center,size} for Bounds, {position,size} for BoundsInt; " +
+        "a layer name, array of layer names, or bitmask for LayerMask; {path|guid} for object references. " +
+        "Custom serializable structs take a nested object keyed by sub-field names; arrays/lists take a JSON array (recursively)."
+    ),
   instanceId: z.number().int().optional().describe("Target by instanceId (preferred)."),
   path: z.string().optional().describe("Target by hierarchy path; falls back to current selection if neither given."),
 };

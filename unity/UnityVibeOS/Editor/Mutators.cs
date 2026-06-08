@@ -451,18 +451,23 @@ namespace UnityVibeOS
             switch (prop.propertyType)
             {
                 case SerializedPropertyType.Integer:
+                    RequireScalar(value, prop);
                     prop.intValue = (int)Convert.ToInt64(value);
                     break;
                 case SerializedPropertyType.Boolean:
+                    RequireScalar(value, prop);
                     prop.boolValue = Convert.ToBoolean(value);
                     break;
                 case SerializedPropertyType.Float:
+                    RequireScalar(value, prop);
                     prop.floatValue = (float)Convert.ToDouble(value);
                     break;
                 case SerializedPropertyType.String:
+                    RequireScalar(value, prop);
                     prop.stringValue = value?.ToString() ?? "";
                     break;
                 case SerializedPropertyType.Enum:
+                    RequireScalar(value, prop);
                     if (value is string es)
                     {
                         int idx = Array.IndexOf(prop.enumNames, es);
@@ -491,9 +496,108 @@ namespace UnityVibeOS
                 case SerializedPropertyType.ObjectReference:
                     prop.objectReferenceValue = ResolveObjectReference(value);
                     break;
+                case SerializedPropertyType.Quaternion:
+                    RequireVectorValue(value, prop, "{x,y,z,w} or {x,y,z} euler");
+                    // Accept a full quaternion {x,y,z,w} or, more conveniently, euler angles {x,y,z}.
+                    prop.quaternionValue = HasComp(value, "w", 3)
+                        ? new Quaternion(C(value, "x", 0), C(value, "y", 1), C(value, "z", 2), C(value, "w", 3))
+                        : Quaternion.Euler(C(value, "x", 0), C(value, "y", 1), C(value, "z", 2));
+                    break;
+                case SerializedPropertyType.Vector2Int:
+                    RequireVectorValue(value, prop, "{x,y}");
+                    prop.vector2IntValue = new Vector2Int(Ci(value, "x", 0), Ci(value, "y", 1));
+                    break;
+                case SerializedPropertyType.Vector3Int:
+                    RequireVectorValue(value, prop, "{x,y,z}");
+                    prop.vector3IntValue = new Vector3Int(Ci(value, "x", 0), Ci(value, "y", 1), Ci(value, "z", 2));
+                    break;
+                case SerializedPropertyType.Rect:
+                    RequireVectorValue(value, prop, "{x,y,width,height}");
+                    prop.rectValue = new Rect(C(value, "x", 0), C(value, "y", 1), C(value, "width", 2), C(value, "height", 3));
+                    break;
+                case SerializedPropertyType.RectInt:
+                    RequireVectorValue(value, prop, "{x,y,width,height}");
+                    prop.rectIntValue = new RectInt(Ci(value, "x", 0), Ci(value, "y", 1), Ci(value, "width", 2), Ci(value, "height", 3));
+                    break;
+                case SerializedPropertyType.Bounds:
+                    prop.boundsValue = new Bounds(Vec3Of(Sub(value, "center", prop)), Vec3Of(Sub(value, "size", prop)));
+                    break;
+                case SerializedPropertyType.BoundsInt:
+                    prop.boundsIntValue = new BoundsInt(Vec3IntOf(Sub(value, "position", prop)), Vec3IntOf(Sub(value, "size", prop)));
+                    break;
+                case SerializedPropertyType.LayerMask:
+                    prop.intValue = ResolveLayerMask(value);
+                    break;
+                case SerializedPropertyType.Character:
+                    RequireScalar(value, prop);
+                    prop.intValue = value is string cs && cs.Length > 0 ? cs[0] : (int)Convert.ToInt64(value);
+                    break;
+                case SerializedPropertyType.Generic:
+                    // Arrays/lists and custom serializable structs/classes. Recurse so nested
+                    // structs and object-valued fields work, e.g. {min:{x,y,z}, max:{x,y,z}} or [1,2,3].
+                    SetGenericValue(prop, value);
+                    break;
                 default:
-                    throw Invalid($"Setting fields of type {prop.propertyType} is not supported yet.");
+                    throw Invalid($"Setting fields of type {prop.propertyType} is not supported. Supported: " +
+                                  "int, float, bool, string, enum, Vector2/3/4, Vector2Int/3Int, Color, Quaternion, " +
+                                  "Rect, RectInt, Bounds, BoundsInt, LayerMask, Character, object references, " +
+                                  "and custom structs/arrays (nested objects/arrays).");
             }
+        }
+
+        // Upper bound on array elements written in one call — guards against a malformed value
+        // resizing an array to something huge and stalling the Editor.
+        const int MaxArrayElements = 8192;
+
+        // A "Generic" serialized property is either an array/list or a custom serializable
+        // struct/class. Recurse into it so object- and array-valued fields are settable:
+        // arrays take a JSON array, structs take a JSON object keyed by their sub-field names.
+        static void SetGenericValue(SerializedProperty prop, object value)
+        {
+            if (prop.isArray)
+            {
+                if (!(value is List<object> list))
+                    throw Invalid($"Field '{prop.name}' is an array; expected a JSON array, " +
+                                  $"got {(value == null ? "null" : value.GetType().Name)}.");
+                if (list.Count > MaxArrayElements)
+                    throw Invalid($"Array for '{prop.name}' has {list.Count} elements; max is {MaxArrayElements}.");
+                prop.arraySize = list.Count;
+                for (int i = 0; i < list.Count; i++)
+                    SetPropertyValue(prop.GetArrayElementAtIndex(i), list[i]);
+                return;
+            }
+
+            if (!(value is Dictionary<string, object> dict))
+                throw Invalid($"Field '{prop.name}' is a struct; expected a JSON object of its sub-fields, " +
+                              $"got {(value == null ? "null" : value.GetType().Name)}.");
+            foreach (var kv in dict)
+            {
+                var child = prop.FindPropertyRelative(kv.Key);
+                if (child == null)
+                    throw Invalid($"Struct field '{prop.name}' has no sub-field '{kv.Key}'.");
+                SetPropertyValue(child, kv.Value);
+            }
+        }
+
+        // Resolve a LayerMask value: a bitmask number, a single layer name, or an array of
+        // layer names OR'd together. Unknown names are reported rather than silently dropped.
+        static int ResolveLayerMask(object value)
+        {
+            if (value is string name) return 1 << RequireLayer(name);
+            if (value is List<object> names)
+            {
+                int mask = 0;
+                foreach (var n in names) mask |= 1 << RequireLayer(n?.ToString());
+                return mask;
+            }
+            return (int)Convert.ToInt64(value);
+        }
+
+        static int RequireLayer(string name)
+        {
+            int layer = LayerMask.NameToLayer(name);
+            if (layer < 0) throw Invalid($"Layer '{name}' does not exist.");
+            return layer;
         }
 
         static UnityEngine.Object ResolveObjectReference(object value)
@@ -538,6 +642,26 @@ namespace UnityVibeOS
             return 0f;
         }
 
+        // Integer-component variant of C() for Vector2Int/Vector3Int/RectInt etc.
+        static int Ci(object value, string key, int index)
+        {
+            if (value is Dictionary<string, object> d && d.TryGetValue(key, out var v) && v != null)
+                return (int)Convert.ToInt64(v);
+            if (value is List<object> a && index < a.Count && a[index] != null)
+                return (int)Convert.ToInt64(a[index]);
+            return 0;
+        }
+
+        static Vector3 Vec3Of(object v) => new Vector3(C(v, "x", 0), C(v, "y", 1), C(v, "z", 2));
+        static Vector3Int Vec3IntOf(object v) => new Vector3Int(Ci(v, "x", 0), Ci(v, "y", 1), Ci(v, "z", 2));
+
+        // Pull a required sub-object (e.g. a Bounds' "center"/"size") out of a JSON object value.
+        static object Sub(object value, string key, SerializedProperty prop)
+        {
+            if (value is Dictionary<string, object> d && d.TryGetValue(key, out var v) && v != null) return v;
+            throw Invalid($"Field '{prop.name}' is a {prop.propertyType}; expected an object with a '{key}' sub-object.");
+        }
+
         static bool HasComp(object value, string key, int index)
             => (value is Dictionary<string, object> d && d.ContainsKey(key))
                || (value is List<object> a && index < a.Count);
@@ -550,6 +674,16 @@ namespace UnityVibeOS
             if (value is Dictionary<string, object> || value is List<object>) return;
             throw Invalid($"Field '{prop.name}' is a {prop.propertyType}; expected an object {shape} or array, " +
                           $"got {(value == null ? "null" : value.GetType().Name)}.");
+        }
+
+        // Mirror of RequireVectorValue for scalar fields: reject an object/array sent to a
+        // primitive field with a clear message, rather than a raw cast exception (int/float/enum)
+        // or a silently stringified dictionary (string). The actual conversion follows.
+        static void RequireScalar(object value, SerializedProperty prop)
+        {
+            if (!(value is Dictionary<string, object>) && !(value is List<object>)) return;
+            throw Invalid($"Field '{prop.name}' is a {prop.propertyType}; expected a primitive value, " +
+                          $"got a JSON {(value is List<object> ? "array" : "object")}.");
         }
 
         static string Str(IDictionary<string, object> p, string key)

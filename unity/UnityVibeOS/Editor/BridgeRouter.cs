@@ -272,6 +272,11 @@ namespace UnityVibeOS
         {
             if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
             if (v is bool b) return b;
+            // Tolerate a bool that arrived JSON-encoded as a string ("true") or number (1/0).
+            if (v is string s && bool.TryParse(s, out var parsed)) return parsed;
+            if (v is long l) return l != 0;
+            if (v is int i) return i != 0;
+            if (v is double d) return d != 0;
             return def;
         }
 

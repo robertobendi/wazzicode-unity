@@ -43,6 +43,7 @@ namespace UnityVibeOS
                 case SerializedPropertyType.Float:
                     return (double)p.floatValue;
                 case SerializedPropertyType.String: return p.stringValue;
+                case SerializedPropertyType.Character: return ((char)p.intValue).ToString();
                 case SerializedPropertyType.Color:
                     var c = p.colorValue;
                     return new Dictionary<string, object>
@@ -89,6 +90,27 @@ namespace UnityVibeOS
                             { { "x", (double)p.boundsValue.center.x }, { "y", (double)p.boundsValue.center.y }, { "z", (double)p.boundsValue.center.z } } },
                         { "size", new Dictionary<string, object>
                             { { "x", (double)p.boundsValue.size.x }, { "y", (double)p.boundsValue.size.y }, { "z", (double)p.boundsValue.size.z } } }
+                    };
+                case SerializedPropertyType.Vector2Int:
+                    return new Dictionary<string, object> { { "x", p.vector2IntValue.x }, { "y", p.vector2IntValue.y } };
+                case SerializedPropertyType.Vector3Int:
+                    return new Dictionary<string, object>
+                    {
+                        { "x", p.vector3IntValue.x }, { "y", p.vector3IntValue.y }, { "z", p.vector3IntValue.z }
+                    };
+                case SerializedPropertyType.RectInt:
+                    return new Dictionary<string, object>
+                    {
+                        { "x", p.rectIntValue.x }, { "y", p.rectIntValue.y },
+                        { "width", p.rectIntValue.width }, { "height", p.rectIntValue.height }
+                    };
+                case SerializedPropertyType.BoundsInt:
+                    return new Dictionary<string, object>
+                    {
+                        { "position", new Dictionary<string, object>
+                            { { "x", p.boundsIntValue.position.x }, { "y", p.boundsIntValue.position.y }, { "z", p.boundsIntValue.position.z } } },
+                        { "size", new Dictionary<string, object>
+                            { { "x", p.boundsIntValue.size.x }, { "y", p.boundsIntValue.size.y }, { "z", p.boundsIntValue.size.z } } }
                     };
                 case SerializedPropertyType.LayerMask: return p.intValue;
                 case SerializedPropertyType.AnimationCurve: return "<AnimationCurve>";
