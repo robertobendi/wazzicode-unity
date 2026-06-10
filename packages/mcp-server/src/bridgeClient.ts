@@ -53,6 +53,12 @@ const METHOD_TIMEOUT_MS: Record<string, number> = {
   // Play-mode transitions trigger a domain reload / scene (un)load.
   "playmode.enter": 65_000,
   "playmode.exit": 65_000,
+  // Long-poll awaits hold the HTTP request open server-side for up to 25s per round.
+  "compile.await": 30_000,
+  "playmode.await": 30_000,
+  "test.await": 30_000,
+  // Multi-frame stepping long-polls in the same way.
+  "playmode.step": 30_000,
   // Test runner kicks off an async job; the polling tool calls these repeatedly.
   "test.run": 35_000,
   "test.status": 35_000,

@@ -22,14 +22,28 @@ namespace UnityVibeOS
         const string StateKey = "UnityVibeOS.testRun";
         static readonly TestRunnerApi Api;
 
+        /// <summary>
+        /// Thread-safe mirror of "a run is in flight", read by the bridge's test.await long-poll
+        /// probe on the HTTP thread. Re-hydrated from SessionState after the domain reloads that
+        /// PlayMode runs trigger mid-run.
+        /// </summary>
+        static volatile bool RunActive;
+
         static TestRunnerBridge()
         {
             Api = ScriptableObject.CreateInstance<TestRunnerApi>();
             Api.RegisterCallbacks(new Collector());
 
+            var raw = SessionState.GetString(StateKey, null);
+            RunActive = !string.IsNullOrEmpty(raw)
+                && MiniJson.Deserialize(raw) is Dictionary<string, object> persisted
+                && persisted.TryGetValue("state", out var st)
+                && (st as string) == "running";
+
             BridgeRouter.Register("test.run", Run);
             BridgeRouter.Register("test.status", Status);
             BridgeRouter.Register("test.cancel", Cancel);
+            BridgeServer.RegisterAwait("test.await", _ => !RunActive, "test.status");
         }
 
         static object Run(IDictionary<string, object> p)
@@ -49,6 +63,7 @@ namespace UnityVibeOS
                 { "passed", 0 }, { "failed", 0 }, { "skipped", 0 }, { "total", 0 }
             };
             SessionState.SetString(StateKey, MiniJson.Serialize(state));
+            RunActive = true;
 
             var execFilter = new Filter { testMode = mode };
             if (!string.IsNullOrEmpty(filter)) execFilter.testNames = new[] { filter };
@@ -81,6 +96,7 @@ namespace UnityVibeOS
             {
                 s["state"] = "cancelled";
                 SessionState.SetString(StateKey, MiniJson.Serialize(s));
+                RunActive = false;
                 return s;
             }
             return new Dictionary<string, object> { { "state", "not_found" } };
@@ -114,6 +130,7 @@ namespace UnityVibeOS
                 state["durationSec"] = (double)result.Duration;
                 state["finishedAt"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 SessionState.SetString(StateKey, MiniJson.Serialize(state));
+                RunActive = false;
             }
 
             static void Flatten(ITestResultAdaptor node, List<object> outList, ref int passed, ref int failed, ref int skipped)

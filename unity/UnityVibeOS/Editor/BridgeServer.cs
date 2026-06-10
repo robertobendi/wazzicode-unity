@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -36,6 +37,17 @@ namespace UnityVibeOS
 
         static BridgeServer()
         {
+            // Built-in long-poll waits. These settle against EditorStateMirror (thread-safe),
+            // so the HTTP thread never touches Unity APIs while waiting.
+            RegisterAwait("compile.await", _ => !EditorStateMirror.IsCompiling, "compile.status");
+            RegisterAwait("playmode.await", p =>
+            {
+                bool wantPlaying = !string.Equals(GetParamString(p, "until", "playing"), "stopped", StringComparison.OrdinalIgnoreCase);
+                if (EditorStateMirror.IsTransitioning) return false;
+                return EditorStateMirror.IsPlaying == wantPlaying;
+            }, "playmode.status");
+            RegisterAwait("playmode.step", _ => PlayModeControl.StepsRemaining == 0, "playmode.stepStatus", beginMethod: "playmode.beginStep");
+
             // Defer to next editor tick so static-init order across the package is settled.
             EditorApplication.delayCall += () => { try { Start(); } catch (Exception e) { Debug.LogError($"[UnityVibeOS] bridge auto-start failed: {e}"); } };
             // On domain reload we only tear down the socket — the discovery file stays so the
@@ -271,67 +283,14 @@ namespace UnityVibeOS
                 }
 
                 long start = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                object result = null;
-                Exception captured = null;
-                var done = new ManualResetEventSlim(false);
-                MainThreadDispatcher.Enqueue(() =>
-                {
-                    try { result = BridgeRouter.Dispatch(method, p); }
-                    catch (Exception e) { captured = e; }
-                    finally { done.Set(); }
-                });
 
-                var budget = TimeoutFor(method);
-                if (!done.Wait(budget))
+                if (AwaitSpecs.TryGetValue(method, out var awaitSpec))
                 {
-                    WriteResponse(ctx, 504, MakeErrorEnvelope(id, "BRIDGE_TIMEOUT", $"Main-thread handler for '{method}' did not complete within {budget.TotalSeconds:0}s."));
+                    await HandleAwaitRequest(ctx, id, p, awaitSpec, start).ConfigureAwait(false);
                     return;
                 }
 
-                long durationMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - start;
-
-                if (captured != null)
-                {
-                    string code = "INTERNAL_ERROR";
-                    IDictionary<string, object> details = null;
-                    if (captured is BridgeRouter.HandlerError he)
-                    {
-                        code = he.Code;
-                        details = he.Details;
-                    }
-                    var envelope = new Dictionary<string, object>
-                    {
-                        { "id", id ?? "" },
-                        { "ok", false },
-                        { "result", null },
-                        { "error", new Dictionary<string, object> {
-                            { "code", code },
-                            { "message", captured.Message ?? "" },
-                            { "details", details ?? new Dictionary<string, object>() }
-                        }},
-                        { "meta", new Dictionary<string, object> {
-                            { "unityVersion", ProjectInfo.UnityVersion },
-                            { "projectPath", ProjectInfo.ProjectPath },
-                            { "durationMs", durationMs }
-                        }}
-                    };
-                    WriteResponse(ctx, 200, MiniJson.Serialize(envelope));
-                    return;
-                }
-
-                var ok = new Dictionary<string, object>
-                {
-                    { "id", id ?? "" },
-                    { "ok", true },
-                    { "result", result },
-                    { "error", null },
-                    { "meta", new Dictionary<string, object> {
-                        { "unityVersion", ProjectInfo.UnityVersion },
-                        { "projectPath", ProjectInfo.ProjectPath },
-                        { "durationMs", durationMs }
-                    }}
-                };
-                WriteResponse(ctx, 200, MiniJson.Serialize(ok));
+                DispatchAndRespond(ctx, id, method, p, start, null);
             }
             catch (Exception e)
             {
@@ -342,6 +301,186 @@ namespace UnityVibeOS
                 }
                 catch { /* ignore */ }
             }
+        }
+
+        // -------- long-poll awaits --------
+
+        /// <summary>
+        /// A method that waits server-side instead of making the client poll. The probe runs on
+        /// the HTTP thread against thread-safe state only; once it settles (or the long-poll
+        /// window closes) the authoritative status payload is fetched on the main thread and
+        /// returned with a "settled" flag. An optional begin method (main thread) kicks off the
+        /// work first — e.g. starting a multi-frame step.
+        /// </summary>
+        sealed class AwaitSpec
+        {
+            public Func<IDictionary<string, object>, bool> IsSettled;
+            public string StatusMethod;
+            public string BeginMethod;
+        }
+
+        static readonly ConcurrentDictionary<string, AwaitSpec> AwaitSpecs =
+            new ConcurrentDictionary<string, AwaitSpec>();
+
+        /// <summary>
+        /// Cap on a single long-poll request. Clients re-issue if their own deadline is longer,
+        /// so individual HTTP requests stay comfortably under client/network timeouts.
+        /// </summary>
+        const int MaxAwaitMs = 25_000;
+        const int AwaitProbeMs = 50;
+
+        /// <summary>
+        /// Registers a long-poll method. Optional modules (e.g. the Test Framework integration)
+        /// use this to expose their own awaits; the probe must be thread-safe.
+        /// </summary>
+        public static void RegisterAwait(string method, Func<IDictionary<string, object>, bool> isSettled, string statusMethod, string beginMethod = null)
+        {
+            if (string.IsNullOrEmpty(method) || isSettled == null || string.IsNullOrEmpty(statusMethod)) return;
+            AwaitSpecs[method] = new AwaitSpec { IsSettled = isSettled, StatusMethod = statusMethod, BeginMethod = beginMethod };
+        }
+
+        static async Task HandleAwaitRequest(HttpListenerContext ctx, string id, Dictionary<string, object> p, AwaitSpec spec, long start)
+        {
+            if (spec.BeginMethod != null)
+            {
+                // Begin failures (e.g. PLAY_MODE_REQUIRED) short-circuit the wait.
+                if (!RunOnMainThread(spec.BeginMethod, p, out _, out var beginError, out var timedOutMethod))
+                {
+                    WriteResponse(ctx, 504, MakeErrorEnvelope(id, "BRIDGE_TIMEOUT", $"Main-thread handler for '{timedOutMethod}' did not complete in time."));
+                    return;
+                }
+                if (beginError != null)
+                {
+                    RespondError(ctx, id, beginError, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - start);
+                    return;
+                }
+            }
+
+            int requested = GetParamInt(p, "timeoutMs", MaxAwaitMs);
+            long deadline = start + Math.Min(Math.Max(requested, AwaitProbeMs), MaxAwaitMs);
+            bool settled = Probe(spec, p);
+            while (!settled && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() < deadline)
+            {
+                await Task.Delay(AwaitProbeMs).ConfigureAwait(false);
+                settled = Probe(spec, p);
+            }
+
+            DispatchAndRespond(ctx, id, spec.StatusMethod, p, start, settled);
+        }
+
+        static bool Probe(AwaitSpec spec, IDictionary<string, object> p)
+        {
+            // A throwing probe settles immediately; the status payload reflects reality.
+            try { return spec.IsSettled(p); }
+            catch { return true; }
+        }
+
+        // -------- main-thread dispatch + response --------
+
+        /// <summary>
+        /// Runs a router method on the main thread. Returns false only on main-thread timeout.
+        /// </summary>
+        static bool RunOnMainThread(string method, Dictionary<string, object> p, out object result, out Exception error, out string timedOutMethod)
+        {
+            object r = null;
+            Exception captured = null;
+            var done = new ManualResetEventSlim(false);
+            MainThreadDispatcher.Enqueue(() =>
+            {
+                try { r = BridgeRouter.Dispatch(method, p); }
+                catch (Exception e) { captured = e; }
+                finally { done.Set(); }
+            });
+            timedOutMethod = method;
+            if (!done.Wait(TimeoutFor(method)))
+            {
+                result = null;
+                error = null;
+                return false;
+            }
+            result = r;
+            error = captured;
+            return true;
+        }
+
+        static void DispatchAndRespond(HttpListenerContext ctx, string id, string method, Dictionary<string, object> p, long start, bool? settled)
+        {
+            if (!RunOnMainThread(method, p, out var result, out var captured, out _))
+            {
+                var budget = TimeoutFor(method);
+                WriteResponse(ctx, 504, MakeErrorEnvelope(id, "BRIDGE_TIMEOUT", $"Main-thread handler for '{method}' did not complete within {budget.TotalSeconds:0}s."));
+                return;
+            }
+
+            long durationMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - start;
+
+            if (captured != null)
+            {
+                RespondError(ctx, id, captured, durationMs);
+                return;
+            }
+
+            if (settled.HasValue && result is IDictionary<string, object> dict)
+            {
+                dict["settled"] = settled.Value;
+            }
+
+            var ok = new Dictionary<string, object>
+            {
+                { "id", id ?? "" },
+                { "ok", true },
+                { "result", result },
+                { "error", null },
+                { "meta", new Dictionary<string, object> {
+                    { "unityVersion", ProjectInfo.UnityVersion },
+                    { "projectPath", ProjectInfo.ProjectPath },
+                    { "durationMs", durationMs }
+                }}
+            };
+            WriteResponse(ctx, 200, MiniJson.Serialize(ok));
+        }
+
+        static void RespondError(HttpListenerContext ctx, string id, Exception captured, long durationMs)
+        {
+            string code = "INTERNAL_ERROR";
+            IDictionary<string, object> details = null;
+            if (captured is BridgeRouter.HandlerError he)
+            {
+                code = he.Code;
+                details = he.Details;
+            }
+            var envelope = new Dictionary<string, object>
+            {
+                { "id", id ?? "" },
+                { "ok", false },
+                { "result", null },
+                { "error", new Dictionary<string, object> {
+                    { "code", code },
+                    { "message", captured.Message ?? "" },
+                    { "details", details ?? new Dictionary<string, object>() }
+                }},
+                { "meta", new Dictionary<string, object> {
+                    { "unityVersion", ProjectInfo.UnityVersion },
+                    { "projectPath", ProjectInfo.ProjectPath },
+                    { "durationMs", durationMs }
+                }}
+            };
+            WriteResponse(ctx, 200, MiniJson.Serialize(envelope));
+        }
+
+        static string GetParamString(IDictionary<string, object> p, string key, string def)
+        {
+            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
+            return v.ToString();
+        }
+
+        static int GetParamInt(IDictionary<string, object> p, string key, int def)
+        {
+            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
+            if (v is int i) return i;
+            if (v is long l) return (int)l;
+            if (v is double d) return (int)d;
+            return def;
         }
 
         static string MakeErrorEnvelope(string id, string code, string message)

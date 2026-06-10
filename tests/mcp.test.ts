@@ -435,3 +435,195 @@ describe("mcp-server/bridgeClient (real HTTP, against unbound port)", () => {
     }
   });
 });
+
+describe("mcp-server/long-poll awaits + legacy fallback", () => {
+  /** Minimal scriptable bridge: records the methods called, answers from `handlers`,
+   *  and reports "Unknown method" (like an older Unity package) for anything else. */
+  function fakeBridge(
+    handlers: Record<string, (params: Record<string, unknown>) => unknown>,
+    calls: string[]
+  ): BridgeClient {
+    return {
+      source: "unity_bridge",
+      async call<T>(method: BridgeMethod, params: Record<string, unknown> = {}): Promise<BridgeResponse<T>> {
+        calls.push(method);
+        const h = handlers[method];
+        if (!h) {
+          return {
+            id: "t",
+            ok: false,
+            result: null,
+            error: { code: "INVALID_ARGUMENT", message: `Unknown method: ${method}` },
+            meta: {},
+          };
+        }
+        return {
+          id: "t",
+          ok: true,
+          result: h(params) as T,
+          error: null,
+          meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+        };
+      },
+      async isConnected() {
+        return true;
+      },
+    };
+  }
+
+  function ctxWith(bridge: BridgeClient) {
+    return { bridge, projectPath: process.cwd(), configMockMode: false };
+  }
+
+  it("unity_wait_for_compile settles in ONE compile.await round trip on new bridges", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "compile.await": () => ({ isCompiling: false, hasErrors: false, errorCount: 0, warningCount: 0, errors: [], settled: true }),
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_wait_for_compile")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    expect(calls).toEqual(["compile.await"]);
+  });
+
+  it("unity_wait_for_compile falls back to compile.status polling against older packages", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "compile.status": () => ({ isCompiling: false, hasErrors: false, errorCount: 0, warningCount: 0, errors: [] }),
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_wait_for_compile")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    expect(calls).toEqual(["compile.await", "compile.status"]);
+  });
+
+  it("unity_wait_for_compile re-issues compile.await while unsettled (still compiling)", async () => {
+    const calls: string[] = [];
+    let round = 0;
+    const bridge = fakeBridge(
+      {
+        "compile.await": () => {
+          round++;
+          return round < 2
+            ? { isCompiling: true, hasErrors: false, errorCount: 0, warningCount: 0, errors: [], settled: false }
+            : { isCompiling: false, hasErrors: false, errorCount: 0, warningCount: 0, errors: [], settled: true };
+        },
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_wait_for_compile")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    if (env.ok) expect((env.data as { isCompiling: boolean }).isCompiling).toBe(false);
+    expect(calls).toEqual(["compile.await", "compile.await"]);
+  });
+
+  it("unity_step_frame steps N frames in ONE call on new bridges", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "playmode.step": (p) => ({
+          isPlaying: true,
+          isPaused: true,
+          frameCount: 100 + Number(p.frames ?? 1),
+          framesStepped: Number(p.frames ?? 1),
+          stepping: false,
+          settled: true,
+        }),
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_step_frame")!;
+    const env = await tool.run({ frames: 10 }, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    if (env.ok) expect((env.data as { framesStepped?: number }).framesStepped).toBe(10);
+    expect(calls).toEqual(["playmode.step"]);
+  });
+
+  it("unity_step_frame falls back to one-call-per-frame against older packages", async () => {
+    const calls: string[] = [];
+    let frame = 0;
+    const bridge = fakeBridge(
+      {
+        // Old bridge: no framesStepped key, steps exactly one frame per call.
+        "playmode.step": () => ({ isPlaying: true, isPaused: true, frameCount: ++frame }),
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_step_frame")!;
+    const env = await tool.run({ frames: 3 }, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    expect(calls).toEqual(["playmode.step", "playmode.step", "playmode.step"]);
+  });
+
+  it("unity_enter_play_mode waits via playmode.await on new bridges", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "playmode.enter": () => ({ isPlaying: false, isPaused: false, isTransitioning: true }),
+        "playmode.await": (p) => {
+          expect(p.until).toBe("playing");
+          return { isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 1, settled: true };
+        },
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_enter_play_mode")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    if (env.ok) expect((env.data as { isPlaying: boolean }).isPlaying).toBe(true);
+    expect(calls).toEqual(["playmode.enter", "playmode.await"]);
+  });
+
+  it("unity_enter_play_mode falls back to status polling against older packages", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "playmode.enter": () => ({ isPlaying: false, isPaused: false, isTransitioning: true }),
+        "playmode.status": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 1 }),
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_enter_play_mode")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    expect(calls).toEqual(["playmode.enter", "playmode.await", "playmode.status"]);
+  });
+
+  it("unity_run_tests waits via test.await on new bridges (no test.status polling)", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "test.run": () => ({ runId: "r1", state: "running", mode: "EditMode" }),
+        "test.await": () => ({ runId: "r1", state: "completed", total: 1, passed: 1, failed: 0, skipped: 0, results: [], settled: true }),
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_run_tests")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    if (env.ok) expect((env.data as { state: string }).state).toBe("completed");
+    expect(calls).toEqual(["test.run", "test.await"]);
+  });
+
+  it("unity_run_tests falls back to test.status polling against older packages", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "test.run": () => ({ runId: "r1", state: "running", mode: "EditMode" }),
+        "test.status": () => ({ runId: "r1", state: "completed", total: 1, passed: 1, failed: 0, skipped: 0, results: [] }),
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_run_tests")!;
+    const env = await tool.run({ pollMs: 200 }, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    expect(calls).toEqual(["test.run", "test.await", "test.status"]);
+  });
+});

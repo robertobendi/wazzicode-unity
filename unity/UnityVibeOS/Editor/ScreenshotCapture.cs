@@ -11,11 +11,12 @@ namespace UnityVibeOS
     /// - Game view: renders the active main camera (or a named camera) off-screen.
     /// - Scene view: renders SceneView.lastActiveSceneView's authoring camera.
     /// - Selected: spawns a temporary HideAndDontSave camera framing the selection's bounds.
-    /// All paths return base64-encoded PNG via the bridge envelope.
+    /// Camera renders can be encoded as PNG (lossless) or JPEG (~10x smaller payloads for
+    /// visual content); the editor-window grab stays PNG so panel text remains legible.
     /// </summary>
     public static class ScreenshotCapture
     {
-        public static IDictionary<string, object> CaptureGameView(int width, int height, string cameraPath)
+        public static IDictionary<string, object> CaptureGameView(int width, int height, string cameraPath, string format, int quality)
         {
             Camera cam = ResolveGameCamera(cameraPath);
             if (cam == null)
@@ -25,11 +26,11 @@ namespace UnityVibeOS
                     "No suitable Camera found. Ensure the active scene contains a Camera (preferably tagged 'MainCamera') or pass cameraPath."
                 );
             }
-            var png = RenderCameraToPng(cam, width, height);
-            return BuildResult("game_view", width, height, png, cam.name, "/" + GetCameraPath(cam));
+            var bytes = RenderCameraToBytes(cam, width, height, format, quality);
+            return BuildResult("game_view", width, height, bytes, MimeFor(format), cam.name, "/" + GetCameraPath(cam));
         }
 
-        public static IDictionary<string, object> CaptureSceneView(int width, int height)
+        public static IDictionary<string, object> CaptureSceneView(int width, int height, string format, int quality)
         {
             var sv = SceneView.lastActiveSceneView ?? FirstSceneView();
             if (sv == null)
@@ -47,11 +48,11 @@ namespace UnityVibeOS
                     "SceneView is open but its camera is not initialized. Hover over the scene view first."
                 );
             }
-            var png = RenderCameraToPng(cam, width, height);
-            return BuildResult("scene_view", width, height, png, "SceneView", "SceneView.lastActiveSceneView");
+            var bytes = RenderCameraToBytes(cam, width, height, format, quality);
+            return BuildResult("scene_view", width, height, bytes, MimeFor(format), "SceneView", "SceneView.lastActiveSceneView");
         }
 
-        public static IDictionary<string, object> CaptureSelected(int width, int height, float paddingFactor)
+        public static IDictionary<string, object> CaptureSelected(int width, int height, float paddingFactor, string format, int quality)
         {
             var sel = Selection.activeGameObject;
             if (sel == null)
@@ -68,16 +69,16 @@ namespace UnityVibeOS
                 var preview = AssetPreview.GetAssetPreview(sel);
                 if (preview != null)
                 {
-                    var pngFromPreview = preview.EncodeToPNG();
-                    if (pngFromPreview != null && pngFromPreview.Length > 0)
+                    var previewBytes = Encode(preview, format, quality);
+                    if (previewBytes != null && previewBytes.Length > 0)
                     {
-                        return BuildResult("selected_object", preview.width, preview.height, pngFromPreview, "AssetPreview", SceneInspector.PathOf(sel));
+                        return BuildResult("selected_object", preview.width, preview.height, previewBytes, MimeFor(format), "AssetPreview", SceneInspector.PathOf(sel));
                     }
                 }
             }
 
-            byte[] png = RenderObjectWithTempCamera(sel, width, height, paddingFactor);
-            return BuildResult("selected_object", width, height, png, "TempCamera", SceneInspector.PathOf(sel));
+            byte[] bytes2 = RenderObjectWithTempCamera(sel, width, height, paddingFactor, format, quality);
+            return BuildResult("selected_object", width, height, bytes2, MimeFor(format), "TempCamera", SceneInspector.PathOf(sel));
         }
 
         /// <summary>
@@ -154,7 +155,7 @@ namespace UnityVibeOS
                 {
                     png = tex.EncodeToPNG();
                 }
-                return BuildResult("editor_window", outW, outH, png ?? Array.Empty<byte>(), "EditorWindow", "Unity Editor main window");
+                return BuildResult("editor_window", outW, outH, png ?? Array.Empty<byte>(), "image/png", "EditorWindow", "Unity Editor main window");
             }
             finally
             {
@@ -186,15 +187,31 @@ namespace UnityVibeOS
             }
         }
 
-        static IDictionary<string, object> BuildResult(string source, int width, int height, byte[] pngBytes, string cameraName, string subject)
+        static string MimeFor(string format)
         {
+            return string.Equals(format, "jpg", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(format, "jpeg", StringComparison.OrdinalIgnoreCase)
+                ? "image/jpeg" : "image/png";
+        }
+
+        static byte[] Encode(Texture2D tex, string format, int quality)
+        {
+            if (MimeFor(format) == "image/jpeg") return tex.EncodeToJPG(Mathf.Clamp(quality, 1, 100));
+            return tex.EncodeToPNG();
+        }
+
+        static IDictionary<string, object> BuildResult(string source, int width, int height, byte[] imageBytes, string mimeType, string cameraName, string subject)
+        {
+            var b64 = Convert.ToBase64String(imageBytes);
             return new Dictionary<string, object>
             {
                 { "source", source },
                 { "width", width },
                 { "height", height },
-                { "mimeType", "image/png" },
-                { "pngBase64", Convert.ToBase64String(pngBytes) },
+                { "mimeType", mimeType },
+                // "pngBase64" is the historical key; older clients read it regardless of format.
+                { "pngBase64", b64 },
+                { "imageBase64", b64 },
                 { "cameraName", cameraName },
                 { "subject", subject }
             };
@@ -242,7 +259,7 @@ namespace UnityVibeOS
             return SceneInspector.PathOf(c.gameObject);
         }
 
-        static byte[] RenderCameraToPng(Camera cam, int width, int height)
+        static byte[] RenderCameraToBytes(Camera cam, int width, int height, string format, int quality)
         {
             var rt = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.ARGB32);
             rt.antiAliasing = 1;
@@ -256,9 +273,9 @@ namespace UnityVibeOS
                 var tex = new Texture2D(width, height, TextureFormat.RGB24, false);
                 tex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
                 tex.Apply(false, false);
-                var png = tex.EncodeToPNG();
+                var bytes = Encode(tex, format, quality);
                 UnityEngine.Object.DestroyImmediate(tex);
-                return png ?? Array.Empty<byte>();
+                return bytes ?? Array.Empty<byte>();
             }
             finally
             {
@@ -268,7 +285,7 @@ namespace UnityVibeOS
             }
         }
 
-        static byte[] RenderObjectWithTempCamera(GameObject target, int width, int height, float paddingFactor)
+        static byte[] RenderObjectWithTempCamera(GameObject target, int width, int height, float paddingFactor, string format, int quality)
         {
             var bounds = ComputeBounds(target);
             var camGO = new GameObject("__UVibeCaptureCam__")
@@ -290,7 +307,7 @@ namespace UnityVibeOS
                 cam.transform.position = bounds.center + dir * dist;
                 cam.transform.LookAt(bounds.center);
 
-                return RenderCameraToPng(cam, width, height);
+                return RenderCameraToBytes(cam, width, height, format, quality);
             }
             finally
             {

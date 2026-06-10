@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ToolDef } from "../registry.js";
-import { BRIDGE_METHODS, bridgeCall } from "./_helpers.js";
+import { BRIDGE_METHODS, bridgeCall, isUnknownMethodError } from "./_helpers.js";
 import { CompileStatus, ToolEnvelope, err, isErrorCode } from "@uvibe/core";
 
 const InputShape = {
@@ -8,10 +8,13 @@ const InputShape = {
   pollMs: z.number().int().min(100).max(5_000).optional(),
 };
 
+/** Single long-poll round is capped server-side; re-issue until our own deadline. */
+const AWAIT_WINDOW_MS = 25_000;
+
 export const unityWaitForCompile: ToolDef<typeof InputShape, CompileStatus> = {
   name: "unity_wait_for_compile",
   description:
-    "Polls Unity's compile status until idle or until the timeout elapses. Returns final compile status with error/warning counts. Backed by UnityEditor.Compilation.CompilationPipeline; if detailed errors are unavailable, the response includes a 'fallback' note.",
+    "Waits until Unity's compile status is idle (or the timeout elapses) and returns the final status with error/warning counts. Uses a server-side long-poll so it returns the moment compilation settles; falls back to client-side polling against older Unity packages. Backed by UnityEditor.Compilation.CompilationPipeline; if detailed errors are unavailable, the response includes a 'fallback' note.",
   requires: ["unity_bridge"],
   inputShape: InputShape,
   async run(args, ctx) {
@@ -19,7 +22,26 @@ export const unityWaitForCompile: ToolDef<typeof InputShape, CompileStatus> = {
     const pollMs = args.pollMs ?? 500;
     const start = Date.now();
     let last: ToolEnvelope<CompileStatus> | undefined;
+    // Fast path: compile.await holds the request open inside Unity and settles within ~50ms of
+    // the compile finishing — no client-side poll interval to wait out.
+    let useAwait = true;
     while (Date.now() - start < timeoutMs) {
+      if (useAwait) {
+        const remaining = timeoutMs - (Date.now() - start);
+        last = await bridgeCall<CompileStatus>(ctx.bridge, BRIDGE_METHODS.compileAwait, {
+          timeoutMs: Math.min(remaining, AWAIT_WINDOW_MS),
+        });
+        if (last.ok) {
+          if (last.data.settled !== false) return last;
+          continue; // long-poll window closed while still compiling — re-issue
+        }
+        if (isUnknownMethodError(last)) {
+          useAwait = false; // older Unity package: fall back to client-side polling
+          continue;
+        }
+        const errCode = isErrorCode(last.error.code) ? last.error.code : "INTERNAL_ERROR";
+        return err(errCode, last.error.message, last.meta);
+      }
       last = await bridgeCall<CompileStatus>(ctx.bridge, BRIDGE_METHODS.compileStatus);
       if (!last.ok) {
         const errCode = isErrorCode(last.error.code) ? last.error.code : "INTERNAL_ERROR";

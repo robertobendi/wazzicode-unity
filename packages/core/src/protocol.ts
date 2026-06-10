@@ -9,6 +9,8 @@ export const BRIDGE_METHODS = {
   consoleGetLogs: "console.getLogs",
   consoleClear: "console.clear",
   compileStatus: "compile.status",
+  /** Long-poll: settles when compilation goes idle (falls back to compile.status polling on old bridges). */
+  compileAwait: "compile.await",
   screenshotGameView: "screenshot.gameView",
   screenshotSceneView: "screenshot.sceneView",
   screenshotSelected: "screenshot.selected",
@@ -21,12 +23,16 @@ export const BRIDGE_METHODS = {
   testRun: "test.run",
   testStatus: "test.status",
   testCancel: "test.cancel",
+  /** Long-poll: settles when the active test run finishes. */
+  testAwait: "test.await",
 
   // Play-mode control + runtime inspection
   playModeEnter: "playmode.enter",
   playModeExit: "playmode.exit",
   playModeStep: "playmode.step",
   playModeStatus: "playmode.status",
+  /** Long-poll: settles when play mode reaches params.until ("playing" | "stopped"). */
+  playModeAwait: "playmode.await",
   runtimeFindObjects: "runtime.findObjects",
   runtimeInspect: "runtime.inspect",
 

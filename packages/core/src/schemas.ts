@@ -142,6 +142,8 @@ export const CompileStatusSchema = z.object({
   warningCount: z.number().int(),
   errors: z.array(CompileErrorSchema).optional(),
   fallback: z.string().optional(),
+  /** Set by the compile.await long-poll: false means the window closed while still compiling. */
+  settled: z.boolean().optional(),
 });
 export type CompileStatus = z.infer<typeof CompileStatusSchema>;
 
@@ -189,8 +191,9 @@ export const ScreenshotResultSchema = z.object({
   source: ScreenshotSourceSchema,
   width: z.number().int().positive(),
   height: z.number().int().positive(),
-  mimeType: z.literal("image/png"),
-  /** base64-encoded PNG bytes (without the data: URL prefix). */
+  mimeType: z.enum(["image/png", "image/jpeg"]),
+  /** base64-encoded image bytes (without the data: URL prefix). Historical name — the bytes
+   *  are JPEG when mimeType says so. */
   pngBase64: z.string().min(1),
   /** Absolute path of the auto-saved PNG, when persisted to .unity-vibe/screenshots/. */
   savedTo: z.string().optional(),
@@ -261,6 +264,8 @@ export const TestRunStatusSchema = z.object({
   results: z.array(TestCaseResultSchema).optional(),
   startedAt: z.number().optional(),
   finishedAt: z.number().optional(),
+  /** Set by the test.await long-poll: false means the window closed while still running. */
+  settled: z.boolean().optional(),
 });
 export type TestRunStatus = z.infer<typeof TestRunStatusSchema>;
 
@@ -274,6 +279,12 @@ export const PlayModeStatusSchema = z.object({
   /** Editor frame count, useful to confirm step/frame advances took effect. */
   frameCount: z.number().int().optional(),
   timeSinceLevelLoad: z.number().optional(),
+  /** Set by playmode.await/playmode.step long-polls: false means the window closed first. */
+  settled: z.boolean().optional(),
+  /** Frames actually advanced by a multi-frame playmode.step (absent on older bridges). */
+  framesStepped: z.number().int().optional(),
+  /** True while a multi-frame step is still draining. */
+  stepping: z.boolean().optional(),
 });
 export type PlayModeStatus = z.infer<typeof PlayModeStatusSchema>;
 

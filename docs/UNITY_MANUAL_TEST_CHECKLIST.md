@@ -61,7 +61,10 @@ This checklist enumerates every assertion that should be hand-verified inside Un
 - [ ] During an active recompile (introduce a deliberate edit) → `isCompiling: true`.
 - [ ] After compile finishes with no errors → `isCompiling: false, hasErrors: false, errorCount: 0`.
 - [ ] Introduce a syntax error → `errorCount >= 1`, `errors[]` includes the file/line/message.
-- [ ] `unity_wait_for_compile` polls and returns when `isCompiling` flips to `false`.
+- [ ] `unity_wait_for_compile` returns when `isCompiling` flips to `false`.
+- [ ] `compile.await` (long-poll) holds the request open during a recompile and returns `settled: true` the moment it finishes — the Editor stays responsive while a long-poll is pending.
+- [ ] `playmode.await` with `until: "playing"` settles after `unity_enter_play_mode` completes its domain reload; `until: "stopped"` settles after exit.
+- [ ] `unity_step_frame` with `frames: 10` advances 10 frames in ONE tool call (`framesStepped: 10` in the response) and leaves the game paused.
 
 ## 9. Screenshots
 
@@ -73,6 +76,7 @@ This checklist enumerates every assertion that should be hand-verified inside Un
 - [ ] With no SceneView open, the call returns `OBJECT_NOT_FOUND`.
 - [ ] Select a prefab asset in the Project pane → `unity_capture_selected` returns the AssetPreview thumbnail (square, dark background).
 - [ ] Select a runtime GameObject with renderers → response is a 3/4 angle render framing the bounds. No leftover `__UVibeCaptureCam__` remains in the hierarchy after the call (`HideAndDontSave` + `DestroyImmediate`).
+- [ ] `unity_capture_game_view` with `format: "jpg"` returns `mimeType: image/jpeg`, a noticeably smaller payload, and saves a `.jpg` to `.unity-vibe/screenshots/`.
 - [ ] In Claude Code, after a screenshot tool call, the chat shows the image inline (multimodal content block) — not just a JSON blob.
 
 ## 10. Threading & lifecycle

@@ -20,8 +20,8 @@ export interface ScreenshotCallOptions {
 }
 
 /**
- * Calls a screenshot bridge method, parses the result, optionally writes the PNG to
- * `.unity-vibe/screenshots/<ISO>.png`, and returns a typed envelope.
+ * Calls a screenshot bridge method, parses the result, optionally writes the image to
+ * `.unity-vibe/screenshots/<ISO>.{png,jpg}`, and returns a typed envelope.
  */
 export async function screenshotCall(
   bridge: BridgeClient,
@@ -39,11 +39,12 @@ export async function screenshotCall(
     }, result.error.details);
   }
 
+  const mimeType = result.result.mimeType === "image/jpeg" ? "image/jpeg" : "image/png";
   const data: ScreenshotResult = {
     source: result.result.source,
     width: result.result.width,
     height: result.result.height,
-    mimeType: "image/png",
+    mimeType,
     pngBase64: result.result.pngBase64,
     cameraName: result.result.cameraName,
     subject: result.result.subject,
@@ -54,7 +55,8 @@ export async function screenshotCall(
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
       const dir = path.join(ctxProjectPath, ".unity-vibe", "screenshots");
       await fs.mkdir(dir, { recursive: true });
-      const file = path.join(dir, `${stamp}_${data.source}.png`);
+      const ext = mimeType === "image/jpeg" ? "jpg" : "png";
+      const file = path.join(dir, `${stamp}_${data.source}.${ext}`);
       await fs.writeFile(file, Buffer.from(data.pngBase64, "base64"));
       data.savedTo = file;
     } catch {

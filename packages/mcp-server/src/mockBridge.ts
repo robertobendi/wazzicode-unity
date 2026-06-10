@@ -184,6 +184,15 @@ export function createMockBridgeClient(): BridgeClient {
       warningCount: 0,
       errors: [],
     }),
+    // Long-poll await: mock settles immediately with the idle status.
+    "compile.await": () => ({
+      isCompiling: false,
+      hasErrors: false,
+      errorCount: 0,
+      warningCount: 0,
+      errors: [],
+      settled: true,
+    }),
 
     "screenshot.gameView": () => {
       const img = makeMockPng(512, 288, [40, 100, 180], "MOCK GAME VIEW");
@@ -274,11 +283,24 @@ export function createMockBridgeClient(): BridgeClient {
       ],
     }),
     "test.cancel": () => ({ runId: "mockrun", state: "cancelled" }),
+    "test.await": () => ({
+      runId: "mockrun",
+      state: "completed",
+      mode: "EditMode",
+      total: 3,
+      passed: 2,
+      failed: 1,
+      skipped: 0,
+      durationSec: 0.42,
+      results: [],
+      settled: true,
+    }),
 
     "playmode.enter": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 1 }),
     "playmode.exit": () => ({ isPlaying: false, isPaused: false, isTransitioning: false }),
-    "playmode.step": () => ({ isPlaying: true, isPaused: true, frameCount: 2 }),
+    "playmode.step": () => ({ isPlaying: true, isPaused: true, frameCount: 2, framesStepped: 1, stepping: false, settled: true }),
     "playmode.status": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 42, timeSinceLevelLoad: 0.7 }),
+    "playmode.await": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 42, settled: true }),
 
     "runtime.findObjects": () => ({
       isPlaying: true,

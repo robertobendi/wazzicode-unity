@@ -29,7 +29,7 @@ Stable error codes: `UNITY_NOT_CONNECTED`, `UNITY_COMPILING`, `UNITY_RELOADING`,
 | `unity_get_scene_hierarchy` | `unity_bridge` | Tree of `{name,path,active,childCount,components?,children?}` |
 | `unity_inspect_selected` | `unity_bridge` | Full inspector view of `Selection.activeGameObject` including serialized fields |
 | `unity_get_console_logs` | `unity_bridge` | Logs captured since package load (Application.logMessageReceivedThreaded) |
-| `unity_wait_for_compile` | `unity_bridge` | Polls compile.status until idle or timeout |
+| `unity_wait_for_compile` | `unity_bridge` | Waits server-side (`compile.await` long-poll) until idle or timeout; falls back to client-side `compile.status` polling on older Unity packages |
 | `unity_check_git_status` | `git` | Runs `git status --porcelain=v2` in the project dir |
 | `unity_generate_project_brain` | `project_brain` | Filesystem scan + writes 5 brain files |
 
@@ -37,7 +37,7 @@ Stable error codes: `UNITY_NOT_CONNECTED`, `UNITY_COMPILING`, `UNITY_RELOADING`,
 
 | Tool | Source | Notes |
 |---|---|---|
-| `unity_capture_game_view` | `unity_bridge` | Renders `Camera.main` (or specified) off-screen. Returns multimodal **image** content + base64 PNG. Auto-saves to `.unity-vibe/screenshots/`. |
+| `unity_capture_game_view` | `unity_bridge` | Renders `Camera.main` (or specified) off-screen. Returns multimodal **image** content (base64 PNG, or JPEG via `format:"jpg"` — ≈10x smaller). Auto-saves to `.unity-vibe/screenshots/`. |
 | `unity_capture_scene_view` | `unity_bridge` | Renders `SceneView.lastActiveSceneView` camera. Multimodal image. |
 | `unity_capture_selected` | `unity_bridge` | Spawns a temporary HideAndDontSave camera framing the selection's bounds; falls back to `AssetPreview` for prefab assets. Multimodal image. |
 | `unity_capture_editor_window` | `unity_bridge` | Captures the **whole Editor main window** (all docked panels — toolbar, Hierarchy, Scene/Game view, Inspector, Project, Console) from the OS framebuffer via `InternalEditorUtility.ReadScreenPixel`, not a camera render. Optional `maxWidth` downscales (longest side); omit for native resolution. Multimodal image. |
@@ -54,15 +54,15 @@ Screenshot tools return `{source, width, height, mimeType, pngBase64, savedTo?, 
 
 | Tool | Source | Notes |
 |---|---|---|
-| `unity_run_tests` | `unity_bridge` | Runs EditMode/PlayMode tests and returns structured pass/fail + messages/stack traces. Starts the run then polls to completion, surviving the PlayMode domain reload (run state held in `SessionState`). Returns `TEST_FRAMEWORK_MISSING` if the package is absent. |
+| `unity_run_tests` | `unity_bridge` | Runs EditMode/PlayMode tests and returns structured pass/fail + messages/stack traces. Starts the run then waits server-side (`test.await` long-poll) to completion, surviving the PlayMode domain reload (run state held in `SessionState`); falls back to `test.status` polling on older packages. Returns `TEST_FRAMEWORK_MISSING` if the package is absent. |
 
 ### Play mode & runtime inspection
 
 | Tool | Source | Notes |
 |---|---|---|
-| `unity_enter_play_mode` | `unity_bridge` | Enters play mode; with `waitForReady` polls through the domain reload until running. |
+| `unity_enter_play_mode` | `unity_bridge` | Enters play mode; with `waitForReady` waits (server-side `playmode.await` long-poll) through the domain reload until running. |
 | `unity_exit_play_mode` | `unity_bridge` | Exits to edit mode. |
-| `unity_step_frame` | `unity_bridge` | Advances 1+ frames (pauses the game). Requires play mode → else `PLAY_MODE_REQUIRED`. |
+| `unity_step_frame` | `unity_bridge` | Advances 1+ frames (pauses the game) — multi-frame steps run inside the Editor in a single call. Requires play mode → else `PLAY_MODE_REQUIRED`. |
 | `unity_get_play_mode_status` | `unity_bridge` | isPlaying / isPaused / isTransitioning / frameCount. |
 | `unity_find_runtime_objects` | `unity_bridge` | Finds live GameObjects by name substring and/or component (sees runtime-spawned objects in play mode). |
 | `unity_inspect_runtime_object` | `unity_bridge` | Full live state of one object by instanceId or path — actual runtime values, not edit-time defaults. |

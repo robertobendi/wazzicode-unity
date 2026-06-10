@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { ToolDef } from "../registry.js";
-import { BRIDGE_METHODS, bridgeCall } from "./_helpers.js";
+import { BRIDGE_METHODS, bridgeCall, isUnknownMethodError } from "./_helpers.js";
 import { TestRunStatus, ToolEnvelope, isErrorCode } from "@uvibe/core";
+
+/** Single long-poll round is capped server-side; re-issue until our own deadline. */
+const AWAIT_WINDOW_MS = 25_000;
 
 const InputShape = {
   mode: z.enum(["EditMode", "PlayMode"]).optional(),
@@ -22,7 +25,7 @@ const InputShape = {
 export const unityRunTests: ToolDef<typeof InputShape, TestRunStatus> = {
   name: "unity_run_tests",
   description:
-    "Runs the Unity Test Framework (EditMode by default, or PlayMode) and returns structured pass/fail results with messages and stack traces — the agent's ground truth for whether code actually works, not just compiles. Starts the run, then polls until it completes (PlayMode runs reload the domain; this rides through that). Requires com.unity.test-framework; without it the bridge returns TEST_FRAMEWORK_MISSING. Use `filter` to scope to a subset.",
+    "Runs the Unity Test Framework (EditMode by default, or PlayMode) and returns structured pass/fail results with messages and stack traces — the agent's ground truth for whether code actually works, not just compiles. Starts the run, then waits server-side until it completes (PlayMode runs reload the domain; this rides through that). Requires com.unity.test-framework; without it the bridge returns TEST_FRAMEWORK_MISSING. Use `filter` to scope to a subset.",
   requires: ["unity_bridge"],
   inputShape: InputShape,
   async run(args, ctx) {
@@ -44,10 +47,24 @@ export const unityRunTests: ToolDef<typeof InputShape, TestRunStatus> = {
     }
     const start = Date.now();
     let last: ToolEnvelope<TestRunStatus> = started;
+    // Fast path: test.await holds the request open inside Unity and settles within ~50ms of
+    // the run finishing. Falls back to client-side test.status polling on older packages.
+    let useAwait = true;
     while (Date.now() - start < timeoutMs) {
-      await new Promise((r) => setTimeout(r, pollMs));
-      const status = await bridgeCall<TestRunStatus>(ctx.bridge, BRIDGE_METHODS.testStatus, { runId });
+      const remaining = timeoutMs - (Date.now() - start);
+      const status = useAwait
+        ? await bridgeCall<TestRunStatus>(ctx.bridge, BRIDGE_METHODS.testAwait, {
+            runId,
+            timeoutMs: Math.min(remaining, AWAIT_WINDOW_MS),
+          })
+        : await sleep(pollMs).then(() =>
+            bridgeCall<TestRunStatus>(ctx.bridge, BRIDGE_METHODS.testStatus, { runId })
+          );
       if (!status.ok) {
+        if (useAwait && isUnknownMethodError(status)) {
+          useAwait = false; // older Unity package
+          continue;
+        }
         // UNITY_RELOADING is already retried inside bridgeCall; anything else is terminal.
         const code = isErrorCode(status.error.code) ? status.error.code : "INTERNAL_ERROR";
         if (code === "UNITY_RELOADING") continue;
@@ -60,8 +77,15 @@ export const unityRunTests: ToolDef<typeof InputShape, TestRunStatus> = {
         }
         return status;
       }
+      // Awaits that settle while the persisted state still says "running" (write race right at
+      // run end) shouldn't busy-loop — give the collector a beat to flush.
+      if (useAwait && status.data.settled !== false) await sleep(200);
     }
     if (last.ok) last.warnings.push(`Timed out after ${timeoutMs}ms; tests may still be running.`);
     return last;
   },
 };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}

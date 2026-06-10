@@ -92,20 +92,26 @@ namespace UnityVibeOS
                     int width = GetInt(p, "width", 1280);
                     int height = GetInt(p, "height", 720);
                     string cameraPath = GetString(p, "cameraPath", null);
-                    return ScreenshotCapture.CaptureGameView(width, height, cameraPath);
+                    string format = GetString(p, "format", "png");
+                    int quality = GetInt(p, "quality", 80);
+                    return ScreenshotCapture.CaptureGameView(width, height, cameraPath, format, quality);
                 }
                 case "screenshot.sceneView":
                 {
                     int width = GetInt(p, "width", 1024);
                     int height = GetInt(p, "height", 640);
-                    return ScreenshotCapture.CaptureSceneView(width, height);
+                    string format = GetString(p, "format", "png");
+                    int quality = GetInt(p, "quality", 80);
+                    return ScreenshotCapture.CaptureSceneView(width, height, format, quality);
                 }
                 case "screenshot.selected":
                 {
                     int width = GetInt(p, "width", 768);
                     int height = GetInt(p, "height", 768);
                     float padding = GetFloat(p, "paddingFactor", 3.5f);
-                    return ScreenshotCapture.CaptureSelected(width, height, padding);
+                    string format = GetString(p, "format", "png");
+                    int quality = GetInt(p, "quality", 80);
+                    return ScreenshotCapture.CaptureSelected(width, height, padding, format, quality);
                 }
                 case "screenshot.editorWindow":
                 {
@@ -122,6 +128,10 @@ namespace UnityVibeOS
                     return PlayModeControl.Exit();
                 case "playmode.step":
                     return PlayModeControl.Step();
+                case "playmode.beginStep":
+                    return PlayModeControl.BeginStep(p);
+                case "playmode.stepStatus":
+                    return PlayModeControl.StepStatus();
                 case "playmode.status":
                     return PlayModeControl.Status();
                 case "runtime.findObjects":

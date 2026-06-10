@@ -26,11 +26,17 @@ namespace UnityVibeOS
             Queue.Enqueue(action);
         }
 
+        static readonly System.Diagnostics.Stopwatch PumpWatch = new System.Diagnostics.Stopwatch();
+
         static void Pump()
         {
-            // Bound the work-per-tick so the editor remains responsive even under burst.
-            int budget = 32;
-            while (budget-- > 0 && Queue.TryDequeue(out var action))
+            // Time-budget the work-per-tick (rather than a fixed action count) so cheap bursts
+            // — e.g. a unity_batch of many small edits — drain in one tick, while a run of slow
+            // actions still yields to keep the editor responsive.
+            if (Queue.IsEmpty) return;
+            PumpWatch.Restart();
+            int safety = 256;
+            while (safety-- > 0 && Queue.TryDequeue(out var action))
             {
                 try
                 {
@@ -40,6 +46,7 @@ namespace UnityVibeOS
                 {
                     UnityEngine.Debug.LogError($"[UnityVibeOS] Main-thread action threw: {e}");
                 }
+                if (PumpWatch.ElapsedMilliseconds >= 8) break;
             }
         }
     }

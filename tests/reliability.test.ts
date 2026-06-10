@@ -57,6 +57,11 @@ describe("reliability/per-method timeouts", () => {
     expect(timeoutForMethod("playmode.enter")).toBeGreaterThan(60_000);
     // In-Editor code execution can compile.
     expect(timeoutForMethod("code.execute")).toBeGreaterThanOrEqual(60_000);
+    // Long-poll awaits hold the request open server-side for up to 25s per round.
+    expect(timeoutForMethod("compile.await")).toBeGreaterThan(25_000);
+    expect(timeoutForMethod("playmode.await")).toBeGreaterThan(25_000);
+    expect(timeoutForMethod("test.await")).toBeGreaterThan(25_000);
+    expect(timeoutForMethod("playmode.step")).toBeGreaterThan(25_000);
   });
 
   it("uses a safe default for ordinary fast reads", () => {
