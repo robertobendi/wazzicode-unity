@@ -2,11 +2,11 @@ import { loadConfig, writeConfig, UVibeConfig } from "@uvibe/safety";
 import { CommandResult, GlobalOptions, ParsedArgs } from "../options.js";
 
 /**
- * One-command toggle between the safe default (read_only) and an autonomous posture, so the user
- * never has to hand-edit .unity-vibe/config.json to let Claude work. "on" enables scene/prefab/
- * asset edits under autopilot with autoSnapshot as the safety net; menu-item execution stays off
- * (it is a broad escape hatch you opt into explicitly). Every write is still Undo-wrapped and
- * action-logged.
+ * One-command toggle for Claude's write access. Writes are ON by default (autopilot), so this is
+ * mainly a kill switch: "off" locks the project to read_only; "on" restores the write-enabled
+ * posture (scene/prefab/script/asset edits under autopilot with autoSnapshot as the safety net).
+ * Menu-item execution and in-Editor code execution stay off either way (broad escape hatches you
+ * opt into explicitly). Every write is still Undo-wrapped and action-logged.
  */
 export async function runAutonomy(g: GlobalOptions, parsed: ParsedArgs): Promise<CommandResult> {
   const mode = (parsed.positional[0] ?? "status").toLowerCase();

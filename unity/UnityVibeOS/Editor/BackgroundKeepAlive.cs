@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
@@ -6,27 +7,27 @@ using UnityEngine;
 namespace UnityVibeOS
 {
     /// <summary>
-    /// Keeps the Editor responsive to the bridge while its window is NOT focused.
+    /// Keeps the Editor servicing the bridge while its window is NOT focused — including while a
+    /// game is running in play mode — so tool calls run without you clicking back into Unity.
     ///
-    /// By default Unity throttles the editor loop (and pauses play mode) when it loses OS focus,
-    /// so <see cref="MainThreadDispatcher"/> stops draining and bridge tool calls — wait-for-compile,
-    /// play-mode stepping, frame capture — hang until you click back into Unity. When enabled, this
-    /// driver:
-    ///   • sets <c>Application.runInBackground = true</c> so play mode keeps running unfocused, and
-    ///   • while unfocused, repeatedly pumps the player loop and repaints so the editor keeps
-    ///     ticking at a healthy rate (and queued main-thread work / compilation proceeds).
+    /// When Unity loses OS focus it stops ticking <see cref="EditorApplication.update"/>, so the
+    /// <see cref="MainThreadDispatcher"/> queue stops draining and bridge calls hang. This driver:
+    ///   • keeps the process un-throttled in the background (<see cref="BackgroundPower"/>: Windows
+    ///     EcoQoS / macOS App Nap) so it runs at full speed,
+    ///   • pokes the OS to keep the editor ticking (Windows: a WM_NULL message-pump wake on a
+    ///     threadpool timer + on every enqueue; macOS needs no poke once App Nap is off), and
+    ///   • sets <c>Application.runInBackground = true</c> so play mode keeps running unfocused.
     ///
-    /// It only does work while the Editor is in the background, so a focused editor is unaffected.
-    /// Costs some background CPU — toggle it in Window ▸ Unity Vibe OS ▸ "Keep Unity awake (background)".
-    /// The choice is per-user (EditorPrefs) and defaults ON.
+    /// Idle in the background it does nothing heavy, so a foreground game keeps the GPU; it only
+    /// spins the player loop when there's queued work or play mode to advance. Toggle in
+    /// Window ▸ Unity Vibe OS ▸ "Keep Unity awake (background)". Per-user (EditorPrefs), defaults ON.
     /// </summary>
     [InitializeOnLoad]
     public static class BackgroundKeepAlive
     {
         const string PrefKey = "UnityVibeOS.KeepAwake";
-        // ~30 Hz while unfocused: snappy for the dispatcher without pegging a core.
-        const double IntervalMs = 33.0;
-        static double _lastTickMs;
+        const int WakeIntervalMs = 100;   // ≤100 ms wake latency even if the editor loop is frozen
+        static Timer _waker;
 
         public static bool Enabled
         {
@@ -36,40 +37,70 @@ namespace UnityVibeOS
 
         static BackgroundKeepAlive()
         {
-            // Defer so static-init order across the package is settled (mirrors BridgeServer).
-            EditorApplication.delayCall += Apply;
+            EditorApplication.delayCall += Apply;   // defer so package static-init order is settled
+            AssemblyReloadEvents.beforeAssemblyReload -= StopWaker;
+            AssemblyReloadEvents.beforeAssemblyReload += StopWaker;
+            EditorApplication.quitting -= StopWaker;
+            EditorApplication.quitting += StopWaker;
         }
 
         static void Apply()
         {
             EditorApplication.update -= Tick;
-            if (!Enabled) return;
-            // Lets the player loop run while the app is in the background (play mode unfocused).
+            EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+            if (!Enabled)
+            {
+                StopWaker();
+                BackgroundPower.KeepUnthrottled(false);
+                return;
+            }
+
             Application.runInBackground = true;
             EditorApplication.update += Tick;
+            EditorApplication.playModeStateChanged += OnPlayModeChanged;
+            BackgroundPower.KeepUnthrottled(true);
+            StartWaker();
+        }
+
+        static void StartWaker()
+        {
+            StopWaker();
+            // Threadpool timer — the OS keeps firing it regardless of Unity's focus. WakePump is a
+            // no-op off Windows, so this is harmless to run everywhere.
+            _waker = new Timer(_ => BackgroundPower.WakePump(), null, 0, WakeIntervalMs);
+        }
+
+        static void StopWaker()
+        {
+            var w = _waker;
+            _waker = null;
+            try { w?.Dispose(); } catch { /* ignore */ }
+        }
+
+        static void OnPlayModeChanged(PlayModeStateChange change)
+        {
+            // The project's Player Setting "Run In Background" (a tracked asset we don't touch) may be
+            // off, which would pause the game when unfocused. Re-assert the runtime flag on play so an
+            // unfocused play session keeps ticking the bridge.
+            if (Enabled && change == PlayModeStateChange.EnteredPlayMode)
+                Application.runInBackground = true;
         }
 
         static void Tick()
         {
-            // A focused Editor already ticks fully; only intervene when it's in the background.
-            if (InternalEditorUtility.isApplicationActive) return;
+            if (InternalEditorUtility.isApplicationActive) return;   // focused editor ticks itself
 
-            double nowMs = EditorApplication.timeSinceStartup * 1000.0;
-            if (nowMs - _lastTickMs < IntervalMs) return;
-            _lastTickMs = nowMs;
+            // Stay light while idle in the background — the waker keeps the pump warm, so the next
+            // call still wakes us instantly. Only spin the loop when there's work or play mode to run.
+            bool pending = MainThreadDispatcher.HasPending;
+            if (!pending && !EditorApplication.isPlaying) return;
 
             try
             {
-                // Advance the player loop and force repaints so the editor keeps updating —
-                // this is what drains MainThreadDispatcher and lets compile/import proceed
-                // without the user having to refocus the window.
                 EditorApplication.QueuePlayerLoopUpdate();
-                InternalEditorUtility.RepaintAllViews();
+                if (pending) InternalEditorUtility.RepaintAllViews();
             }
-            catch
-            {
-                // Editor mid domain-reload (entering play / post-compile); ignore and retry next tick.
-            }
+            catch { /* mid domain-reload; retry next tick */ }
         }
     }
 }

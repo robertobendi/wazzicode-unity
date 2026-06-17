@@ -310,10 +310,10 @@ describe("cli/autonomy", () => {
     try {
       const cfgPath = path.join(tmp, ".unity-vibe", "config.json");
 
-      // status on a fresh project → default read_only, writes nothing.
+      // status on a fresh project → write-enabled by default (autopilot), writes nothing.
       let r = await runAutonomy({ project: tmp, mock: false, json: true }, { command: "autonomy", positional: ["status"], flags: {} });
       expect(r.exitCode).toBe(0);
-      expect(JSON.parse(r.stdout!).safetyMode).toBe("read_only");
+      expect(JSON.parse(r.stdout!).safetyMode).toBe("autopilot");
       await expect(fs.access(cfgPath)).rejects.toBeTruthy(); // status did not write a config
 
       // on → autopilot + scene/prefab writes + autoSnapshot.

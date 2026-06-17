@@ -7,9 +7,13 @@ export const SafetyModeSchema = z.enum(["read_only", "suggest", "confirm", "auto
 export type SafetyMode = z.infer<typeof SafetyModeSchema>;
 
 export const UVibeConfigSchema = z.object({
-  safetyMode: SafetyModeSchema.default("read_only"),
-  allowSceneWrites: z.boolean().default(false),
-  allowPrefabWrites: z.boolean().default(false),
+  // Write-enabled out of the box: the whole point of Unity Vibe OS is to let Claude edit the
+  // project, so the default posture is autopilot with scene/prefab/script/asset writes on.
+  // The two genuine escape hatches (allowMenuItems, allowCodeExecution) stay off — they are
+  // opt-in by design. Lock everything down with `uvibe autonomy off`.
+  safetyMode: SafetyModeSchema.default("autopilot"),
+  allowSceneWrites: z.boolean().default(true),
+  allowPrefabWrites: z.boolean().default(true),
   allowScriptWrites: z.boolean().default(true),
   /** Asset creation/import (materials, ScriptableObjects, sprites, generated C# files on disk). */
   allowAssetWrites: z.boolean().default(true),

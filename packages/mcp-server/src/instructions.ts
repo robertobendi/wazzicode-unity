@@ -22,7 +22,7 @@ PLAY-TEST: unity_enter_play_mode → observe with unity_get_console_logs / unity
 
 DIAGNOSE: unity_find_missing_scripts, unity_find_missing_references, unity_find_references / unity_find_dependencies before any rename/delete.
 
-SAFETY: writes are gated by a safety mode. If a write returns SAFETY_MODE_BLOCKED, tell the user to run \`uvibe autonomy on\` — do NOT edit .unity-vibe/config.json yourself. \`unity_execute_code\` (arbitrary in-Editor C#) lives in the \`codegen\` tool group, OFF by default; enable with \`unity_manage_tools\` (activate codegen) and ask the user to set allowCodeExecution.
+SAFETY: scene/prefab/script/asset writes are ON by default (autopilot) — just edit; every write is Undo-wrapped + action-logged. Only two things stay opt-in: menu items (allowMenuItems + allowedMenuItems allowlist) and \`unity_execute_code\` (arbitrary in-Editor C#, in the \`codegen\` group, OFF by default — enable with \`unity_manage_tools\` activate codegen and ask the user to set allowCodeExecution). If a write ever returns SAFETY_MODE_BLOCKED the user locked it down; tell them to run \`uvibe autonomy on\` — do NOT edit .unity-vibe/config.json yourself.
 
 TOOL GROUPS: core/scripting/reflection/runtime/testing are active; codegen is off. \`unity_manage_tools\` lists/toggles them. Big scenes: unity_get_scene_hierarchy is capped (maxNodes) and flags truncated — narrow with scenePath/maxDepth instead of dumping everything.
 
