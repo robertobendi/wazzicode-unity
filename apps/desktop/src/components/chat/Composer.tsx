@@ -61,18 +61,26 @@ export default function Composer() {
     }
   }
 
-  // The webview can't see OS file paths (or reliably image bytes) on paste, so
-  // ask Rust to read the OS clipboard. Text still pastes normally into the
-  // textarea; files/images are staged as attachments in addition.
-  function onPaste() {
+  // Only reach into the OS clipboard when the paste actually carries files or an
+  // image — those the webview can't read directly, so Rust stages them as
+  // attachments. Plain text (e.g. pasted code) must fall through to the textarea
+  // untouched: opening the OS clipboard from Rust races the webview's own paste
+  // on Windows and can drop the pasted text entirely.
+  function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     if (!project) return;
+    const cd = e.clipboardData;
+    const hasFiles =
+      !!cd &&
+      (cd.files.length > 0 ||
+        Array.from(cd.items).some((it) => it.kind === "file"));
+    if (!hasFiles) return; // let the textarea handle text normally
     void api
       .pasteClipboard(project)
       .then((staged) => {
         if (staged.length) addAttachments(staged);
       })
       .catch(() => {
-        // Text-only clipboards return []; a read failure is non-fatal here.
+        // A read failure is non-fatal here.
       });
   }
 

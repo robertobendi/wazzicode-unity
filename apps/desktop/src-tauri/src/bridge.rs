@@ -87,13 +87,31 @@ pub async fn stop_status_loop(state: &AppState) {
     }
 }
 
+/// How many consecutive disconnected polls to ride out as a calm "connecting"
+/// state before escalating to "Open Unity and load <project>". Covers the app
+/// launching a moment before the Editor writes bridge.json, and transient reads
+/// of a half-written discovery file. At POLL_INTERVAL that's ~8s of grace.
+const CONNECT_GRACE_TICKS: u32 = 4;
+
 async fn run_loop(app: AppHandle, project: PathBuf) {
     let client = reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .build()
         .unwrap_or_default();
+    let mut miss_streak: u32 = 0;
     loop {
-        let update = poll_once(&project, &client).await;
+        let mut update = poll_once(&project, &client).await;
+        // Soften the very first disconnected polls: a freshly launched app that
+        // beat the Editor to bridge.json shouldn't flash "Open Unity" — show
+        // "Connecting…" until the miss actually persists.
+        if update.state == BridgeState::Disconnected {
+            miss_streak = miss_streak.saturating_add(1);
+            if miss_streak <= CONNECT_GRACE_TICKS {
+                update.friendly = "Connecting to Unity…".into();
+            }
+        } else {
+            miss_streak = 0;
+        }
         let _ = app.emit("status:update", update);
         tokio::time::sleep(POLL_INTERVAL).await;
     }
