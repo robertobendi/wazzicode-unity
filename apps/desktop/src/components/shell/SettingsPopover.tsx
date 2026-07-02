@@ -1,16 +1,38 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { api } from "@/api";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useUiStore } from "@/stores/useUiStore";
+import type { AuthStatus } from "@/types/pairing";
+
+const SOURCE_LABELS: Record<string, string> = {
+  keychain: "OS keychain",
+  file: "local file",
+  env: "environment",
+};
 
 /**
  * Small settings panel anchored under the gear. Everyday toggle (debug drawer)
- * plus an "Admin" section (power mode + model override) for advanced users.
+ * plus an "Admin" section (power mode, model override, account pairing) for
+ * advanced users.
  */
 export default function SettingsPopover() {
   const settings = useSettingsStore((s) => s.settings);
   const update = useSettingsStore((s) => s.update);
   const setOpen = useUiStore((s) => s.setSettingsOpen);
+  const setRepairing = useUiStore((s) => s.setRepairing);
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    void api.authStatus().then(setAuth).catch(() => setAuth(null));
+  }, []);
+
+  async function repair() {
+    await api.authClear();
+    await update({ pairedOk: false });
+    setOpen(false);
+    setRepairing(true);
+  }
 
   // Dismiss on outside click / Escape.
   useEffect(() => {
@@ -71,6 +93,23 @@ export default function SettingsPopover() {
             className="selectable mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-dim focus:border-ink-600 focus:outline-none"
           />
         </label>
+
+        <div className="mt-4 flex items-center justify-between">
+          <span>
+            <span className="block text-sm text-fg">Company account</span>
+            <span className="block text-xs text-fg-dim">
+              {auth?.hasToken
+                ? `Connected · ${SOURCE_LABELS[auth.source ?? ""] ?? auth.source}`
+                : "Not connected"}
+            </span>
+          </span>
+          <button
+            onClick={() => void repair()}
+            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600"
+          >
+            Re-pair
+          </button>
+        </div>
       </div>
     </div>
   );

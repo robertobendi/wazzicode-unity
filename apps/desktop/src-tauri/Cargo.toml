@@ -35,8 +35,18 @@ nanoid = "0.4"
 portable-pty = "0.8"
 # Auth-token verify probes + the bridge status poller (Phase 1 / bridge.rs).
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-# OS keychain for the company Claude OAuth token (Phase 4).
-keyring = "3"
+# OS keychain for the company Claude OAuth token (Phase 4). The platform
+# backend features are REQUIRED — with none enabled, keyring v3 falls back to a
+# non-persistent in-memory mock store (tokens vanish on restart). Each `*-native`
+# dep is target-gated inside keyring's own manifest, so enabling all three builds
+# on every target and only the host's backend activates. `sync-secret-service` +
+# `crypto-rust` cover odd Linux boxes without pulling OpenSSL.
+keyring = { version = "3", features = [
+    "apple-native",
+    "windows-native",
+    "sync-secret-service",
+    "crypto-rust",
+] }
 # Regex-scan the setup-token stream for the OAuth URL + token (Phase 4).
 regex = "1"
 # Stable project-hash for the app-managed --mcp-config file name (Phase 6).

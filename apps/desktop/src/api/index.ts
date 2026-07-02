@@ -7,6 +7,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Settings } from "@/types/settings";
 import type { ProjectInfo } from "@/types/project";
 import type { StagedResource } from "@/types/chat";
+import type { AuthStatus, AuthVerify, PairingState } from "@/types/pairing";
 
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
@@ -40,6 +41,19 @@ export const api = {
   pasteClipboard: (project: string) =>
     invoke<StagedResource[]>("paste_clipboard", { project }),
   removeStaged: (path: string) => invoke<void>("remove_staged", { path }),
+
+  // Pairing: hidden-PTY `claude setup-token` flow. State arrives on the
+  // `pairing:update` event; pairingStart returns the pairing id for submitCode.
+  pairingStart: () => invoke<string>("pairing_start"),
+  pairingSubmitCode: (pairingId: string, code: string) =>
+    invoke<void>("pairing_submit_code", { pairingId, code }),
+  pairingCancel: () => invoke<void>("pairing_cancel"),
+  pairingState: () => invoke<PairingState | null>("pairing_state"),
+
+  // Auth: stored company token status / verification / removal.
+  authStatus: () => invoke<AuthStatus>("auth_status"),
+  authVerify: () => invoke<AuthVerify>("auth_verify"),
+  authClear: () => invoke<void>("auth_clear"),
 };
 
 /** Open a native folder picker. Returns null if cancelled. */

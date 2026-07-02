@@ -1,5 +1,6 @@
 use crate::bridge::StatusTask;
 use crate::claude::SessionManager;
+use crate::pairing::PairingManager;
 use crate::store::settings::Settings;
 use std::path::PathBuf;
 use tokio::sync::{Mutex, RwLock};
@@ -15,6 +16,8 @@ pub struct AppState {
     pub sessions: SessionManager,
     /// The single running bridge status poller, if any.
     pub status_task: Mutex<Option<StatusTask>>,
+    /// The hidden-PTY company-account pairing driver (one active at a time).
+    pub pairing: PairingManager,
 }
 
 impl AppState {
@@ -24,6 +27,7 @@ impl AppState {
             config_dir,
             sessions: SessionManager::default(),
             status_task: Mutex::new(None),
+            pairing: PairingManager::default(),
         }
     }
 }

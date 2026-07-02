@@ -182,6 +182,14 @@ fn full_search_path() -> OsString {
     std::env::join_paths(parts).unwrap_or_else(|_| augmented_path().clone())
 }
 
+/// The augmented PATH (plus any live `late_dirs()`) as it would be exported to
+/// a spawned child. Exposed for spawn sites that build their own command rather
+/// than going through `command()` — e.g. the pairing PTY, which uses
+/// portable-pty's `CommandBuilder` and must set the child PATH itself.
+pub fn search_path() -> OsString {
+    full_search_path()
+}
+
 fn probe_dir(dir: &std::path::Path, bin: &str) -> Option<PathBuf> {
     #[cfg(windows)]
     {

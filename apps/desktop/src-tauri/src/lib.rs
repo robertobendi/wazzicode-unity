@@ -3,8 +3,10 @@ pub mod claude;
 pub mod commands;
 pub mod error;
 pub mod mcpconfig;
+pub mod pairing;
 pub mod pathutil;
 pub mod proc;
+pub mod secrets;
 pub mod state;
 pub mod store;
 
@@ -84,6 +86,13 @@ pub fn run() {
             commands::resources::stage_paths,
             commands::resources::paste_clipboard,
             commands::resources::remove_staged,
+            commands::pairing::pairing_start,
+            commands::pairing::pairing_submit_code,
+            commands::pairing::pairing_cancel,
+            commands::pairing::pairing_state,
+            commands::pairing::auth_status,
+            commands::pairing::auth_verify,
+            commands::pairing::auth_clear,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

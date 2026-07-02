@@ -83,7 +83,8 @@ impl SessionManager {
             .stderr(Stdio::piped())
             .current_dir(&project)
             .args(&args);
-        // B4: replace env passthrough with a keychain lookup.
+        // Company token: keychain → file → env (see `secrets`). Injected on
+        // every spawn so the headless CLI authenticates as the company account.
         if let Some(token) = oauth_token() {
             std_cmd.env("CLAUDE_CODE_OAUTH_TOKEN", token);
         }
@@ -312,10 +313,9 @@ fn friendly_spawn_error(stderr_tail: &str, exit_code: Option<i32>) -> String {
     }
 }
 
-/// B4: replace with an OS-keychain lookup. For now we only forward an
-/// already-present env token (dev machines that are logged in).
+/// The company Claude token to inject: keychain first, then the 0600 file
+/// fallback, then a `CLAUDE_CODE_OAUTH_TOKEN` env var (dev convenience). See
+/// `crate::secrets`.
 fn oauth_token() -> Option<String> {
-    std::env::var("CLAUDE_CODE_OAUTH_TOKEN")
-        .ok()
-        .filter(|s| !s.is_empty())
+    crate::secrets::token()
 }

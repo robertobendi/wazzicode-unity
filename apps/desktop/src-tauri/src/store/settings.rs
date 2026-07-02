@@ -29,6 +29,10 @@ pub struct Settings {
     /// Show the raw stream / debug drawer in the UI.
     #[serde(default)]
     pub debug_drawer: bool,
+    /// Set true after the first successful pair/verify. Lets the app skip the
+    /// pairing gate on subsequent launches (pairing is per-machine).
+    #[serde(default)]
+    pub paired_ok: bool,
 }
 
 fn default_schema_version() -> u32 {
@@ -44,6 +48,7 @@ impl Default for Settings {
             power_mode: false,
             model: None,
             debug_drawer: false,
+            paired_ok: false,
         }
     }
 }

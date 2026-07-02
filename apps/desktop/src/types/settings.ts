@@ -11,4 +11,6 @@ export interface Settings {
   model: string | null;
   /** Show the raw stream / debug drawer in the UI. */
   debugDrawer: boolean;
+  /** Set true after the first successful pair/verify (skips the pairing gate). */
+  pairedOk: boolean;
 }

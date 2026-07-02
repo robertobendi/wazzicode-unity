@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { api } from "@/api";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useUiStore } from "@/stores/useUiStore";
 import { useBridgeStatus } from "@/hooks/useBridgeStatus";
 import { useDebugCapture } from "@/hooks/useDebugCapture";
+import PairingScreen from "@/components/pairing/PairingScreen";
 import ProjectPicker from "@/components/project/ProjectPicker";
 import ChatView from "@/components/chat/ChatView";
 import ActivityPanel from "@/components/activity/ActivityPanel";
@@ -16,10 +18,22 @@ export default function App() {
   const { settings, load } = useSettingsStore();
   const setProject = useChatStore((s) => s.setProject);
   const activityOpen = useUiStore((s) => s.activityOpen);
+  const repairing = useUiStore((s) => s.repairing);
+  const setRepairing = useUiStore((s) => s.setRepairing);
+
+  // Pairing gate: is a company token actually present on this machine?
+  const [hasToken, setHasToken] = useState<boolean | null>(null);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void api
+      .authStatus()
+      .then((s) => setHasToken(s.hasToken))
+      .catch(() => setHasToken(false));
+  }, []);
 
   const project = settings?.currentProject ?? null;
 
@@ -32,11 +46,25 @@ export default function App() {
   useBridgeStatus(project);
   useDebugCapture();
 
-  if (!settings) {
+  if (!settings || hasToken === null) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-ink-950 text-sm text-fg-dim">
         Loading…
       </div>
+    );
+  }
+
+  // Pairing gate FIRST (a paired app is per-machine, not per-project): show it
+  // when there's no stored token and we've never paired — or on admin re-pair.
+  const needsPairing = (!hasToken && !settings.pairedOk) || repairing;
+  if (needsPairing) {
+    return (
+      <PairingScreen
+        onDone={() => {
+          setHasToken(true);
+          setRepairing(false);
+        }}
+      />
     );
   }
 

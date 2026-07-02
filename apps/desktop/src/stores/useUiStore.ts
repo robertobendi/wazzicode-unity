@@ -8,16 +8,21 @@ interface UiState {
   debugOpen: boolean;
   /** Settings popover open? */
   settingsOpen: boolean;
+  /** Admin "Re-pair account" chosen — force the pairing screen back up. */
+  repairing: boolean;
   toggleActivity: () => void;
   toggleDebug: () => void;
   setSettingsOpen: (open: boolean) => void;
+  setRepairing: (v: boolean) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
   activityOpen: true,
   debugOpen: false,
   settingsOpen: false,
+  repairing: false,
   toggleActivity: () => set((s) => ({ activityOpen: !s.activityOpen })),
   toggleDebug: () => set((s) => ({ debugOpen: !s.debugOpen })),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+  setRepairing: (v) => set({ repairing: v }),
 }));
