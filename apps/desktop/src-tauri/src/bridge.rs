@@ -14,6 +14,7 @@
 //! A single 2s loop runs at a time; `start_status_loop` restarts it when the
 //! focused project changes. Each tick emits one `status:update` event.
 
+use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -149,6 +150,65 @@ pub async fn poll_once(project: &Path, client: &reqwest::Client) -> StatusUpdate
             friendly: "Unity is recompiling — hang on…".into(),
         },
     }
+}
+
+/// Timeout for on-demand bridge calls (screenshots render a frame — allow more
+/// than the 1.5s status poll budget).
+const CALL_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Make a one-shot bridge RPC for `project` and return its `result` payload.
+///
+/// Unlike the status poller (which only classifies reachability), this surfaces
+/// real errors so callers can map them to friendly text: `UNITY_NOT_CONNECTED`
+/// when there's no discovery file, `UNITY_RELOADING` when the socket is down,
+/// or the bridge's own `CODE: message` on an `ok:false` response.
+pub async fn call(project: &Path, method: &str, params: serde_json::Value) -> AppResult<serde_json::Value> {
+    let disco = read_discovery(project)
+        .ok_or_else(|| AppError::Other("UNITY_NOT_CONNECTED".into()))?;
+    let host = disco.host.unwrap_or_else(|| DEFAULT_HOST.into());
+    let url = format!("http://{host}:{}/rpc", disco.port);
+
+    let client = reqwest::Client::builder()
+        .timeout(CALL_TIMEOUT)
+        .build()
+        .map_err(|e| AppError::Other(format!("http client: {e}")))?;
+    let body = serde_json::json!({
+        "id": "studio",
+        "version": PROTOCOL_VERSION,
+        "method": method,
+        "params": params,
+    });
+
+    // A refused/timed-out socket with a discovery file present is almost always
+    // a script-domain reload — recoverable, so map it to UNITY_RELOADING.
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|_| AppError::Other("UNITY_RELOADING".into()))?;
+    if !resp.status().is_success() {
+        return Err(AppError::Other(format!("bridge HTTP {}", resp.status())));
+    }
+    let v: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| AppError::Other(format!("bridge response: {e}")))?;
+
+    if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {
+        return Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null));
+    }
+    let code = v
+        .get("error")
+        .and_then(|e| e.get("code"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("BRIDGE_ERROR");
+    let msg = v
+        .get("error")
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+        .unwrap_or("bridge returned an error");
+    Err(AppError::Other(format!("{code}: {msg}")))
 }
 
 enum RpcOutcome {

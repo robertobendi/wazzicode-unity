@@ -28,6 +28,10 @@ export const api = {
   // Bridge status poller (emits `status:update`).
   statusStart: (project: string) => invoke<void>("status_start", { project }),
   statusStop: () => invoke<void>("status_stop"),
+
+  // Capture the live game/scene view; returns the on-disk PNG path to render.
+  bridgeCapture: (project: string, kind: "game" | "scene" = "game") =>
+    invoke<{ pngPath: string }>("bridge_capture", { project, kind }),
 };
 
 /** Open a native folder picker. Returns null if cancelled. */

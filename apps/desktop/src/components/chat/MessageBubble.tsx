@@ -1,14 +1,13 @@
+import { useState } from "react";
 import type { ChatMessage } from "@/types/chat";
 import ToolActivityChip from "./ToolActivityChip";
 
-/** One chat turn: user (right-accented) or assistant (left) with tool chips. */
+/** One chat turn: user (right, tinted block) or assistant (left, plain text). */
 export default function MessageBubble({ message }: { message: ChatMessage }) {
-  const isUser = message.role === "user";
-
-  if (isUser) {
+  if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-accent/90 px-4 py-2.5 text-sm text-white">
+        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent/12 px-4 py-2.5 text-sm text-fg">
           {message.text}
         </div>
       </div>
@@ -17,7 +16,7 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[85%] space-y-2">
+      <div className="w-full max-w-[65ch] space-y-2">
         {message.activities.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {message.activities.map((a) => (
@@ -27,33 +26,56 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
         )}
 
         {message.text && (
-          <div className="whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-ink-800 px-4 py-2.5 text-sm text-fg">
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-fg">
             {message.text}
             {message.streaming && (
-              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-fg-dim align-middle" />
+              <span className="ml-0.5 inline-block h-4 w-[2px] animate-caret bg-accent align-text-bottom" />
             )}
           </div>
         )}
 
         {message.streaming && !message.text && message.activities.length === 0 && (
-          <div className="flex items-center gap-2 px-1 text-sm text-fg-dim">
+          <div className="flex items-center gap-2 text-sm text-fg-dim">
             <span className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-fg-dim border-t-transparent" />
             Thinking…
           </div>
         )}
 
         {message.error && (
-          <div className="rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-sm text-accent">
-            {message.error}
-          </div>
+          <ErrorBanner text={message.error} detail={message.errorRaw} />
         )}
 
         {typeof message.costUsd === "number" && (
-          <div className="px-1 text-[11px] text-fg-dim">
+          <div className="tabular-nums text-[11px] text-fg-dim">
             ${message.costUsd.toFixed(4)}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Soft-red error notice with an optional raw "Details" disclosure. */
+function ErrorBanner({ text, detail }: { text: string; detail?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-danger/25 bg-danger/10 px-3.5 py-2.5 text-sm text-danger">
+      <div>{text}</div>
+      {detail && (
+        <>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="mt-1 text-xs text-danger/70 underline-offset-2 transition-colors duration-150 hover:text-danger hover:underline"
+          >
+            {open ? "Hide details" : "Details"}
+          </button>
+          {open && (
+            <pre className="selectable mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-ink-950/60 px-2.5 py-2 font-mono text-[11px] text-fg-dim">
+              {detail}
+            </pre>
+          )}
+        </>
+      )}
     </div>
   );
 }

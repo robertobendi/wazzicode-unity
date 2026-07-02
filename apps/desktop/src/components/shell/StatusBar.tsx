@@ -14,12 +14,14 @@ export default function StatusBar() {
       : status.friendly;
 
   return (
-    <footer className="flex h-8 items-center justify-between border-t border-ink-800 bg-ink-900 px-4 text-xs text-fg-dim">
+    <footer className="flex h-8 shrink-0 items-center justify-between border-t border-white/5 bg-ink-900 px-4 text-xs text-fg-dim">
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${dotColor(status.state)}`} />
         <span className="text-fg-muted">{label}</span>
       </div>
-      {totalCost > 0 && <span>Session ${totalCost.toFixed(4)}</span>}
+      {totalCost > 0 && (
+        <span className="tabular-nums">Session ${totalCost.toFixed(4)}</span>
+      )}
     </footer>
   );
 }
@@ -27,13 +29,13 @@ export default function StatusBar() {
 function dotColor(state: BridgeState): string {
   switch (state) {
     case "connected":
-      return "bg-emerald-500";
+      return "bg-success";
     case "reloading":
-      return "bg-amber-500 animate-pulse";
+      return "bg-warning animate-dot-pulse";
     case "identity_mismatch":
-      return "bg-amber-500";
+      return "bg-warning";
     case "disconnected":
     default:
-      return "bg-red-500";
+      return "bg-danger";
   }
 }

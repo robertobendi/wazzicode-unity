@@ -190,7 +190,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const message = friendlyError(err.raw, err.friendly);
       const messages = state.messages.map((m) =>
         m.id === state.assistantId
-          ? { ...m, streaming: false, error: message }
+          ? { ...m, streaming: false, error: message, errorRaw: err.raw }
           : m,
       );
       return {

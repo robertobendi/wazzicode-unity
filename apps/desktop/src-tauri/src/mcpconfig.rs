@@ -34,8 +34,8 @@ pub fn ensure_mcp_config(config_dir: &Path, project: &Path) -> AppResult<PathBuf
 }
 
 /// First 16 hex chars of SHA-256 over the project path — short but collision-
-/// safe enough to name a per-project config file.
-fn project_hash(project: &Path) -> String {
+/// safe enough to name a per-project file (mcp config, capture image, …).
+pub fn project_hash(project: &Path) -> String {
     let mut hasher = Sha256::new();
     hasher.update(project.to_string_lossy().as_bytes());
     let digest = hasher.finalize();

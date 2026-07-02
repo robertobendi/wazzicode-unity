@@ -51,12 +51,13 @@ export default function ProjectPicker() {
 
   return (
     <div className="flex h-full w-full items-center justify-center bg-ink-950 px-8">
-      <div className="w-full max-w-md">
-        <h1 className="text-xl font-semibold tracking-tight text-fg">
-          Open a Unity project
+      <div className="w-full max-w-md animate-appear">
+        <div className="mb-4 h-1.5 w-10 rounded-full bg-accent/70" />
+        <h1 className="text-2xl font-semibold tracking-tight text-fg">
+          Welcome to Unity Vibe Studio
         </h1>
-        <p className="mt-1 text-sm text-fg-muted">
-          Choose the folder that holds your game — the one with{" "}
+        <p className="mt-2 text-sm text-fg-muted">
+          Open the folder that holds your game — the one with{" "}
           <code className="text-fg-dim">Assets</code> and{" "}
           <code className="text-fg-dim">ProjectSettings</code>.
         </p>
@@ -72,7 +73,7 @@ export default function ProjectPicker() {
         {error && <p className="mt-3 text-xs text-accent">{error}</p>}
 
         {candidate && (
-          <div className="mt-4 rounded-lg border border-ink-700 bg-ink-900 p-4">
+          <div className="mt-4 animate-appear rounded-xl border border-white/10 bg-ink-900 p-4">
             <div className="text-sm font-medium text-fg">{candidate.name}</div>
             <div className="mt-0.5 truncate text-xs text-fg-dim">
               {candidate.path}

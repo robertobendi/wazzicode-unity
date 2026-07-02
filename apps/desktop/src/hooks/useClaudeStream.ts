@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useChatStore } from "@/stores/useChatStore";
+import { useDebugStore, compact } from "@/stores/useDebugStore";
 import type { DoneEvent, ErrorEvent } from "@/types/chat";
 
 /**
@@ -26,15 +27,20 @@ export function useClaudeStream() {
       else unlisteners.push(u);
     };
 
-    void listen<unknown>(`claude:stream:${activeRunId}`, (e) =>
-      ingest(activeRunId, e.payload),
-    ).then(register);
-    void listen<DoneEvent>(`claude:done:${activeRunId}`, (e) =>
-      finish(activeRunId, e.payload),
-    ).then(register);
-    void listen<ErrorEvent>(`claude:error:${activeRunId}`, (e) =>
-      fail(activeRunId, e.payload),
-    ).then(register);
+    const debug = useDebugStore.getState().push;
+
+    void listen<unknown>(`claude:stream:${activeRunId}`, (e) => {
+      debug("stream", compact(e.payload));
+      ingest(activeRunId, e.payload);
+    }).then(register);
+    void listen<DoneEvent>(`claude:done:${activeRunId}`, (e) => {
+      debug("done", compact(e.payload));
+      finish(activeRunId, e.payload);
+    }).then(register);
+    void listen<ErrorEvent>(`claude:error:${activeRunId}`, (e) => {
+      debug("error", compact(e.payload));
+      fail(activeRunId, e.payload);
+    }).then(register);
 
     return () => {
       cancelled = true;

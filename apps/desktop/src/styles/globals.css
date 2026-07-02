@@ -2,8 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens — the whole app's palette in one place.
+ *
+ * Values are space-separated RGB channels (not hex) so Tailwind can apply
+ * opacity modifiers: `bg-accent/10` compiles to `rgb(var(--accent) / 0.1)`.
+ * See tailwind.config.js, which references every var below.
+ *
+ * Direction: one warm-coral accent used sparingly, on a calm slate-neutral
+ * dark (never pure black), with muted green/amber/red for status only.
+ */
 :root {
   color-scheme: dark;
+
+  /* Neutral darks (surfaces), lightest-numbered = deepest. */
+  --ink-950: 10 11 13; /* app background */
+  --ink-900: 16 18 22; /* bars, header/footer */
+  --ink-850: 22 25 32; /* inputs, quiet chips */
+  --ink-800: 28 32 39; /* raised surfaces, hover */
+  --ink-700: 39 44 53; /* borders, buttons */
+  --ink-600: 51 58 69; /* strong borders, button hover */
+
+  /* Foreground text ramp. */
+  --fg: 232 234 238; /* primary */
+  --fg-muted: 170 176 186; /* secondary */
+  --fg-dim: 100 108 120; /* captions, disabled */
+
+  /* Single accent — warm coral (Claude-adjacent). Used sparingly. */
+  --accent: 217 119 87;
+  --accent-hover: 224 138 110;
+
+  /* Status — muted so they read calm, not alarming. */
+  --success: 52 211 153;
+  --warning: 234 179 92;
+  --danger: 233 122 122;
 }
 
 html,
@@ -14,8 +46,8 @@ body,
 
 body {
   margin: 0;
-  background: #0a0b0d;
-  color: #e8eaee;
+  background: rgb(var(--ink-950));
+  color: rgb(var(--fg));
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -25,15 +57,26 @@ body {
   user-select: none;
 }
 
+/* Let text inside chat/debug surfaces be selected & copied. */
+.selectable {
+  user-select: text;
+}
+
+/* Calm focus ring for keyboard users; no harsh default outline. */
+:focus-visible {
+  outline: 2px solid rgb(var(--accent) / 0.6);
+  outline-offset: 2px;
+}
+
 /* Slim, unobtrusive scrollbars that match the dark chrome. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #272c35;
+  background: rgb(var(--ink-700));
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #333a45;
+  background: rgb(var(--ink-600));
 }

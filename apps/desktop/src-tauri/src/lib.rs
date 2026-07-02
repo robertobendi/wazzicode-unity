@@ -55,6 +55,18 @@ pub fn run() {
             use tauri::Manager;
             let cfg_dir = config_dir().expect("could not create config dir");
             let initial = settings::load(&cfg_dir).unwrap_or_default();
+
+            // Let the webview render live captures through the asset protocol.
+            // The dir is machine-specific, so we grant it at runtime rather than
+            // via a static tauri.conf scope pattern.
+            let captures = cfg_dir.join("captures");
+            if let Err(e) = std::fs::create_dir_all(&captures) {
+                log::warn!("could not create captures dir: {e}");
+            }
+            if let Err(e) = app.asset_protocol_scope().allow_directory(&captures, false) {
+                log::warn!("could not grant captures dir to asset scope: {e}");
+            }
+
             app.manage(AppState::new(cfg_dir, initial));
             Ok(())
         })
@@ -68,6 +80,7 @@ pub fn run() {
             commands::chat::chat_cancel,
             commands::status::status_start,
             commands::status::status_stop,
+            commands::screenshot::bridge_capture,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

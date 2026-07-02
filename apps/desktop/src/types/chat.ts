@@ -47,6 +47,8 @@ export interface ChatMessage {
   costUsd?: number;
   /** Friendly error text when the turn failed. */
   error?: string;
+  /** Raw error detail behind `error`, shown under a "Details" disclosure. */
+  errorRaw?: string;
 }
 
 export interface ChatSession {

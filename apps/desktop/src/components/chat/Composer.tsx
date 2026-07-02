@@ -26,7 +26,7 @@ export default function Composer() {
   }
 
   return (
-    <div className="border-t border-ink-800 bg-ink-900 px-4 py-3">
+    <div className="border-t border-white/5 bg-ink-900 px-4 py-3">
       <div className="mx-auto flex max-w-2xl items-end gap-2">
         <textarea
           ref={ref}
@@ -38,12 +38,12 @@ export default function Composer() {
           onKeyDown={onKeyDown}
           rows={1}
           placeholder="Ask Claude to change your game…"
-          className="max-h-40 flex-1 resize-none rounded-xl border border-ink-700 bg-ink-850 px-3.5 py-2.5 text-sm text-fg placeholder:text-fg-dim focus:border-ink-600 focus:outline-none"
+          className="selectable max-h-40 flex-1 resize-none rounded-xl border border-ink-700 bg-ink-850 px-3.5 py-2.5 text-sm text-fg placeholder:text-fg-dim transition-colors duration-150 focus:border-ink-600 focus:outline-none"
         />
         {running ? (
           <button
             onClick={() => void cancel()}
-            className="shrink-0 rounded-xl border border-ink-700 bg-ink-800 px-4 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-ink-700"
+            className="shrink-0 rounded-xl border border-ink-700 bg-ink-800 px-4 py-2.5 text-sm font-medium text-fg transition-colors duration-150 hover:bg-ink-700"
           >
             Stop
           </button>
@@ -51,7 +51,7 @@ export default function Composer() {
           <button
             onClick={submit}
             disabled={!value.trim()}
-            className="shrink-0 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+            className="shrink-0 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-accent-hover disabled:opacity-40"
           >
             Send
           </button>

@@ -47,6 +47,9 @@ sha2 = "0.10"
 arboard = "3"
 clipboard-files = "0.1"
 png = "0.17"
+# Decode the bridge's base64 screenshot payload into a real PNG on disk that
+# the webview can render through Tauri's asset protocol (bridge.rs / capture).
+base64 = "0.22"
 
 # Unix process-group signalling for graceful chat cancellation (SIGTERM the
 # Claude process group, then SIGKILL) — kills the MCP server child too.
