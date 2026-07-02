@@ -28,6 +28,11 @@ pub struct ProjectInfo {
 
 #[tauri::command]
 pub async fn validate_unity_project(path: String) -> AppResult<ProjectInfo> {
+    Ok(inspect_project(path))
+}
+
+/// Pure project inspection (no async, no Tauri) so onboarding can reuse it.
+pub fn inspect_project(path: String) -> ProjectInfo {
     let root = PathBuf::from(&path);
     let has_assets = root.join("Assets").is_dir();
     let has_project_settings = root.join("ProjectSettings").is_dir();
@@ -44,7 +49,7 @@ pub async fn validate_unity_project(path: String) -> AppResult<ProjectInfo> {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.clone());
 
-    Ok(ProjectInfo {
+    ProjectInfo {
         ok: has_assets && has_project_settings,
         name,
         path,
@@ -53,7 +58,7 @@ pub async fn validate_unity_project(path: String) -> AppResult<ProjectInfo> {
         has_project_settings,
         uvibe_initialized,
         safety_mode,
-    })
+    }
 }
 
 /// Set the focused project and record it in the recents list (dedup,

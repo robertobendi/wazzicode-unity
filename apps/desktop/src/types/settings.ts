@@ -13,4 +13,6 @@ export interface Settings {
   debugDrawer: boolean;
   /** Set true after the first successful pair/verify (skips the pairing gate). */
   pairedOk: boolean;
+  /** Set true once the onboarding wizard completes ("Redo setup" clears it). */
+  onboarded: boolean;
 }

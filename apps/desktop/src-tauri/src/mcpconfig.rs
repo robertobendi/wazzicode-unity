@@ -1,4 +1,4 @@
-//! App-managed `--mcp-config` writer.
+//! App-managed `--mcp-config` writer + uvibe CLI resolution.
 //!
 //! Mirrors `apps/cli/src/commands/mcpConfig.ts:buildEntry`: the entry runs the
 //! uvibe CLI's `serve` command via Node with `UVIBE_PROJECT` pointing at the
@@ -11,15 +11,22 @@
 use crate::error::AppResult;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
 
 /// Write `<config_dir>/mcp/<projectHash>.json` and return its path.
 /// `config_dir` is the app's config dir (already `.../unity-vibe-studio`).
-pub fn ensure_mcp_config(config_dir: &Path, project: &Path) -> AppResult<PathBuf> {
+/// `app` is needed to resolve the bundled sidecar + uvibe.cjs in release builds.
+pub fn ensure_mcp_config(
+    app: &AppHandle,
+    config_dir: &Path,
+    project: &Path,
+) -> AppResult<PathBuf> {
     let dir = config_dir.join("mcp");
     std::fs::create_dir_all(&dir)?;
     let file = dir.join(format!("{}.json", project_hash(project)));
 
-    let (command, args) = uvibe_command();
+    let (command, mut args) = resolve_uvibe(app);
+    args.push("serve".into());
     let config = serde_json::json!({
         "mcpServers": {
             "unity-vibe-os": {
@@ -46,56 +53,108 @@ pub fn project_hash(project: &Path) -> String {
     hex
 }
 
-/// Resolve how to launch the MCP server.
+/// Resolve how to invoke the uvibe CLI, as `(command, prefix_args)` — everything
+/// before the subcommand. Callers append the subcommand + its flags (e.g.
+/// `"serve"`, or `["init", "--project", …]`).
 ///
-// B6: replace with the bundled sidecar — a Node 20 `externalBin` plus the
-// esbuild-bundled `uvibe.cjs` shipped as a Tauri resource, version-locking the
-// MCP server to the app release. Until then we shell out to the monorepo CLI
-// through the system `node`.
-fn uvibe_command() -> (String, Vec<String>) {
-    if let Some(entry) = dev_uvibe_entry() {
+// B6: prefer the bundled sidecar — a Node 20 `externalBin` plus the esbuild-
+// bundled `uvibe.cjs` shipped as a Tauri resource, version-locking the MCP
+// server to the app release. Fall back to the monorepo CLI (dev builds) via the
+// system `node`, then to `uvibe` on PATH.
+pub fn resolve_uvibe(app: &AppHandle) -> (String, Vec<String>) {
+    if let Some(entry) = bundled_uvibe(app) {
         return entry;
     }
-    log::warn!("uvibe CLI entry not found; falling back to `uvibe serve` on PATH");
-    ("uvibe".into(), vec!["serve".into()])
+    if let Some(entry) = dev_uvibe_base() {
+        return entry;
+    }
+    log::warn!("uvibe CLI not found (no bundled sidecar, not in monorepo); falling back to `uvibe` on PATH");
+    ("uvibe".into(), Vec::new())
 }
 
-/// Locate the monorepo CLI (`apps/cli/bin/uvibe`) for dev builds and return
-/// `(node, [uvibe, "serve"])`. Tries walking up from the running executable
-/// first (covers `tauri dev` where the binary sits under `target/`), then the
-/// compile-time manifest dir.
-fn dev_uvibe_entry() -> Option<(String, Vec<String>)> {
-    let node = crate::proc::resolve("node")?
-        .to_string_lossy()
-        .into_owned();
+/// Source folder of the `UnityVibeOS` UPM package to install into a project:
+/// the bundled Tauri resource in release, or the monorepo `unity/UnityVibeOS`
+/// in dev. `None` if neither is present.
+pub fn unity_package_source(app: &AppHandle) -> Option<PathBuf> {
+    if let Ok(res) = app.path().resource_dir() {
+        let bundled = res.join("resources").join("UnityVibeOS");
+        if bundled.join("package.json").is_file() {
+            return Some(bundled);
+        }
+    }
+    dev_repo_path(&["unity", "UnityVibeOS"])
+        .filter(|p| p.join("package.json").is_file())
+}
 
-    let make = |uvibe: &Path| (node.clone(), vec![uvibe.to_string_lossy().into_owned(), "serve".into()]);
+/// True when both bundled pieces (sidecar node + uvibe.cjs) are present — i.e.
+/// this is a packaged build, not `tauri dev`. Surfaced in onboarding status.
+pub fn has_bundled_sidecar(app: &AppHandle) -> bool {
+    bundled_uvibe(app).is_some()
+}
 
-    // 1. Walk up from the current exe.
+/// Release resolution: the `node` sidecar (bundled next to the app binary by
+/// Tauri's `externalBin`, target-triple suffix stripped) + `resources/uvibe.cjs`.
+/// Both must exist or we return `None` so callers fall through to dev/PATH.
+fn bundled_uvibe(app: &AppHandle) -> Option<(String, Vec<String>)> {
+    let exe = std::env::current_exe().ok()?;
+    let bin_dir = exe.parent()?;
+    let node = bin_dir.join(if cfg!(windows) { "node.exe" } else { "node" });
+
+    let res = app.path().resource_dir().ok()?;
+    let cjs = res.join("resources").join("uvibe.cjs");
+
+    if node.is_file() && cjs.is_file() {
+        return Some((
+            node.to_string_lossy().into_owned(),
+            vec![cjs.to_string_lossy().into_owned()],
+        ));
+    }
+    None
+}
+
+/// Dev resolution: the monorepo CLI (`apps/cli/bin/uvibe`) run via the system
+/// `node`. Returns `(node, [uvibe])`. Tries walking up from the running exe
+/// (covers `tauri dev`, binary under `target/`), then the compile-time manifest
+/// dir.
+fn dev_uvibe_base() -> Option<(String, Vec<String>)> {
+    let node = crate::proc::resolve("node")?.to_string_lossy().into_owned();
+    let uvibe = dev_repo_path(&["apps", "cli", "bin", "uvibe"]).filter(|p| p.is_file())?;
+    Some((node, vec![uvibe.to_string_lossy().into_owned()]))
+}
+
+/// Locate a path under the monorepo root for dev builds. Walks up from the
+/// running exe first, then falls back to the compile-time manifest dir
+/// (`apps/desktop/src-tauri` → repo root).
+fn dev_repo_path(rel: &[&str]) -> Option<PathBuf> {
+    let join_rel = |base: &Path| {
+        let mut p = base.to_path_buf();
+        for seg in rel {
+            p.push(seg);
+        }
+        p
+    };
+
+    // 1. Walk up from the current exe, testing `<dir>/<rel>` at each level.
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent().map(Path::to_path_buf);
         while let Some(d) = dir {
-            let candidate = d.join("apps").join("cli").join("bin").join("uvibe");
-            if candidate.is_file() {
-                return Some(make(&candidate));
+            let candidate = join_rel(&d);
+            if candidate.exists() {
+                return Some(candidate);
             }
             dir = d.parent().map(Path::to_path_buf);
         }
     }
 
     // 2. Compile-time manifest dir: apps/desktop/src-tauri → ../../.. = repo root.
-    let candidate = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
-        .join("..")
-        .join("apps")
-        .join("cli")
-        .join("bin")
-        .join("uvibe");
-    if candidate.is_file() {
-        return Some(make(&candidate));
+        .join("..");
+    let candidate = join_rel(&root);
+    if candidate.exists() {
+        return Some(candidate);
     }
-
     None
 }
 
@@ -111,5 +170,13 @@ mod tests {
         assert_eq!(a, b);
         assert_ne!(a, c);
         assert_eq!(a.len(), 16);
+    }
+
+    #[test]
+    fn dev_repo_path_finds_monorepo_cli() {
+        // The manifest-dir fallback should locate the CLI shim in this checkout.
+        let uvibe = dev_repo_path(&["apps", "cli", "bin", "uvibe"]);
+        assert!(uvibe.is_some(), "expected to find apps/cli/bin/uvibe in the monorepo");
+        assert!(uvibe.unwrap().is_file());
     }
 }

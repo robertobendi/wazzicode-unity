@@ -9,6 +9,11 @@ import type { ProjectInfo } from "@/types/project";
 import type { StagedResource } from "@/types/chat";
 import type { AuthStatus, AuthVerify, PairingState } from "@/types/pairing";
 import type { LoopOptions, LoopState } from "@/types/loop";
+import type {
+  CliStatus,
+  OnboardingStatus,
+  SetupResult,
+} from "@/types/onboarding";
 
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
@@ -62,6 +67,13 @@ export const api = {
     invoke<string>("loop_start", { project, goal, options }),
   loopStop: () => invoke<void>("loop_stop"),
   loopState: () => invoke<LoopState | null>("loop_state"),
+
+  // Onboarding wizard. Setup + install stream progress on `onboarding:progress`.
+  onboardingStatus: () => invoke<OnboardingStatus>("onboarding_status"),
+  onboardingCheckCli: () => invoke<CliStatus>("onboarding_check_cli"),
+  onboardingInstallCli: () => invoke<CliStatus>("onboarding_install_cli"),
+  onboardingSetupProject: (project: string) =>
+    invoke<SetupResult>("onboarding_setup_project", { project }),
 };
 
 /** Open a native folder picker. Returns null if cancelled. */

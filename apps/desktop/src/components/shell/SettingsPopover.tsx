@@ -110,6 +110,24 @@ export default function SettingsPopover() {
             Re-pair
           </button>
         </div>
+
+        <div className="mt-4 flex items-center justify-between">
+          <span>
+            <span className="block text-sm text-fg">Redo setup</span>
+            <span className="block text-xs text-fg-dim">
+              Run the first-run wizard again.
+            </span>
+          </span>
+          <button
+            onClick={() => {
+              void update({ onboarded: false });
+              setOpen(false);
+            }}
+            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600"
+          >
+            Redo
+          </button>
+        </div>
       </div>
     </div>
   );

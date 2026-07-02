@@ -33,6 +33,11 @@ pub struct Settings {
     /// pairing gate on subsequent launches (pairing is per-machine).
     #[serde(default)]
     pub paired_ok: bool,
+    /// Set true once the onboarding wizard completes. When false, the wizard
+    /// subsumes the pairing gate + project pick on first run. "Redo setup"
+    /// flips it back off. Defaults false so existing files re-onboard once.
+    #[serde(default)]
+    pub onboarded: bool,
 }
 
 fn default_schema_version() -> u32 {
@@ -49,6 +54,7 @@ impl Default for Settings {
             model: None,
             debug_drawer: false,
             paired_ok: false,
+            onboarded: false,
         }
     }
 }

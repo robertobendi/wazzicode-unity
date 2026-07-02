@@ -1,5 +1,6 @@
 pub mod chat;
 pub mod loops;
+pub mod onboarding;
 pub mod pairing;
 pub mod project;
 pub mod resources;

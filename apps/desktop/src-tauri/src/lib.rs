@@ -97,6 +97,10 @@ pub fn run() {
             commands::pairing::auth_status,
             commands::pairing::auth_verify,
             commands::pairing::auth_clear,
+            commands::onboarding::onboarding_status,
+            commands::onboarding::onboarding_check_cli,
+            commands::onboarding::onboarding_install_cli,
+            commands::onboarding::onboarding_setup_project,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

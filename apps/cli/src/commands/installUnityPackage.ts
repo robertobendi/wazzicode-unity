@@ -11,16 +11,17 @@ export async function runInstallUnityPackage(g: GlobalOptions, parsed: ParsedArg
   const modeRaw = typeof parsed.flags.mode === "string" ? parsed.flags.mode : "copy";
   const mode = (modeRaw === "embed" ? "copy" : modeRaw) as "manifest" | "symlink" | "copy";
 
-  const sourcePkg = await locateUnityPackageSource();
-  if (!sourcePkg) {
+  // Prefer an explicit --source (how the desktop app points at its bundled copy,
+  // which lives outside the monorepo tree); only auto-locate when it's absent.
+  const explicitSource = typeof parsed.flags.source === "string" ? parsed.flags.source : null;
+  const sourceArg = explicitSource ?? (await locateUnityPackageSource());
+  if (!sourceArg) {
     return {
       exitCode: 1,
       stderr:
         "Could not locate unity/UnityVibeOS in this monorepo. Run from a checkout of the wazzicode-unity repo, or pass --source=<path>.\n",
     };
   }
-
-  const sourceArg = typeof parsed.flags.source === "string" ? parsed.flags.source : sourcePkg;
 
   if (!(await dirExists(g.project))) {
     return { exitCode: 1, stderr: `project path does not exist: ${g.project}\n` };

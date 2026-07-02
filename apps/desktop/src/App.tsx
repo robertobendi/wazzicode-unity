@@ -8,6 +8,7 @@ import { useDebugCapture } from "@/hooks/useDebugCapture";
 import { useLoopEvents } from "@/hooks/useLoopEvents";
 import { useLoopStore } from "@/stores/useLoopStore";
 import PairingScreen from "@/components/pairing/PairingScreen";
+import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 import ProjectPicker from "@/components/project/ProjectPicker";
 import ChatView from "@/components/chat/ChatView";
 import LoopPanel from "@/components/loop/LoopPanel";
@@ -19,6 +20,7 @@ import DebugDrawer from "@/components/shell/DebugDrawer";
 
 export default function App() {
   const { settings, load } = useSettingsStore();
+  const updateSettings = useSettingsStore((s) => s.update);
   const setProject = useChatStore((s) => s.setProject);
   const activityOpen = useUiStore((s) => s.activityOpen);
   const mode = useUiStore((s) => s.mode);
@@ -63,6 +65,18 @@ export default function App() {
       <div className="flex h-full w-full items-center justify-center bg-ink-950 text-sm text-fg-dim">
         Loading…
       </div>
+    );
+  }
+
+  // First run: the onboarding wizard subsumes the pairing gate + project pick.
+  if (!settings.onboarded) {
+    return (
+      <OnboardingWizard
+        onComplete={() => {
+          setHasToken(true);
+          void updateSettings({ onboarded: true });
+        }}
+      />
     );
   }
 
