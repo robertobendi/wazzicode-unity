@@ -7,7 +7,6 @@ pub mod mcpconfig;
 pub mod pairing;
 pub mod pathutil;
 pub mod proc;
-pub mod secrets;
 pub mod state;
 pub mod store;
 

@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { api } from "@/api";
+import { useEffect } from "react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useUiStore } from "@/stores/useUiStore";
@@ -28,19 +27,9 @@ export default function App() {
   const setRepairing = useUiStore((s) => s.setRepairing);
   const hydrateLoop = useLoopStore((s) => s.hydrate);
 
-  // Pairing gate: is a company token actually present on this machine?
-  const [hasToken, setHasToken] = useState<boolean | null>(null);
-
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    void api
-      .authStatus()
-      .then((s) => setHasToken(s.hasToken))
-      .catch(() => setHasToken(false));
-  }, []);
 
   const project = settings?.currentProject ?? null;
 
@@ -60,7 +49,7 @@ export default function App() {
   useDebugCapture();
   useLoopEvents();
 
-  if (!settings || hasToken === null) {
+  if (!settings) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-ink-950 text-sm text-fg-dim">
         Loading…
@@ -72,22 +61,20 @@ export default function App() {
   if (!settings.onboarded) {
     return (
       <OnboardingWizard
-        onComplete={() => {
-          setHasToken(true);
-          void updateSettings({ onboarded: true });
-        }}
+        onComplete={() => void updateSettings({ onboarded: true })}
       />
     );
   }
 
-  // Pairing gate FIRST (a paired app is per-machine, not per-project): show it
-  // when there's no stored token and we've never paired — or on admin re-pair.
-  const needsPairing = (!hasToken && !settings.pairedOk) || repairing;
+  // Pairing gate FIRST (connection is per-machine, not per-project): show it
+  // when this machine hasn't connected — or on admin re-pair. Uses the persisted
+  // flag only (no per-launch probe); PairingScreen itself re-checks on mount.
+  const needsPairing = !settings.pairedOk || repairing;
   if (needsPairing) {
     return (
       <PairingScreen
         onDone={() => {
-          setHasToken(true);
+          void updateSettings({ pairedOk: true });
           setRepairing(false);
         }}
       />

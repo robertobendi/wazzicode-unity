@@ -82,11 +82,9 @@ pub fn spawn_streaming(
         .stderr(Stdio::piped())
         .current_dir(project)
         .args(&args);
-    // Company token: keychain → file → env. Injected on every spawn so the
-    // headless CLI authenticates as the company account.
-    if let Some(token) = oauth_token() {
-        std_cmd.env("CLAUDE_CODE_OAUTH_TOKEN", token);
-    }
+    // No token management: the spawn inherits the parent environment as-is and
+    // authenticates with the Claude CLI's OWN stored credentials (`~/.claude`),
+    // established once via the pairing flow / an existing `claude login`.
     // Own process group so cancellation can kill the whole tree (Claude + its
     // MCP server child) with a single group signal.
     #[cfg(unix)]
@@ -273,7 +271,7 @@ pub fn friendly_spawn_error(stderr_tail: &str, exit_code: Option<i32>) -> String
         || lower.contains("401")
         || lower.contains("authentication")
     {
-        return "Claude isn't signed in yet. Ask your admin to pair this app.".into();
+        return "Your connection expired — go to Settings → Re-pair account.".into();
     }
     if lower.contains("enoent") || lower.contains("not found") {
         return "The Claude CLI couldn't start. It may not be installed.".into();
@@ -282,11 +280,4 @@ pub fn friendly_spawn_error(stderr_tail: &str, exit_code: Option<i32>) -> String
         Some(code) => format!("Claude stopped unexpectedly (exit code {code})."),
         None => "Claude stopped unexpectedly.".into(),
     }
-}
-
-/// The company Claude token to inject: keychain first, then the 0600 file
-/// fallback, then a `CLAUDE_CODE_OAUTH_TOKEN` env var (dev convenience). See
-/// `crate::secrets`.
-fn oauth_token() -> Option<String> {
-    crate::secrets::token()
 }

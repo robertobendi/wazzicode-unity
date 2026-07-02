@@ -1,14 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { api } from "@/api";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useUiStore } from "@/stores/useUiStore";
-import type { AuthStatus } from "@/types/pairing";
-
-const SOURCE_LABELS: Record<string, string> = {
-  keychain: "OS keychain",
-  file: "local file",
-  env: "environment",
-};
 
 /**
  * Small settings panel anchored under the gear. Everyday toggle (debug drawer)
@@ -20,14 +13,11 @@ export default function SettingsPopover() {
   const update = useSettingsStore((s) => s.update);
   const setOpen = useUiStore((s) => s.setSettingsOpen);
   const setRepairing = useUiStore((s) => s.setRepairing);
-  const [auth, setAuth] = useState<AuthStatus | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    void api.authStatus().then(setAuth).catch(() => setAuth(null));
-  }, []);
-
   async function repair() {
+    // Clear only OUR connection flag (the CLI keeps its own credentials); the
+    // re-pair screen re-probes and re-pairs if needed.
     await api.authClear();
     await update({ pairedOk: false });
     setOpen(false);
@@ -98,9 +88,7 @@ export default function SettingsPopover() {
           <span>
             <span className="block text-sm text-fg">Company account</span>
             <span className="block text-xs text-fg-dim">
-              {auth?.hasToken
-                ? `Connected · ${SOURCE_LABELS[auth.source ?? ""] ?? auth.source}`
-                : "Not connected"}
+              {settings.pairedOk ? "Connected" : "Not connected"}
             </span>
           </span>
           <button

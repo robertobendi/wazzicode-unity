@@ -8,7 +8,6 @@ import { Spinner, Stepper } from "./_shared";
 import WelcomeStep from "./WelcomeStep";
 import ProjectStep from "./ProjectStep";
 import SetupStep from "./SetupStep";
-import ConnectStep from "./ConnectStep";
 import ReadyStep from "./ReadyStep";
 
 const STEP = {
@@ -26,10 +25,10 @@ const STEP = {
  */
 export default function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   const setSettings = useSettingsStore((s) => s.setSettings);
+  const updateSettings = useSettingsStore((s) => s.update);
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [step, setStep] = useState<number>(STEP.welcome);
   const [project, setProject] = useState<ProjectInfo | null>(null);
-  const [paired, setPaired] = useState(false);
 
   // Load status once to seed the starting step (skip completed prerequisites).
   useEffect(() => {
@@ -39,7 +38,6 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
       .then((s) => {
         if (!alive) return;
         setStatus(s);
-        setPaired(s.pairedOk);
         if (s.projectReady?.ok) setProject(s.projectReady);
         setStep(startStep(s));
       })
@@ -69,12 +67,14 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
     );
   }
 
-  // Unpaired connect step: hand off to the full PairingScreen (its own stepper).
-  if (step === STEP.connect && !paired) {
+  // Connect step: hand off to the full PairingScreen. It check-firsts (already
+  // authenticated → "Already connected ✓" and continues) and otherwise runs the
+  // copy-link-to-admin flow. Its own stepper replaces the wizard chrome here.
+  if (step === STEP.connect) {
     return (
       <PairingScreen
         onDone={() => {
-          setPaired(true);
+          void updateSettings({ pairedOk: true });
           setStep(STEP.ready);
         }}
       />
@@ -109,13 +109,6 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
             projectName={projectName}
             onDone={() => setStep(STEP.connect)}
             onBack={() => setStep(STEP.project)}
-          />
-        )}
-
-        {step === STEP.connect && paired && (
-          <ConnectStep
-            onContinue={() => setStep(STEP.ready)}
-            onBack={() => setStep(STEP.setup)}
           />
         )}
 

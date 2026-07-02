@@ -22,7 +22,7 @@ export function mapErrorMessage(raw: string | undefined | null): string | null {
     text.includes("not logged in") ||
     text.includes("authentication")
   ) {
-    return "Claude isn't signed in. Ask your admin to pair this app.";
+    return "Your connection expired — go to Settings → Re-pair account.";
   }
   return null;
 }

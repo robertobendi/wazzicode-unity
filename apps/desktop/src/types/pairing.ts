@@ -14,7 +14,7 @@ export interface PairingState {
   phase: PairingPhase;
   /** OAuth URL to forward to the admin (present at awaiting_admin). */
   oauthUrl: string | null;
-  /** "token" | "cli_managed" — how the account got connected (at paired). */
+  /** Always "cli_managed" on success — kept for compat; the UI stays quiet. */
   mode: string | null;
   /** Friendly failure message (at failed). */
   error: string | null;
@@ -27,9 +27,8 @@ export interface PairingState {
 }
 
 export interface AuthStatus {
-  hasToken: boolean;
-  /** "keychain" | "file" | "env" | null. */
-  source: string | null;
+  /** This machine has connected at least once (persisted flag). */
+  pairedOk: boolean;
 }
 
 export interface AuthVerify {

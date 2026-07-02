@@ -1,12 +1,12 @@
 //! Pairing + auth commands.
 //!
 //! `pairing_*` drives the hidden-PTY `claude setup-token` flow (state streamed
-//! on `pairing:update`). `auth_*` inspects / verifies / clears the stored
-//! company token.
+//! on `pairing:update`). `auth_*` tracks whether this machine is connected —
+//! we don't manage tokens, so "connected" is just the persisted `paired_ok`
+//! flag plus a live `claude` probe against the CLI's own credentials.
 
 use crate::error::AppResult;
 use crate::pairing::PairingState;
-use crate::secrets;
 use crate::state::AppState;
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -46,23 +46,16 @@ pub async fn pairing_state(state: State<'_, AppState>) -> AppResult<Option<Pairi
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatus {
-    pub has_token: bool,
-    /// "keychain" | "file" | "env" | null.
-    pub source: Option<String>,
+    /// This machine has connected at least once (persisted flag). Cheap read —
+    /// no probe (a probe costs ~$0.13 and ~15s; the app-level gate uses this).
+    pub paired_ok: bool,
 }
 
-/// Whether a company token is stored, and where it lives.
+/// Whether this machine is marked connected. Read from settings only.
 #[tauri::command]
-pub async fn auth_status() -> AppResult<AuthStatus> {
-    Ok(match secrets::get_token() {
-        Some((_, src)) => AuthStatus {
-            has_token: true,
-            source: Some(src.as_str().to_string()),
-        },
-        None => AuthStatus {
-            has_token: false,
-            source: None,
-        },
+pub async fn auth_status(state: State<'_, AppState>) -> AppResult<AuthStatus> {
+    Ok(AuthStatus {
+        paired_ok: state.settings.read().await.paired_ok,
     })
 }
 
@@ -73,16 +66,23 @@ pub struct AuthVerify {
     pub error: Option<String>,
 }
 
-/// Verify the stored token still works (cheap `claude -p "…OK"` probe). Runs on
-/// a blocking thread — the probe spawns a subprocess with a hard timeout.
+/// Live "is this machine authenticated" check — a cheap `claude -p "…OK"` probe
+/// against the CLI's own credentials (no token injected). On success, persist
+/// `paired_ok=true` so the gate skips pairing next launch. Runs the subprocess
+/// on a blocking thread with a hard timeout.
 #[tauri::command]
-pub async fn auth_verify() -> AppResult<AuthVerify> {
-    let res = tokio::task::spawn_blocking(|| {
-        let token = secrets::token();
-        crate::pairing::verify_probe(token.as_deref())
-    })
-    .await
-    .map_err(|e| crate::error::AppError::Other(format!("verify task failed: {e}")))?;
+pub async fn auth_verify(state: State<'_, AppState>) -> AppResult<AuthVerify> {
+    let res = tokio::task::spawn_blocking(crate::pairing::verify_probe)
+        .await
+        .map_err(|e| crate::error::AppError::Other(format!("verify task failed: {e}")))?;
+
+    if res.is_ok() {
+        let mut s = state.settings.write().await;
+        if !s.paired_ok {
+            s.paired_ok = true;
+            crate::store::settings::save(&state.config_dir, &s)?;
+        }
+    }
 
     Ok(match res {
         Ok(()) => AuthVerify {
@@ -96,9 +96,13 @@ pub async fn auth_verify() -> AppResult<AuthVerify> {
     })
 }
 
-/// Forget the stored token (keychain + file). Used by "Re-pair account".
+/// Forget the connection (clears `paired_ok`). Used by "Re-pair account"; the
+/// CLI's own credentials are left untouched (use `claude logout` to switch
+/// accounts). The re-pair screen then re-probes and re-pairs as needed.
 #[tauri::command]
-pub async fn auth_clear() -> AppResult<()> {
-    secrets::clear_token();
+pub async fn auth_clear(state: State<'_, AppState>) -> AppResult<()> {
+    let mut s = state.settings.write().await;
+    s.paired_ok = false;
+    crate::store::settings::save(&state.config_dir, &s)?;
     Ok(())
 }

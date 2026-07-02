@@ -1,29 +1,73 @@
 import { useEffect, useState } from "react";
-import { openExternal } from "@/api";
+import { api, openExternal } from "@/api";
 import { usePairing } from "@/hooks/usePairing";
 import { usePairingStore } from "@/stores/usePairingStore";
-import { useSettingsStore } from "@/stores/useSettingsStore";
 import type { PairingPhase } from "@/types/pairing";
 
+type Check = "checking" | "connected" | "needed";
+
 /**
- * Full-screen company-account pairing flow. Three steps: Connect → Approve →
- * Done. A terminal never appears; the employee only ever sees a link to send
- * their admin and a box to paste the code back into.
+ * Full-screen company-account pairing flow. Check-first: on mount it probes
+ * whether the Claude CLI is already authenticated; if so it just says
+ * "Already connected ✓" and continues. Otherwise it runs the three-step flow
+ * (Connect → Approve → Done). A terminal never appears; the employee only ever
+ * sees a link to send their admin and a box to paste the code back into.
+ *
+ * Success is reported via `onDone`; the caller persists `pairedOk` (this screen
+ * doesn't, so the caller controls the gate timing).
  */
 export default function PairingScreen({ onDone }: { onDone: () => void }) {
   usePairing(); // subscribe to pairing:update while this screen is mounted
   const { state, starting, submitting, start, submitCode, cancel } =
     usePairingStore();
-  const updateSettings = useSettingsStore((s) => s.update);
   const phase = state.phase;
 
-  // On success, remember it (skips this gate next launch) and slip into the app.
+  // Check-first: is this machine already authenticated with the CLI?
+  const [check, setCheck] = useState<Check>("checking");
   useEffect(() => {
-    if (phase !== "paired") return;
-    void updateSettings({ pairedOk: true });
+    let alive = true;
+    void api
+      .authVerify()
+      .then((r) => alive && setCheck(r.ok ? "connected" : "needed"))
+      .catch(() => alive && setCheck("needed"));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Auto-continue shortly after we confirm (either the check or a fresh pair).
+  const done = check === "connected" || phase === "paired";
+  useEffect(() => {
+    if (!done) return;
     const t = setTimeout(onDone, 1200);
     return () => clearTimeout(t);
-  }, [phase, onDone, updateSettings]);
+  }, [done, onDone]);
+
+  if (check === "checking") {
+    return (
+      <CenteredCard>
+        <Spinner large />
+        <h2 className="mt-5 text-lg font-medium text-fg">
+          Checking your connection…
+        </h2>
+      </CenteredCard>
+    );
+  }
+
+  // Already connected (check passed), or just paired successfully.
+  if (check === "connected" || phase === "paired") {
+    return (
+      <CenteredCard>
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-success/15 text-2xl text-success">
+          ✓
+        </div>
+        <h2 className="mt-5 text-xl font-semibold text-fg">
+          {check === "connected" ? "Already connected!" : "You're connected!"}
+        </h2>
+        <p className="mt-1 text-sm text-fg-muted">Taking you into the app…</p>
+      </CenteredCard>
+    );
+  }
 
   const step = stepFor(phase);
 
@@ -48,9 +92,7 @@ export default function PairingScreen({ onDone }: { onDone: () => void }) {
           />
         )}
 
-        {step === 3 && phase !== "paired" && phase !== "failed" && <VerifyingStep />}
-
-        {phase === "paired" && <PairedStep mode={state.mode} />}
+        {step === 3 && phase !== "failed" && <VerifyingStep />}
 
         {phase === "failed" && (
           <FailedStep
@@ -255,21 +297,13 @@ function VerifyingStep() {
   );
 }
 
-function PairedStep({ mode }: { mode: string | null }) {
+/** Full-screen centered panel for the check/connected states. */
+function CenteredCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col items-center py-10 text-center animate-appear">
-      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-success/15 text-2xl text-success">
-        ✓
+    <div className="flex h-full w-full items-center justify-center bg-ink-950 px-8">
+      <div className="flex flex-col items-center text-center animate-appear">
+        {children}
       </div>
-      <h2 className="mt-5 text-xl font-semibold text-fg">You&apos;re connected!</h2>
-      <p className="mt-1 text-sm text-fg-muted">
-        Taking you into the app…
-      </p>
-      {mode === "cli_managed" && (
-        <p className="mt-2 text-[11px] text-fg-dim">
-          Signed in using the Claude CLI&apos;s own credentials.
-        </p>
-      )}
     </div>
   );
 }

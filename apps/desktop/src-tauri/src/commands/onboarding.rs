@@ -46,7 +46,7 @@ pub struct OnboardingStatus {
     pub current_project: Option<String>,
     /// Inspection of `current_project` (if any), so the wizard can pre-fill.
     pub project_ready: Option<crate::commands::project::ProjectInfo>,
-    /// A company token is stored (keychain/file/env).
+    /// This machine has connected at least once (persisted `paired_ok`).
     pub paired_ok: bool,
 }
 
@@ -81,9 +81,11 @@ pub async fn onboarding_status(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<OnboardingStatus> {
-    let current_project = state.settings.read().await.current_project.clone();
+    let (current_project, paired_ok) = {
+        let s = state.settings.read().await;
+        (s.current_project.clone(), s.paired_ok)
+    };
     let bundled = crate::mcpconfig::has_bundled_sidecar(&app);
-    let paired_ok = crate::secrets::get_token().is_some();
 
     let cur = current_project.clone();
     let (claude_cli, project_ready) = tokio::task::spawn_blocking(move || {

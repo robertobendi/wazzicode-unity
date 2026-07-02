@@ -157,11 +157,10 @@ pub fn failure_reason(stripped: &str) -> Option<String> {
         })
 }
 
-/// Cheap "is this token actually usable" probe: ask Claude to reply `OK`.
-/// `ok` == the CLI exits 0 AND its JSON result is not an error. Injects
-/// `token` when given (freshly captured token / stored token); passes `None`
-/// to exercise the CLI's own stored credentials (cli-managed path).
-pub fn verify_probe(token: Option<&str>) -> Result<(), String> {
+/// Cheap "is this machine actually authenticated" probe: ask Claude to reply
+/// `OK` using the CLI's OWN stored credentials (no token injected — we don't
+/// manage tokens). `ok` == the CLI exits 0 AND its JSON result is not an error.
+pub fn verify_probe() -> Result<(), String> {
     let mut cmd = crate::proc::command("claude").map_err(|e| e.to_string())?;
     cmd.args([
         "-p",
@@ -173,9 +172,6 @@ pub fn verify_probe(token: Option<&str>) -> Result<(), String> {
     ]);
     if let Some(home) = dirs::home_dir() {
         cmd.current_dir(home);
-    }
-    if let Some(t) = token {
-        cmd.env("CLAUDE_CODE_OAUTH_TOKEN", t);
     }
 
     let out = crate::proc::output_with_timeout(cmd, Duration::from_secs(60))
