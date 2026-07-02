@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Unity Vibe Studio",
+  "version": "0.1.0",
+  "identifier": "com.wazzicode.unityvibestudio",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Unity Vibe Studio",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 980,
+        "minHeight": 640,
+        "decorations": true,
+        "resizable": true,
+        "fullscreen": false,
+        "transparent": false,
+        "backgroundColor": "#0a0b0d"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Make Unity changes with AI, no terminal.",
+    "longDescription": "Unity Vibe Studio lets non-technical teammates make Unity changes through an AI assistant — chat, drag in resources, and let it drive Unity via the Unity Vibe OS bridge."
+  },
+  "plugins": {}
+}

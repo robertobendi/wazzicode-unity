@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #0a0b0d;
+  color: #e8eaee;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* The webview is chrome, not a document — no rubber-band scroll or text drag. */
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+/* Slim, unobtrusive scrollbars that match the dark chrome. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #272c35;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #333a45;
+}

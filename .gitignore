@@ -19,3 +19,7 @@ Temp/
 Logs/
 UserSettings/
 *.log
+# Tauri desktop app (apps/desktop) build output. `dist/` above already covers
+# the Vite bundle; these cover the Rust target dir and generated schemas.
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
