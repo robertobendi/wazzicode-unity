@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using static UnityVibeOS.BridgeParams;
 
 namespace UnityVibeOS
 {
@@ -294,12 +295,6 @@ namespace UnityVibeOS
             }
         }
 
-        static int Int(IDictionary<string, object> p, string key, int def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            try { return (int)Convert.ToInt64(v); } catch { return def; }
-        }
-
         static double DoubleOr(IDictionary<string, object> p, string key, double def)
         {
             if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
@@ -358,9 +353,6 @@ namespace UnityVibeOS
             }
             return null;
         }
-
-        static string Str(IDictionary<string, object> p, string key)
-            => p != null && p.TryGetValue(key, out var v) && v != null ? v.ToString() : null;
 
         static BridgeRouter.HandlerError Invalid(string msg) => new BridgeRouter.HandlerError("INVALID_ARGUMENT", msg);
     }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using static UnityVibeOS.BridgeParams;
 
 namespace UnityVibeOS
 {
@@ -55,7 +56,7 @@ namespace UnityVibeOS
                     return SceneInspector.GetOpenScenes();
                 case "scene.getHierarchy":
                 {
-                    string scenePath = GetString(p, "scenePath", null);
+                    string scenePath = Str(p, "scenePath", null);
                     int maxDepth = GetInt(p, "maxDepth", 32);
                     bool includeComponents = GetBool(p, "includeComponents", true);
                     int maxNodes = GetInt(p, "maxNodes", 5000);
@@ -68,7 +69,7 @@ namespace UnityVibeOS
                 }
                 case "console.getLogs":
                 {
-                    string level = GetString(p, "level", "all");
+                    string level = Str(p, "level", "all");
                     int limit = GetInt(p, "limit", 200);
                     long? since = null;
                     if (p != null && p.TryGetValue("sinceTimestamp", out var st) && st != null)
@@ -91,8 +92,8 @@ namespace UnityVibeOS
                 {
                     int width = GetInt(p, "width", 1280);
                     int height = GetInt(p, "height", 720);
-                    string cameraPath = GetString(p, "cameraPath", null);
-                    string format = GetString(p, "format", "png");
+                    string cameraPath = Str(p, "cameraPath", null);
+                    string format = Str(p, "format", "png");
                     int quality = GetInt(p, "quality", 80);
                     return ScreenshotCapture.CaptureGameView(width, height, cameraPath, format, quality);
                 }
@@ -100,7 +101,7 @@ namespace UnityVibeOS
                 {
                     int width = GetInt(p, "width", 1024);
                     int height = GetInt(p, "height", 640);
-                    string format = GetString(p, "format", "png");
+                    string format = Str(p, "format", "png");
                     int quality = GetInt(p, "quality", 80);
                     return ScreenshotCapture.CaptureSceneView(width, height, format, quality);
                 }
@@ -109,7 +110,7 @@ namespace UnityVibeOS
                     int width = GetInt(p, "width", 768);
                     int height = GetInt(p, "height", 768);
                     float padding = GetFloat(p, "paddingFactor", 3.5f);
-                    string format = GetString(p, "format", "png");
+                    string format = Str(p, "format", "png");
                     int quality = GetInt(p, "quality", 80);
                     return ScreenshotCapture.CaptureSelected(width, height, padding, format, quality);
                 }
@@ -136,8 +137,8 @@ namespace UnityVibeOS
                     return PlayModeControl.Status();
                 case "runtime.findObjects":
                 {
-                    string query = GetString(p, "query", null);
-                    string component = GetString(p, "component", null);
+                    string query = Str(p, "query", null);
+                    string component = Str(p, "component", null);
                     int limit = GetInt(p, "limit", 100);
                     bool includeInactive = GetBool(p, "includeInactive", false);
                     return RuntimeInspector.FindObjects(query, component, limit, includeInactive);
@@ -145,7 +146,7 @@ namespace UnityVibeOS
                 case "runtime.inspect":
                 {
                     int instanceId = GetInt(p, "instanceId", 0);
-                    string path = GetString(p, "path", null);
+                    string path = Str(p, "path", null);
                     bool includeFields = GetBool(p, "includeFields", true);
                     return RuntimeInspector.Inspect(instanceId, path, includeFields);
                 }
@@ -162,13 +163,13 @@ namespace UnityVibeOS
                 }
                 case "asset.findReferences":
                 {
-                    string path = GetString(p, "path", null);
+                    string path = Str(p, "path", null);
                     int limit = GetInt(p, "limit", 500);
                     return AssetGraph.FindReferences(path, limit);
                 }
                 case "asset.findDependencies":
                 {
-                    string path = GetString(p, "path", null);
+                    string path = Str(p, "path", null);
                     bool recursive = GetBool(p, "recursive", true);
                     int limit = GetInt(p, "limit", 500);
                     return AssetGraph.FindDependencies(path, recursive, limit);
@@ -263,41 +264,5 @@ namespace UnityVibeOS
             }
         }
 
-        static string GetString(IDictionary<string, object> p, string key, string def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            return v.ToString();
-        }
-
-        static int GetInt(IDictionary<string, object> p, string key, int def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            if (v is int i) return i;
-            if (v is long l) return (int)l;
-            if (v is double d) return (int)d;
-            return def;
-        }
-
-        static bool GetBool(IDictionary<string, object> p, string key, bool def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            if (v is bool b) return b;
-            // Tolerate a bool that arrived JSON-encoded as a string ("true") or number (1/0).
-            if (v is string s && bool.TryParse(s, out var parsed)) return parsed;
-            if (v is long l) return l != 0;
-            if (v is int i) return i != 0;
-            if (v is double d) return d != 0;
-            return def;
-        }
-
-        static float GetFloat(IDictionary<string, object> p, string key, float def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            if (v is float f) return f;
-            if (v is double d) return (float)d;
-            if (v is int i) return i;
-            if (v is long l) return l;
-            return def;
-        }
     }
 }

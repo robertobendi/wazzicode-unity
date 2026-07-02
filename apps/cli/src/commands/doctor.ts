@@ -7,6 +7,7 @@ import {
   DEFAULT_BRIDGE_HOST,
   DEFAULT_BRIDGE_PORT,
 } from "@uvibe/core";
+import { createHttpBridgeClient, readBridgeDiscovery } from "@uvibe/bridge-client";
 import { loadConfig } from "@uvibe/safety";
 import { brainAgeMs } from "@uvibe/project-brain";
 import { CommandResult, GlobalOptions } from "../options.js";
@@ -109,9 +110,17 @@ export async function collectDoctorReport(
   // In mock mode the diagnostic must be deterministic and must not report a
   // real Unity Editor that happens to be running for some *other* project as
   // this project's bridge. Skip the network probe entirely.
+  //
+  // Otherwise probe through the real bridge client so doctor honors port
+  // discovery (Library/UnityVibeOS/bridge.json — Unity may bind a fallback
+  // port when 38578 is taken) and the project-identity guard, exactly like
+  // the MCP server does at runtime.
+  const disco = opts.mock ? null : readBridgeDiscovery(projectPath);
+  const bridgeHost = disco?.host ?? DEFAULT_BRIDGE_HOST;
+  const bridgePort = disco?.port ?? DEFAULT_BRIDGE_PORT;
   const bridge = opts.mock
     ? { reachable: false, error: "mock mode (real bridge probe skipped)" }
-    : await probeBridge(DEFAULT_BRIDGE_HOST, DEFAULT_BRIDGE_PORT);
+    : await probeBridge(projectPath);
   const git = await probeGit(projectPath);
   const ageMs = await brainAgeMs(projectPath);
 
@@ -125,7 +134,7 @@ export async function collectDoctorReport(
     );
   if (!bridge.reachable)
     suggestions.push(
-      "Open Unity Editor with the UnityVibeOS package installed; the bridge auto-starts at 127.0.0.1:38578."
+      `Open Unity Editor with the UnityVibeOS package installed; the bridge auto-starts at ${bridgeHost}:${bridgePort}.`
     );
   if (ageMs === null) suggestions.push("Run `uvibe brain` to generate the project brain.");
   if (!git.isRepo) suggestions.push("Initialize git in the project so write tools can snapshot before edits.");
@@ -136,7 +145,7 @@ export async function collectDoctorReport(
     config: { path: cfgPath, exists: cfgExists, safetyMode: cfg.safetyMode, mockMode: cfg.mockMode },
     unityProject: { detected: unityProjectDetected, unityVersion },
     unityPackage: { detectedAt: unityPackageAt, manifestRef: unityPackageManifestRef, detected: unityPackageDetected },
-    bridge: { host: DEFAULT_BRIDGE_HOST, port: DEFAULT_BRIDGE_PORT, reachable: bridge.reachable, error: bridge.error },
+    bridge: { host: bridgeHost, port: bridgePort, reachable: bridge.reachable, error: bridge.error },
     git,
     brain: { exists: ageMs !== null, ageMs: ageMs ?? undefined },
     suggestions,
@@ -170,17 +179,13 @@ export function formatDoctorReport(r: DoctorReport): string {
   return lines.join("\n") + "\n";
 }
 
-async function probeBridge(host: string, port: number): Promise<{ reachable: boolean; error?: string }> {
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 600);
-    const res = await fetch(`http://${host}:${port}/health`, { signal: ctrl.signal });
-    clearTimeout(t);
-    return { reachable: res.ok };
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { reachable: false, error: msg };
-  }
+async function probeBridge(projectPath: string): Promise<{ reachable: boolean; error?: string }> {
+  // The client resolves the real port from bridge.json (falling back to the default),
+  // and rejects an Editor running a different project (PROJECT_IDENTITY_MISMATCH).
+  const client = createHttpBridgeClient({ projectPath, timeoutMs: 1500 });
+  const res = await client.call("system.health");
+  if (res.ok) return { reachable: true };
+  return { reachable: false, error: `${res.error.code}: ${res.error.message}` };
 }
 
 async function probeGit(cwd: string): Promise<DoctorReport["git"]> {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
+using static UnityVibeOS.BridgeParams;
 
 namespace UnityVibeOS
 {
@@ -356,15 +357,6 @@ namespace UnityVibeOS
                 if (SceneInspector.PathOf(go) == path) return go;
             }
             return null;
-        }
-
-        static string Str(IDictionary<string, object> p, string key)
-            => p != null && p.TryGetValue(key, out var v) && v != null ? v.ToString() : null;
-
-        static int Int(IDictionary<string, object> p, string key, int def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            try { return (int)Convert.ToInt64(v); } catch { return def; }
         }
 
         static int? IntOrNull(IDictionary<string, object> p, string key)

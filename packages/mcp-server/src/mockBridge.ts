@@ -1,5 +1,5 @@
 import { BridgeMethod, BridgeResponse } from "@uvibe/core";
-import { BridgeClient } from "./bridgeClient.js";
+import { BridgeClient } from "@uvibe/bridge-client";
 import { makeMockPng } from "./mockPng.js";
 
 export function createMockBridgeClient(): BridgeClient {

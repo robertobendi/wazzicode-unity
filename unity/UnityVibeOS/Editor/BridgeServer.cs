@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
+using static UnityVibeOS.BridgeParams;
 
 namespace UnityVibeOS
 {
@@ -42,7 +43,7 @@ namespace UnityVibeOS
             RegisterAwait("compile.await", _ => !EditorStateMirror.IsCompiling, "compile.status");
             RegisterAwait("playmode.await", p =>
             {
-                bool wantPlaying = !string.Equals(GetParamString(p, "until", "playing"), "stopped", StringComparison.OrdinalIgnoreCase);
+                bool wantPlaying = !string.Equals(Str(p, "until", "playing"), "stopped", StringComparison.OrdinalIgnoreCase);
                 if (EditorStateMirror.IsTransitioning) return false;
                 return EditorStateMirror.IsPlaying == wantPlaying;
             }, "playmode.status");
@@ -139,7 +140,11 @@ namespace UnityVibeOS
                 var file = Path.Combine(ProjectInfo.ProjectPath, "Library", "UnityVibeOS", "bridge.json");
                 if (File.Exists(file)) File.Delete(file);
             }
-            catch { /* ignore */ }
+            catch (Exception e)
+            {
+                // A stale bridge.json makes clients dial a dead port, so surface the failure.
+                Debug.LogWarning($"[UnityVibeOS] failed to delete discovery file: {e.Message}");
+            }
         }
 
         public static void Stop()
@@ -356,7 +361,7 @@ namespace UnityVibeOS
                 }
             }
 
-            int requested = GetParamInt(p, "timeoutMs", MaxAwaitMs);
+            int requested = GetInt(p, "timeoutMs", MaxAwaitMs);
             long deadline = start + Math.Min(Math.Max(requested, AwaitProbeMs), MaxAwaitMs);
             bool settled = Probe(spec, p);
             while (!settled && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() < deadline)
@@ -466,21 +471,6 @@ namespace UnityVibeOS
                 }}
             };
             WriteResponse(ctx, 200, MiniJson.Serialize(envelope));
-        }
-
-        static string GetParamString(IDictionary<string, object> p, string key, string def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            return v.ToString();
-        }
-
-        static int GetParamInt(IDictionary<string, object> p, string key, int def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            if (v is int i) return i;
-            if (v is long l) return (int)l;
-            if (v is double d) return (int)d;
-            return def;
         }
 
         static string MakeErrorEnvelope(string id, string code, string message)

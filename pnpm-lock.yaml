@@ -20,6 +20,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@uvibe/bridge-client':
+        specifier: workspace:*
+        version: link:../../packages/bridge-client
       '@uvibe/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -33,6 +36,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/safety
 
+  packages/bridge-client:
+    dependencies:
+      '@uvibe/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/core:
     dependencies:
       zod:
@@ -44,6 +53,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.4
         version: 1.29.0(zod@3.25.76)
+      '@uvibe/bridge-client':
+        specifier: workspace:*
+        version: link:../bridge-client
       '@uvibe/core':
         specifier: workspace:*
         version: link:../core

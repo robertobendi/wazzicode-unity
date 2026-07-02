@@ -57,7 +57,68 @@ describe("cli/doctor", () => {
     expect(obj.product?.name).toBeDefined();
     expect(obj.bridge?.reachable).toBe(false);
   });
+
+  it("honors bridge.json port discovery (reachable on a non-default port)", async () => {
+    const { project, server, close } = await startFakeBridge((projectDir) => projectDir);
+    try {
+      const r = await runDoctor({ project, mock: false, json: true });
+      const obj = JSON.parse(r.stdout!);
+      expect(obj.bridge.reachable).toBe(true);
+      expect(obj.bridge.port).toBe((server.address() as { port: number }).port);
+      expect(obj.bridge.port).not.toBe(38578);
+    } finally {
+      await close();
+    }
+  });
+
+  it("rejects an Editor serving a different project (identity mismatch)", async () => {
+    const { project, close } = await startFakeBridge(() => "/somewhere/else");
+    try {
+      const r = await runDoctor({ project, mock: false, json: true });
+      const obj = JSON.parse(r.stdout!);
+      expect(obj.bridge.reachable).toBe(false);
+      expect(String(obj.bridge.error)).toContain("PROJECT_IDENTITY_MISMATCH");
+    } finally {
+      await close();
+    }
+  });
 });
+
+/**
+ * Boot an ephemeral HTTP server acting as the Unity bridge on a random port and
+ * write a matching Library/UnityVibeOS/bridge.json into a fresh temp project.
+ * `answerAs` decides which projectPath the fake Editor claims to serve.
+ */
+async function startFakeBridge(answerAs: (projectDir: string) => string) {
+  const http = await import("node:http");
+  const { BRIDGE_DISCOVERY_REL } = await import("@uvibe/core");
+  const project = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-doctor-bridge-"));
+  const server = http.createServer((req, res) => {
+    const body = JSON.stringify({
+      id: "doctor",
+      ok: true,
+      result: { status: "ok" },
+      error: null,
+      meta: { unityVersion: "6000.0.0f1", projectPath: answerAs(project), durationMs: 1 },
+    });
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(body);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const discoPath = path.join(project, BRIDGE_DISCOVERY_REL);
+  await fs.mkdir(path.dirname(discoPath), { recursive: true });
+  await fs.writeFile(
+    discoPath,
+    JSON.stringify({ port, host: "127.0.0.1", projectPath: project, unityVersion: "6000.0.0f1", pid: 1, protocolVersion: "1", startedAt: Date.now() }),
+    "utf8"
+  );
+  const close = async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await fs.rm(project, { recursive: true, force: true });
+  };
+  return { project, server, close };
+}
 
 describe("cli/verify", () => {
   it("passes all MVP acceptance checks against the mock bridge", async () => {

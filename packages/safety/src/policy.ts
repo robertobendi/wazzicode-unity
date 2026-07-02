@@ -1,7 +1,7 @@
-import { ErrorCode } from "@uvibe/core";
+import { ErrorCode, WriteTarget } from "@uvibe/core";
 import { SafetyMode, UVibeConfig } from "./config.js";
 
-export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "editor" | "code";
+export type { WriteTarget };
 
 /**
  * Explicit classification of write tools to the kind of state they mutate. Used to gate writes

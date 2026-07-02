@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
+using static UnityVibeOS.BridgeParams;
 
 namespace UnityVibeOS
 {
@@ -226,17 +227,6 @@ namespace UnityVibeOS
             int n = 0;
             foreach (var ch in s) if (ch == c) n++;
             return n;
-        }
-
-        static string Str(IDictionary<string, object> p, string key)
-            => p != null && p.TryGetValue(key, out var v) && v != null ? v.ToString() : null;
-
-        static bool GetBool(IDictionary<string, object> p, string key, bool def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            if (v is bool b) return b;
-            if (bool.TryParse(v.ToString(), out var parsed)) return parsed;
-            return def;
         }
 
         static List<string> AsStringList(IDictionary<string, object> p, string key)

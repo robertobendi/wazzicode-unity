@@ -75,7 +75,12 @@ export function timeoutForMethod(method: string): number {
   return METHOD_TIMEOUT_MS[method] ?? DEFAULT_TIMEOUT_MS;
 }
 
-function readDiscovery(projectPath: string): BridgeDiscovery | null {
+/**
+ * Read the bridge discovery file Unity writes at Library/UnityVibeOS/bridge.json.
+ * Returns null when the file is missing or unparseable (Unity bridge never started here,
+ * or the path is not a project root).
+ */
+export function readBridgeDiscovery(projectPath: string): BridgeDiscovery | null {
   try {
     const raw = readFileSync(path.join(projectPath, BRIDGE_DISCOVERY_REL), "utf8");
     const d = JSON.parse(raw) as Partial<BridgeDiscovery>;
@@ -107,12 +112,15 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
   // the same localhost bridge, so reusing TCP connections removes a connect/handshake per call.
   const agent = new http.Agent({ keepAlive: true, maxSockets: 8, keepAliveMsecs: 1000 });
 
+  // Deliberately synchronous read: the discovery file is <300 bytes on a local disk, read at
+  // most once per second thanks to this cache, and the call path immediately performs local
+  // HTTP anyway. Making it async would restructure target()/call() for no measurable gain.
   let cached: { at: number; disco: BridgeDiscovery | null } | null = null;
   function discovery(): BridgeDiscovery | null {
     if (explicitPort !== undefined || !projectPath) return null;
     const now = Date.now();
     if (cached && now - cached.at < 1000) return cached.disco;
-    const disco = readDiscovery(projectPath);
+    const disco = readBridgeDiscovery(projectPath);
     cached = { at: now, disco };
     return disco;
   }

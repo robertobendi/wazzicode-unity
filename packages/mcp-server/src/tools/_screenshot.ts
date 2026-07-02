@@ -11,7 +11,7 @@ import {
   ok,
   timed,
 } from "@uvibe/core";
-import { BridgeClient } from "../bridgeClient.js";
+import { BridgeClient } from "@uvibe/bridge-client";
 
 export interface ScreenshotCallOptions {
   width?: number;

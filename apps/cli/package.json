@@ -17,6 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@uvibe/bridge-client": "workspace:*",
     "@uvibe/core": "workspace:*",
     "@uvibe/mcp-server": "workspace:*",
     "@uvibe/project-brain": "workspace:*",

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEditor;
+using static UnityVibeOS.BridgeParams;
 
 namespace UnityVibeOS
 {
@@ -149,15 +150,6 @@ namespace UnityVibeOS
                 if (t != null) return t;
             }
             return null;
-        }
-
-        static string Str(IDictionary<string, object> p, string key)
-            => p != null && p.TryGetValue(key, out var v) && v != null ? v.ToString() : null;
-
-        static float? TryFloat(IDictionary<string, object> p, string key)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return null;
-            try { return (float)Convert.ToDouble(v); } catch { return null; }
         }
 
         static BridgeRouter.HandlerError Invalid(string msg) => new BridgeRouter.HandlerError("INVALID_ARGUMENT", msg);

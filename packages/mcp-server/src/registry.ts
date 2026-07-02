@@ -1,7 +1,9 @@
 import { z, ZodRawShape } from "zod";
-import { ToolEnvelope } from "@uvibe/core";
-import { BridgeClient } from "./bridgeClient.js";
+import { ToolEnvelope, WriteTarget } from "@uvibe/core";
+import { BridgeClient } from "@uvibe/bridge-client";
 import type { ToolGroupController } from "./groups.js";
+
+export type { WriteTarget };
 
 export interface ToolContext {
   bridge: BridgeClient;
@@ -12,8 +14,6 @@ export interface ToolContext {
   /** Live tool-group toggle controller; set by createServer (absent in direct/test contexts). */
   toolGroups?: ToolGroupController;
 }
-
-export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "editor" | "code";
 
 export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unknown> {
   name: string;
@@ -31,4 +31,24 @@ export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unk
   ) => Promise<ToolEnvelope<TOutput>>;
 }
 
-export type AnyToolDef = ToolDef<ZodRawShape, unknown>;
+/** What a tool declares it needs to run. Used by docs and `uvibe doctor`. */
+export type ToolRequirement = "unity_bridge" | "filesystem" | "git" | "project_brain";
+
+/**
+ * Registry-side view of a tool with its generics erased. `ToolDef<Shape, Out>` is NOT
+ * assignable to `ToolDef<ZodRawShape, unknown>` under strictFunctionTypes (a required-prop
+ * args object rejects the index-signature type in the contravariant `run` slot), which is
+ * why the registry used to double-cast every tool. `args: never` is the variance-safe
+ * bottom type for "the registry never fabricates args itself": every concrete ToolDef
+ * assigns cleanly, and the two execution call sites in execute.ts pass `args as never`
+ * after zod-parsing against the tool's own inputShape.
+ */
+export interface AnyToolDef {
+  name: string;
+  description: string;
+  inputShape: ZodRawShape;
+  requires: ToolRequirement[];
+  write?: boolean;
+  writeTarget?: WriteTarget;
+  run: (args: never, ctx: ToolContext) => Promise<ToolEnvelope<unknown>>;
+}

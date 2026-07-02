@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using static UnityVibeOS.BridgeParams;
 
 namespace UnityVibeOS
 {
@@ -241,25 +242,5 @@ namespace UnityVibeOS
             }
         }
 
-        static string Str(IDictionary<string, object> p, string key)
-            => p != null && p.TryGetValue(key, out var v) && v != null ? v.ToString() : null;
-
-        static int GetInt(IDictionary<string, object> p, string key, int def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            if (v is int i) return i;
-            if (v is long l) return (int)l;
-            if (v is double d) return (int)d;
-            if (int.TryParse(v.ToString(), out var parsed)) return parsed;
-            return def;
-        }
-
-        static bool GetBool(IDictionary<string, object> p, string key, bool def)
-        {
-            if (p == null || !p.TryGetValue(key, out var v) || v == null) return def;
-            if (v is bool b) return b;
-            if (bool.TryParse(v.ToString(), out var parsed)) return parsed;
-            return def;
-        }
     }
 }

@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z, ZodRawShape } from "zod";
 import { PRODUCT_VERSION, ToolEnvelope, err } from "@uvibe/core";
-import { BridgeClient, createHttpBridgeClient, HttpBridgeOptions, timeoutForMethod } from "./bridgeClient.js";
+import { BridgeClient, createHttpBridgeClient, HttpBridgeOptions, timeoutForMethod } from "@uvibe/bridge-client";
 import { createMockBridgeClient } from "./mockBridge.js";
 import { allTools } from "./tools/index.js";
 import { AnyToolDef, ToolContext } from "./registry.js";
@@ -86,13 +86,13 @@ export function createServer(ctx: ToolContext): McpServer {
       tool.name,
       {
         description: tool.description,
-        inputSchema: tool.inputShape as ZodRawShape,
-        annotations: toolAnnotations(tool as AnyToolDef),
+        inputSchema: tool.inputShape,
+        annotations: toolAnnotations(tool),
       },
       async (rawArgs: unknown) => {
         try {
-          const parsed = z.object(tool.inputShape as ZodRawShape).parse(rawArgs ?? {});
-          const env = await executeTool(tool as AnyToolDef, parsed, ctx);
+          const parsed = z.object(tool.inputShape).parse(rawArgs ?? {});
+          const env = await executeTool(tool, parsed, ctx);
           return {
             content: shapeContent(env),
             isError: env.ok ? false : true,

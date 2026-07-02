@@ -99,6 +99,13 @@ export const BRIDGE_METHODS = {
 
 export type BridgeMethod = (typeof BRIDGE_METHODS)[keyof typeof BRIDGE_METHODS];
 
+/**
+ * What kind of project state a write tool touches; drives the per-target safety flags in
+ * `.unity-vibe/config.json` (allowSceneWrites, allowPrefabWrites, ...). Single source of
+ * truth shared by @uvibe/safety (gating) and @uvibe/mcp-server (tool definitions).
+ */
+export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "editor" | "code";
+
 export interface BridgeRequest<P = Record<string, unknown>> {
   id: string;
   version: string;
