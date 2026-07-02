@@ -41,6 +41,14 @@ interface ChatState {
   send: (prompt: string, attachments?: Attachment[]) => Promise<void>;
   cancel: () => Promise<void>;
   reset: () => void;
+  /** Append a quiet, system-style notice line (e.g. after a revert). */
+  appendNotice: (text: string) => void;
+  /** Replace the conversation with a loaded past session (enables --resume). */
+  loadSession: (payload: {
+    messages: ChatMessage[];
+    sessionId: string | null;
+    totalCostUsd: number;
+  }) => void;
 
   // Called by useClaudeStream — not part of the public UI surface.
   ingest: (runId: string, raw: unknown) => void;
@@ -74,6 +82,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       messages: [],
       session: emptySession(),
+      running: false,
+      activeRunId: null,
+      assistantId: null,
+      draft: null,
+    }),
+
+  appendNotice: (text) =>
+    set((state) => ({
+      messages: [
+        ...state.messages,
+        {
+          id: newId(),
+          role: "system",
+          text,
+          streaming: false,
+          attachments: [],
+          activities: [],
+          createdAt: Date.now(),
+        },
+      ],
+    })),
+
+  loadSession: ({ messages, sessionId, totalCostUsd }) =>
+    set({
+      messages,
+      session: { sessionId, activeRunId: null, totalCostUsd },
       running: false,
       activeRunId: null,
       assistantId: null,

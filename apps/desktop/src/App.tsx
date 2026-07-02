@@ -2,26 +2,32 @@ import { useEffect } from "react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useUiStore } from "@/stores/useUiStore";
+import { useSessionsStore } from "@/stores/useSessionsStore";
+import { useRevertStore } from "@/stores/useRevertStore";
 import { useBridgeStatus } from "@/hooks/useBridgeStatus";
 import { useDebugCapture } from "@/hooks/useDebugCapture";
 import { useLoopEvents } from "@/hooks/useLoopEvents";
+import { useCheckpointEvents } from "@/hooks/useCheckpointEvents";
 import { useLoopStore } from "@/stores/useLoopStore";
 import PairingScreen from "@/components/pairing/PairingScreen";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 import ProjectPicker from "@/components/project/ProjectPicker";
 import ChatView from "@/components/chat/ChatView";
+import SessionRail from "@/components/chat/SessionRail";
 import LoopPanel from "@/components/loop/LoopPanel";
 import ActivityPanel from "@/components/activity/ActivityPanel";
 import StatusBar from "@/components/shell/StatusBar";
 import TopBar from "@/components/shell/TopBar";
 import ConnectionBanner from "@/components/shell/ConnectionBanner";
 import DebugDrawer from "@/components/shell/DebugDrawer";
+import ToastHost from "@/components/shell/Toast";
 
 export default function App() {
   const { settings, load } = useSettingsStore();
   const updateSettings = useSettingsStore((s) => s.update);
   const setProject = useChatStore((s) => s.setProject);
   const activityOpen = useUiStore((s) => s.activityOpen);
+  const sessionRailOpen = useUiStore((s) => s.sessionRailOpen);
   const mode = useUiStore((s) => s.mode);
   const repairing = useUiStore((s) => s.repairing);
   const setRepairing = useUiStore((s) => s.setRepairing);
@@ -34,8 +40,17 @@ export default function App() {
   const project = settings?.currentProject ?? null;
 
   // Keep the chat store's project in sync (resets the conversation on change).
+  // On a real switch, autosave the outgoing chat and reload history for the new
+  // project; clear the stale revert checkpoint.
   useEffect(() => {
+    const prev = useChatStore.getState();
+    if (prev.project && prev.project !== project) {
+      void useSessionsStore.getState().autosave(prev.project);
+      useSessionsStore.getState().reset();
+      useRevertStore.getState().clear();
+    }
     setProject(project);
+    if (project) void useSessionsStore.getState().refresh(project);
   }, [project, setProject]);
 
   // Load any persisted auto-mode loop for the open project.
@@ -48,6 +63,7 @@ export default function App() {
   useBridgeStatus(project);
   useDebugCapture();
   useLoopEvents();
+  useCheckpointEvents();
 
   if (!settings) {
     return (
@@ -94,6 +110,7 @@ export default function App() {
           <LoopPanel />
         ) : (
           <>
+            {sessionRailOpen && <SessionRail />}
             <ChatView />
             {activityOpen && <ActivityPanel />}
           </>
@@ -101,6 +118,7 @@ export default function App() {
       </div>
       {settings.debugDrawer && <DebugDrawer />}
       <StatusBar />
+      <ToastHost />
     </div>
   );
 }

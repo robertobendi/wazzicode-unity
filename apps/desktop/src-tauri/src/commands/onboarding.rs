@@ -307,7 +307,7 @@ fn setup_blocking(
         Ok(true) => steps.push(SetupStep {
             id: "gitignore".into(),
             ok: true,
-            detail: "added .unity-vibe/inbox/ + loop/".into(),
+            detail: "added .unity-vibe/inbox/ + loop/ + studio/".into(),
         }),
         Ok(false) => steps.push(SetupStep {
             id: "gitignore".into(),
@@ -439,7 +439,11 @@ fn run_doctor_summary(
 /// is the current file content (or `None` if absent). Returns the new content
 /// when a change is needed, else `None`.
 pub fn patch_gitignore(existing: Option<&str>) -> Option<String> {
-    const ENTRIES: [&str; 2] = [".unity-vibe/inbox/", ".unity-vibe/loop/"];
+    const ENTRIES: [&str; 3] = [
+        ".unity-vibe/inbox/",
+        ".unity-vibe/loop/",
+        ".unity-vibe/studio/",
+    ];
     let current = existing.unwrap_or("");
     let present = |needle: &str| current.lines().any(|l| l.trim() == needle);
     let missing: Vec<&str> = ENTRIES.iter().copied().filter(|e| !present(e)).collect();
@@ -619,10 +623,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gitignore_patch_adds_both_entries_to_empty() {
+    fn gitignore_patch_adds_all_entries_to_empty() {
         let out = patch_gitignore(None).expect("should add entries");
         assert!(out.contains(".unity-vibe/inbox/"));
         assert!(out.contains(".unity-vibe/loop/"));
+        assert!(out.contains(".unity-vibe/studio/"));
     }
 
     #[test]

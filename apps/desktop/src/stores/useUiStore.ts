@@ -9,6 +9,8 @@ interface UiState {
   mode: AppMode;
   /** Right-hand activity panel open? Defaults open on first run. */
   activityOpen: boolean;
+  /** Left session-history rail open? Persisted across launches. */
+  sessionRailOpen: boolean;
   /** Bottom debug drawer expanded? (Only reachable when settings.debugDrawer.) */
   debugOpen: boolean;
   /** Settings popover open? */
@@ -16,19 +18,47 @@ interface UiState {
   /** Admin "Re-pair account" chosen — force the pairing screen back up. */
   repairing: boolean;
   toggleActivity: () => void;
+  toggleSessionRail: () => void;
   toggleDebug: () => void;
   setSettingsOpen: (open: boolean) => void;
   setRepairing: (v: boolean) => void;
   setMode: (mode: AppMode) => void;
 }
 
+// The session rail's open/closed state is the one bit of shell UI we persist,
+// so a user who prefers it collapsed keeps that between launches.
+const RAIL_KEY = "uvibe.sessionRailOpen";
+
+function loadRailOpen(): boolean {
+  try {
+    return localStorage.getItem(RAIL_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function saveRailOpen(open: boolean): void {
+  try {
+    localStorage.setItem(RAIL_KEY, String(open));
+  } catch {
+    // Private mode / storage disabled — non-fatal, just don't persist.
+  }
+}
+
 export const useUiStore = create<UiState>((set) => ({
   mode: "chat",
   activityOpen: true,
+  sessionRailOpen: loadRailOpen(),
   debugOpen: false,
   settingsOpen: false,
   repairing: false,
   toggleActivity: () => set((s) => ({ activityOpen: !s.activityOpen })),
+  toggleSessionRail: () =>
+    set((s) => {
+      const next = !s.sessionRailOpen;
+      saveRailOpen(next);
+      return { sessionRailOpen: next };
+    }),
   toggleDebug: () => set((s) => ({ debugOpen: !s.debugOpen })),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setRepairing: (v) => set({ repairing: v }),

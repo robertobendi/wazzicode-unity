@@ -4,7 +4,7 @@ use crate::claude::flags::{build_args, FlagInput};
 use crate::error::AppResult;
 use crate::state::AppState;
 use std::path::PathBuf;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 /// Start a chat turn. Writes the app-managed MCP config, builds the argv from
 /// current settings, spawns Claude, and returns the `runId` the frontend
@@ -24,6 +24,29 @@ pub async fn chat_send(
     if state.loops.is_running_for(&project_path).await {
         return Err(crate::error::AppError::Other("busy: auto mode is running".into()));
     }
+
+    // Safety net: before the AI touches anything, take a "studio checkpoint" —
+    // a git commit of the project as it stands now — so the user can undo the
+    // whole turn later. No-op (and revert stays hidden) when the project isn't a
+    // git repo. Blocking git work runs off the async runtime.
+    let cp_project = project_path.clone();
+    let cp_prompt = prompt.clone();
+    let checkpoint =
+        tokio::task::spawn_blocking(move || crate::gitutil::make_checkpoint(&cp_project, &cp_prompt))
+            .await
+            .ok()
+            .flatten();
+    if let Some(cp) = checkpoint {
+        state
+            .checkpoints
+            .lock()
+            .await
+            .insert(project_path.clone(), cp.clone());
+        // The webview shows the "Undo last change" button once the turn ends;
+        // it gates on `running`, so surfacing the checkpoint now is fine.
+        let _ = app.emit("checkpoint:ready", &cp);
+    }
+
     let mcp_config = crate::mcpconfig::ensure_mcp_config(&app, &state.config_dir, &project_path)?;
     let settings = state.settings.read().await.clone();
     let args = build_args(

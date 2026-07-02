@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useChatStore } from "@/stores/useChatStore";
 import { useAttachmentsStore } from "@/stores/useAttachmentsStore";
 import { useLoopStore } from "@/stores/useLoopStore";
+import { useQuickActions } from "@/hooks/useQuickActions";
 import { isLoopActive } from "@/types/loop";
 import { api } from "@/api";
 import AttachmentChip from "./AttachmentChip";
@@ -17,11 +18,32 @@ export default function Composer() {
   const removeAttachment = useAttachmentsStore((s) => s.remove);
   const addAttachments = useAttachmentsStore((s) => s.add);
   const clearAttachments = useAttachmentsStore((s) => s.clear);
+  const quickActions = useQuickActions(project);
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
   const canSend =
     (value.trim() || attachments.length > 0) && !running && !loopRunning;
+
+  // A quiet starter-prompt row, only on an empty, idle composer.
+  const showQuickActions =
+    !value.trim() &&
+    attachments.length === 0 &&
+    !running &&
+    !loopRunning &&
+    quickActions.length > 0;
+
+  // Fill (don't send) — the employee can tweak the prompt before hitting Enter.
+  function fillPrompt(prompt: string) {
+    setValue(prompt);
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (el) {
+        el.focus();
+        autosize(el);
+      }
+    });
+  }
 
   function submit() {
     if (!canSend) return;
@@ -57,6 +79,20 @@ export default function Composer() {
   return (
     <div className="border-t border-white/5 bg-ink-900 px-4 py-3">
       <div className="mx-auto max-w-2xl">
+        {showQuickActions && (
+          <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5">
+            {quickActions.map((qa) => (
+              <button
+                key={qa.label}
+                onClick={() => fillPrompt(qa.prompt)}
+                className="shrink-0 whitespace-nowrap rounded-full border border-ink-700 bg-ink-850 px-3 py-1 text-xs text-fg-muted transition-colors duration-150 hover:border-ink-600 hover:text-fg"
+              >
+                {qa.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
             {attachments.map((a) => (

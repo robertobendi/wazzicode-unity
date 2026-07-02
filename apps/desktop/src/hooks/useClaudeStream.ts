@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useChatStore } from "@/stores/useChatStore";
+import { useSessionsStore } from "@/stores/useSessionsStore";
 import { useDebugStore, compact } from "@/stores/useDebugStore";
 import type { DoneEvent, ErrorEvent } from "@/types/chat";
 
@@ -36,6 +37,9 @@ export function useClaudeStream() {
     void listen<DoneEvent>(`claude:done:${activeRunId}`, (e) => {
       debug("done", compact(e.payload));
       finish(activeRunId, e.payload);
+      // Persist the conversation once the turn (and its session id) is settled.
+      const project = useChatStore.getState().project;
+      if (project) void useSessionsStore.getState().autosave(project);
     }).then(register);
     void listen<ErrorEvent>(`claude:error:${activeRunId}`, (e) => {
       debug("error", compact(e.payload));

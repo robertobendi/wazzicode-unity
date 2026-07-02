@@ -1,8 +1,9 @@
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useUiStore, type AppMode } from "@/stores/useUiStore";
-import { GearIcon, PanelIcon } from "./icons";
+import { GearIcon, PanelIcon, SidebarIcon } from "./icons";
 import Logo from "./Logo";
+import RevertControl from "./RevertControl";
 import SettingsPopover from "./SettingsPopover";
 
 /** Slim app header: project name, Chat/Auto toggle, activity-panel, settings. */
@@ -12,6 +13,8 @@ export default function TopBar() {
   const {
     activityOpen,
     toggleActivity,
+    sessionRailOpen,
+    toggleSessionRail,
     settingsOpen,
     setSettingsOpen,
     mode,
@@ -22,6 +25,15 @@ export default function TopBar() {
   return (
     <header className="relative flex h-12 shrink-0 items-center justify-between border-b border-white/5 bg-ink-900 px-4">
       <div className="flex min-w-0 items-center gap-2">
+        {mode === "chat" && (
+          <IconButton
+            label={sessionRailOpen ? "Hide chats" : "Show chats"}
+            active={sessionRailOpen}
+            onClick={toggleSessionRail}
+          >
+            <SidebarIcon />
+          </IconButton>
+        )}
         <Logo />
         <span className="text-sm font-medium text-fg">{name}</span>
         <button
@@ -37,6 +49,7 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-1">
+        <RevertControl />
         <IconButton
           label={activityOpen ? "Hide activity" : "Show activity"}
           active={activityOpen}

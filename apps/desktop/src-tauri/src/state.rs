@@ -1,8 +1,10 @@
 use crate::bridge::StatusTask;
 use crate::claude::SessionManager;
+use crate::gitutil::Checkpoint;
 use crate::looprunner::LoopManager;
 use crate::pairing::PairingManager;
 use crate::store::settings::Settings;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::{Mutex, RwLock};
 
@@ -21,6 +23,9 @@ pub struct AppState {
     pub pairing: PairingManager,
     /// The single active auto-mode loop, if any.
     pub loops: LoopManager,
+    /// The last studio checkpoint taken per project (before a chat turn), used
+    /// by `revert_last`. Keyed by project path.
+    pub checkpoints: Mutex<HashMap<PathBuf, Checkpoint>>,
 }
 
 impl AppState {
@@ -32,6 +37,7 @@ impl AppState {
             status_task: Mutex::new(None),
             pairing: PairingManager::default(),
             loops: LoopManager::default(),
+            checkpoints: Mutex::new(HashMap::new()),
         }
     }
 }

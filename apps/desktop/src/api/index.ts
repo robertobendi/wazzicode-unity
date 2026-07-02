@@ -9,6 +9,9 @@ import type { ProjectInfo } from "@/types/project";
 import type { StagedResource } from "@/types/chat";
 import type { AuthStatus, AuthVerify, PairingState } from "@/types/pairing";
 import type { LoopOptions, LoopState } from "@/types/loop";
+import type { RevertResult } from "@/types/revert";
+import type { SessionIndexEntry, SessionPayload } from "@/types/session";
+import type { QuickAction } from "@/lib/quickActions";
 import type {
   CliStatus,
   OnboardingStatus,
@@ -32,6 +35,25 @@ export const api = {
   chatSend: (project: string, prompt: string, resumeSessionId?: string | null) =>
     invoke<string>("chat_send", { project, prompt, resumeSessionId }),
   chatCancel: (runId: string) => invoke<void>("chat_cancel", { runId }),
+
+  // Revert: roll the project back to the last studio checkpoint. Availability
+  // arrives on the `checkpoint:ready` event; this undoes the last AI turn.
+  revertLast: (project: string) =>
+    invoke<RevertResult>("revert_last", { project }),
+
+  // Session history: persist + resume past chats under .unity-vibe/studio.
+  saveSession: (project: string, payload: SessionPayload) =>
+    invoke<void>("save_session", { project, payload }),
+  listSessions: (project: string) =>
+    invoke<SessionIndexEntry[]>("list_sessions", { project }),
+  loadSession: (project: string, sessionId: string) =>
+    invoke<SessionPayload>("load_session", { project, sessionId }),
+  deleteSession: (project: string, sessionId: string) =>
+    invoke<void>("delete_session", { project, sessionId }),
+
+  // Quick actions: effective starter prompts (project override or defaults).
+  readQuickActions: (project: string) =>
+    invoke<QuickAction[]>("read_quick_actions", { project }),
 
   // Bridge status poller (emits `status:update`).
   statusStart: (project: string) => invoke<void>("status_start", { project }),

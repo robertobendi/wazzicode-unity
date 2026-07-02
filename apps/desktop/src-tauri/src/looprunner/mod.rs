@@ -522,41 +522,25 @@ async fn persist_and_emit(app: &AppHandle, shared: &LoopShared) {
 
 // --- git checkpoint (blocking) -------------------------------------------------
 
-/// `git add -A && git commit -m … && git rev-parse --short HEAD` for `project`.
-/// `Ok(None)` = benign no-op (nothing to commit); `Err` = git unavailable / not
-/// a repo (surfaced once as a warning). Never pushes.
+/// `git add -A && git commit -m … && git rev-parse --short HEAD` for `project`,
+/// via the shared [`crate::gitutil`] helpers. `Ok(None)` = benign no-op (nothing
+/// to commit); `Err` = git unavailable / not a repo (surfaced once as a
+/// warning). Never pushes.
 fn git_commit(
     project: &Path,
     loop8: &str,
     i: u32,
     summary: &str,
 ) -> Result<Option<String>, String> {
-    let mut add = crate::proc::command("git").map_err(|e| e.to_string())?;
-    add.current_dir(project).args(["add", "-A"]);
-    let out = crate::proc::output_with_timeout(add, crate::proc::LOCAL_TIMEOUT)
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        // Almost always "not a git repository".
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-
+    // An `add -A` failure is almost always "not a git repository" → Err.
+    crate::gitutil::add_all(project)?;
     let msg = format!("vibe-loop {} iter {}: {}", loop8, i, trim_summary(summary, 72));
-    let mut commit = crate::proc::command("git").map_err(|e| e.to_string())?;
-    commit.current_dir(project).args(["commit", "-m", &msg]);
-    let out = crate::proc::output_with_timeout(commit, crate::proc::LOCAL_TIMEOUT)
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        // "nothing to commit" (clean tree) and any other commit failure are
-        // both non-fatal — just no checkpoint this iteration.
+    // "nothing to commit" (clean tree) and any other commit no-op are non-fatal
+    // — just no checkpoint this iteration.
+    if !crate::gitutil::commit(project, &msg)? {
         return Ok(None);
     }
-
-    let mut rev = crate::proc::command("git").map_err(|e| e.to_string())?;
-    rev.current_dir(project).args(["rev-parse", "--short", "HEAD"]);
-    let out = crate::proc::output_with_timeout(rev, crate::proc::LOCAL_TIMEOUT)
-        .map_err(|e| e.to_string())?;
-    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    Ok(if sha.is_empty() { None } else { Some(sha) })
+    crate::gitutil::head_short(project)
 }
 
 // --- prompts -------------------------------------------------------------------

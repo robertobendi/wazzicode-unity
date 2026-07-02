@@ -47,7 +47,7 @@ export interface ToolActivity {
   endedAt?: number;
 }
 
-export type ChatRole = "user" | "assistant";
+export type ChatRole = "user" | "assistant" | "system";
 
 export interface ChatMessage {
   id: string;

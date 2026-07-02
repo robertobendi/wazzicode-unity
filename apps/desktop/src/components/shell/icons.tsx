@@ -54,6 +54,40 @@ export function CloseIcon({ className }: IconProps) {
   );
 }
 
+export function UndoIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="16" height="16">
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+    </svg>
+  );
+}
+
+export function SidebarIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="16" height="16">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+    </svg>
+  );
+}
+
+export function PlusIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="15" height="15">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+export function TrashIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="14" height="14">
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    </svg>
+  );
+}
+
 export function ImageIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} width="14" height="14">

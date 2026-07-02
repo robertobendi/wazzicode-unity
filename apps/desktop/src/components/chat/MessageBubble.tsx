@@ -5,6 +5,16 @@ import AttachmentChip from "./AttachmentChip";
 
 /** One chat turn: user (right, tinted block) or assistant (left, plain text). */
 export default function MessageBubble({ message }: { message: ChatMessage }) {
+  if (message.role === "system") {
+    return (
+      <div className="flex justify-center">
+        <span className="rounded-full bg-ink-850 px-3 py-1 text-center text-xs text-fg-dim">
+          {message.text}
+        </span>
+      </div>
+    );
+  }
+
   if (message.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1.5">
