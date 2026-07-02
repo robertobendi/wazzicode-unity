@@ -1,0 +1,62 @@
+// Auto-mode (loop) domain types. Mirror the Rust structs in
+// src-tauri/src/looprunner/mod.rs (serde camelCase / snake_case enums).
+
+export type LoopStatus =
+  | "running"
+  | "stopping"
+  | "done"
+  | "stopped"
+  | "blocked"
+  | "max_iterations"
+  | "cost_capped"
+  | "failed";
+
+export type LoopVerdict = "done" | "continue" | "blocked" | "unknown";
+
+export interface LoopOptions {
+  maxIterations: number;
+  maxCostUsd: number;
+  /** 0 disables the QA critic; >0 runs QA whenever the builder says "done". */
+  qaEvery: number;
+  referenceImages: string[];
+}
+
+export interface QaResult {
+  pass: boolean;
+  score: number | null;
+  notes: string;
+}
+
+export interface LoopIteration {
+  index: number;
+  verdict: LoopVerdict;
+  summary: string;
+  costUsd: number;
+  screenshotPath: string | null;
+  commitSha: string | null;
+  qa: QaResult | null;
+}
+
+export interface LoopState {
+  loopId: string;
+  goal: string;
+  referenceImages: string[];
+  status: LoopStatus;
+  iterations: LoopIteration[];
+  totalCostUsd: number;
+  options: LoopOptions;
+  warnings: string[];
+  currentRunId: string | null;
+}
+
+/** A running loop is one whose status hasn't reached a terminal state. */
+export function isLoopActive(status: LoopStatus | undefined): boolean {
+  return status === "running" || status === "stopping";
+}
+
+export const DEFAULT_LOOP_OPTIONS: LoopOptions = {
+  maxIterations: 10,
+  maxCostUsd: 5.0,
+  qaEvery: 1,
+  referenceImages: [],
+};

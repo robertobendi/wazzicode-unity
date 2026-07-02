@@ -5,9 +5,12 @@ import { useChatStore } from "@/stores/useChatStore";
 import { useUiStore } from "@/stores/useUiStore";
 import { useBridgeStatus } from "@/hooks/useBridgeStatus";
 import { useDebugCapture } from "@/hooks/useDebugCapture";
+import { useLoopEvents } from "@/hooks/useLoopEvents";
+import { useLoopStore } from "@/stores/useLoopStore";
 import PairingScreen from "@/components/pairing/PairingScreen";
 import ProjectPicker from "@/components/project/ProjectPicker";
 import ChatView from "@/components/chat/ChatView";
+import LoopPanel from "@/components/loop/LoopPanel";
 import ActivityPanel from "@/components/activity/ActivityPanel";
 import StatusBar from "@/components/shell/StatusBar";
 import TopBar from "@/components/shell/TopBar";
@@ -18,8 +21,10 @@ export default function App() {
   const { settings, load } = useSettingsStore();
   const setProject = useChatStore((s) => s.setProject);
   const activityOpen = useUiStore((s) => s.activityOpen);
+  const mode = useUiStore((s) => s.mode);
   const repairing = useUiStore((s) => s.repairing);
   const setRepairing = useUiStore((s) => s.setRepairing);
+  const hydrateLoop = useLoopStore((s) => s.hydrate);
 
   // Pairing gate: is a company token actually present on this machine?
   const [hasToken, setHasToken] = useState<boolean | null>(null);
@@ -42,9 +47,16 @@ export default function App() {
     setProject(project);
   }, [project, setProject]);
 
-  // Poll the Unity bridge whenever a project is open; capture raw debug events.
+  // Load any persisted auto-mode loop for the open project.
+  useEffect(() => {
+    if (project) void hydrateLoop();
+  }, [project, hydrateLoop]);
+
+  // Poll the Unity bridge whenever a project is open; capture raw debug events;
+  // mirror the auto-loop broadcasts (kept mounted in both modes).
   useBridgeStatus(project);
   useDebugCapture();
+  useLoopEvents();
 
   if (!settings || hasToken === null) {
     return (
@@ -77,8 +89,14 @@ export default function App() {
       <TopBar />
       <ConnectionBanner />
       <div className="flex min-h-0 flex-1">
-        <ChatView />
-        {activityOpen && <ActivityPanel />}
+        {mode === "auto" ? (
+          <LoopPanel />
+        ) : (
+          <>
+            <ChatView />
+            {activityOpen && <ActivityPanel />}
+          </>
+        )}
       </div>
       {settings.debugDrawer && <DebugDrawer />}
       <StatusBar />

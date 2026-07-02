@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { useChatStore } from "@/stores/useChatStore";
 import { useAttachmentsStore } from "@/stores/useAttachmentsStore";
+import { useLoopStore } from "@/stores/useLoopStore";
+import { isLoopActive } from "@/types/loop";
 import { api } from "@/api";
 import AttachmentChip from "./AttachmentChip";
 
@@ -10,6 +12,7 @@ export default function Composer() {
   const send = useChatStore((s) => s.send);
   const cancel = useChatStore((s) => s.cancel);
   const project = useChatStore((s) => s.project);
+  const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
   const attachments = useAttachmentsStore((s) => s.items);
   const removeAttachment = useAttachmentsStore((s) => s.remove);
   const addAttachments = useAttachmentsStore((s) => s.add);
@@ -17,7 +20,8 @@ export default function Composer() {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  const canSend = (value.trim() || attachments.length > 0) && !running;
+  const canSend =
+    (value.trim() || attachments.length > 0) && !running && !loopRunning;
 
   function submit() {
     if (!canSend) return;
@@ -76,8 +80,13 @@ export default function Composer() {
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             rows={1}
-            placeholder="Ask Claude to change your game…"
-            className="selectable max-h-40 flex-1 resize-none rounded-xl border border-ink-700 bg-ink-850 px-3.5 py-2.5 text-sm text-fg placeholder:text-fg-dim transition-colors duration-150 focus:border-ink-600 focus:outline-none"
+            disabled={loopRunning}
+            placeholder={
+              loopRunning
+                ? "Auto mode is running…"
+                : "Ask Claude to change your game…"
+            }
+            className="selectable max-h-40 flex-1 resize-none rounded-xl border border-ink-700 bg-ink-850 px-3.5 py-2.5 text-sm text-fg placeholder:text-fg-dim transition-colors duration-150 focus:border-ink-600 focus:outline-none disabled:opacity-50"
           />
           {running ? (
             <button

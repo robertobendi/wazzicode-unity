@@ -8,6 +8,7 @@ import type { Settings } from "@/types/settings";
 import type { ProjectInfo } from "@/types/project";
 import type { StagedResource } from "@/types/chat";
 import type { AuthStatus, AuthVerify, PairingState } from "@/types/pairing";
+import type { LoopOptions, LoopState } from "@/types/loop";
 
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
@@ -54,6 +55,13 @@ export const api = {
   authStatus: () => invoke<AuthStatus>("auth_status"),
   authVerify: () => invoke<AuthVerify>("auth_verify"),
   authClear: () => invoke<void>("auth_clear"),
+
+  // Auto mode: the autonomous dev loop. State arrives on the `loop:update`
+  // event; loopStart returns the loop id.
+  loopStart: (project: string, goal: string, options: LoopOptions) =>
+    invoke<string>("loop_start", { project, goal, options }),
+  loopStop: () => invoke<void>("loop_stop"),
+  loopState: () => invoke<LoopState | null>("loop_state"),
 };
 
 /** Open a native folder picker. Returns null if cancelled. */

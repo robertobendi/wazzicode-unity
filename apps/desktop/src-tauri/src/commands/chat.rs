@@ -20,6 +20,10 @@ pub async fn chat_send(
     state: State<'_, AppState>,
 ) -> AppResult<String> {
     let project_path = PathBuf::from(&project);
+    // Chat and auto mode are mutually exclusive per project.
+    if state.loops.is_running_for(&project_path).await {
+        return Err(crate::error::AppError::Other("busy: auto mode is running".into()));
+    }
     let mcp_config = crate::mcpconfig::ensure_mcp_config(&state.config_dir, &project_path)?;
     let settings = state.settings.read().await.clone();
     let args = build_args(

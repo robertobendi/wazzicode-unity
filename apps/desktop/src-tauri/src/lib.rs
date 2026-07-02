@@ -2,6 +2,7 @@ pub mod bridge;
 pub mod claude;
 pub mod commands;
 pub mod error;
+pub mod looprunner;
 pub mod mcpconfig;
 pub mod pairing;
 pub mod pathutil;
@@ -80,6 +81,9 @@ pub fn run() {
             commands::project::set_current_project,
             commands::chat::chat_send,
             commands::chat::chat_cancel,
+            commands::loops::loop_start,
+            commands::loops::loop_stop,
+            commands::loops::loop_state,
             commands::status::status_start,
             commands::status::status_stop,
             commands::screenshot::bridge_capture,

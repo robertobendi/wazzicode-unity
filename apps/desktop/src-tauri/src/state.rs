@@ -1,5 +1,6 @@
 use crate::bridge::StatusTask;
 use crate::claude::SessionManager;
+use crate::looprunner::LoopManager;
 use crate::pairing::PairingManager;
 use crate::store::settings::Settings;
 use std::path::PathBuf;
@@ -18,6 +19,8 @@ pub struct AppState {
     pub status_task: Mutex<Option<StatusTask>>,
     /// The hidden-PTY company-account pairing driver (one active at a time).
     pub pairing: PairingManager,
+    /// The single active auto-mode loop, if any.
+    pub loops: LoopManager,
 }
 
 impl AppState {
@@ -28,6 +31,7 @@ impl AppState {
             sessions: SessionManager::default(),
             status_task: Mutex::new(None),
             pairing: PairingManager::default(),
+            loops: LoopManager::default(),
         }
     }
 }

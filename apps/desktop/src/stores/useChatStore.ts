@@ -128,10 +128,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }));
     } catch (e) {
       const raw = String(e);
-      const friendly =
-        raw === "busy"
-          ? "Claude is still working on the last message."
-          : friendlyError(raw, "Couldn't start Claude.");
+      let friendly: string;
+      if (raw.includes("auto mode")) {
+        friendly = "Auto mode is running — stop it to chat.";
+      } else if (raw.startsWith("busy")) {
+        friendly = "Claude is still working on the last message.";
+      } else {
+        friendly = friendlyError(raw, "Couldn't start Claude.");
+      }
       get().fail("", { friendly, raw });
     }
   },
