@@ -10,7 +10,7 @@
 // Cached: an already-present binary is left as-is (delete it to re-fetch).
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
@@ -81,16 +81,20 @@ async function main() {
   try {
     await download(url, archive);
 
+    // copy+chmod rather than rename: the OS temp dir can live on a different
+    // drive than the workspace (C: vs D: on GitHub's Windows runners), where
+    // rename fails with EXDEV.
     if (isWin) {
       // Extract just node.exe (junk-paths, -j) from the archive.
       const inner = `${base}/node.exe`;
       execFileSync("unzip", ["-j", "-o", archive, inner, "-d", tmp], { stdio: "inherit" });
-      renameSync(path.join(tmp, "node.exe"), outPath);
+      copyFileSync(path.join(tmp, "node.exe"), outPath);
     } else {
       // Extract just <base>/bin/node from the gzip tarball.
       const inner = `${base}/bin/node`;
       execFileSync("tar", ["-xzf", archive, "-C", tmp, inner], { stdio: "inherit" });
-      renameSync(path.join(tmp, base, "bin", "node"), outPath);
+      copyFileSync(path.join(tmp, base, "bin", "node"), outPath);
+      chmodSync(outPath, 0o755);
     }
   } finally {
     rmSync(tmp, { recursive: true, force: true });
