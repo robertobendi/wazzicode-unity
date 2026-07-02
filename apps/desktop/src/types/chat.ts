@@ -1,13 +1,28 @@
 // Chat domain types. Shared by the stream mapper, stores, and components.
 
-/** A staged resource attached to a message. Unused in B1; defined for B3. */
+/** Resource kind — classified in Rust (commands/resources.rs), mirrored here. */
+export type ResourceKind = "image" | "model" | "audio" | "text" | "other";
+
+/** What `stage_paths` / `paste_clipboard` return (Rust `StagedResource`). */
+export interface StagedResource {
+  id: string;
+  kind: ResourceKind;
+  originalName: string;
+  /** Absolute path of the copy under <project>/.unity-vibe/inbox. */
+  stagedPath: string;
+  byteSize: number;
+}
+
+/** A staged resource attached to a message. */
 export interface Attachment {
   id: string;
   /** Absolute path on disk (staged under <project>/.unity-vibe/inbox). */
   path: string;
   name: string;
-  kind: "image" | "model" | "audio" | "text" | "other";
-  /** data: URL preview for images, when available. */
+  kind: ResourceKind;
+  /** File size in bytes, for the chip label. */
+  size?: number;
+  /** Renderable image URL (asset-protocol) for image kinds. */
   preview?: string;
 }
 

@@ -6,7 +6,9 @@ import {
   type StreamDraft,
 } from "@/lib/streamMapper";
 import { friendlyError } from "@/lib/errorMessages";
+import { assemblePrompt } from "@/lib/promptAssembly";
 import type {
+  Attachment,
   ChatMessage,
   ChatSession,
   DoneEvent,
@@ -36,7 +38,7 @@ interface ChatState {
 
   /** Point the store at a project; resets the conversation if it changed. */
   setProject: (project: string | null) => void;
-  send: (prompt: string) => Promise<void>;
+  send: (prompt: string, attachments?: Attachment[]) => Promise<void>;
   cancel: () => Promise<void>;
   reset: () => void;
 
@@ -78,17 +80,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
       draft: null,
     }),
 
-  send: async (prompt) => {
+  send: async (prompt, attachments = []) => {
     const state = get();
     const text = prompt.trim();
-    if (!text || state.running || !state.project) return;
+    if ((!text && attachments.length === 0) || state.running || !state.project) {
+      return;
+    }
+
+    // The bubble shows the user's verbatim text + chips; the prompt sent to
+    // Claude appends per-attachment instructions (promptAssembly).
+    const finalPrompt = assemblePrompt(text, attachments);
 
     const userMsg: ChatMessage = {
       id: newId(),
       role: "user",
       text,
       streaming: false,
-      attachments: [],
+      attachments,
       activities: [],
       createdAt: Date.now(),
     };
@@ -111,7 +119,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const runId = await api.chatSend(
         state.project,
-        text,
+        finalPrompt,
         state.session.sessionId,
       );
       set((s) => ({

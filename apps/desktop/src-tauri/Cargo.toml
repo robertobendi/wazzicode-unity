@@ -50,6 +50,8 @@ png = "0.17"
 # Decode the bridge's base64 screenshot payload into a real PNG on disk that
 # the webview can render through Tauri's asset protocol (bridge.rs / capture).
 base64 = "0.22"
+# Timestamp staged inbox files as `yyyymmdd-hhmmss` (resource funnel, Phase 3).
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 # Unix process-group signalling for graceful chat cancellation (SIGTERM the
 # Claude process group, then SIGKILL) — kills the MCP server child too.

@@ -45,3 +45,48 @@ export function ChevronIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function CloseIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="14" height="14">
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+export function ImageIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="14" height="14">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="m21 15-5-5L5 21" />
+    </svg>
+  );
+}
+
+export function CubeIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="14" height="14">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <path d="m3.3 7 8.7 5 8.7-5M12 22V12" />
+    </svg>
+  );
+}
+
+export function SoundIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="14" height="14">
+      <path d="M11 5 6 9H2v6h4l5 4V5z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+    </svg>
+  );
+}
+
+export function DocIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="14" height="14">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6M8 13h8M8 17h8M8 9h2" />
+    </svg>
+  );
+}

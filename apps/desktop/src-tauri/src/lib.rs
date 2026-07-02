@@ -81,6 +81,9 @@ pub fn run() {
             commands::status::status_start,
             commands::status::status_stop,
             commands::screenshot::bridge_capture,
+            commands::resources::stage_paths,
+            commands::resources::paste_clipboard,
+            commands::resources::remove_staged,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

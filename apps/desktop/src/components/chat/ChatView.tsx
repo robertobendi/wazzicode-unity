@@ -1,15 +1,29 @@
+import { useRef } from "react";
 import { useClaudeStream } from "@/hooks/useClaudeStream";
+import { useResourceDnd } from "@/hooks/useResourceDnd";
+import { useChatStore } from "@/stores/useChatStore";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
 
-/** The main chat surface. Wires the Claude event stream into the store. */
+/** The main chat surface. Wires the Claude event stream + resource drag-drop. */
 export default function ChatView() {
   useClaudeStream();
+  const project = useChatStore((s) => s.project);
+  const columnRef = useRef<HTMLDivElement>(null);
+  const dragActive = useResourceDnd(project, columnRef);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
+    <div ref={columnRef} className="relative flex min-w-0 flex-1 flex-col">
       <MessageList />
       <Composer />
+
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent/70 bg-ink-950/70 backdrop-blur-sm">
+          <span className="text-sm font-medium text-fg">
+            Drop images, models, sounds…
+          </span>
+        </div>
+      )}
     </div>
   );
 }

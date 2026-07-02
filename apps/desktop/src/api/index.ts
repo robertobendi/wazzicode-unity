@@ -6,6 +6,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Settings } from "@/types/settings";
 import type { ProjectInfo } from "@/types/project";
+import type { StagedResource } from "@/types/chat";
 
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
@@ -32,6 +33,13 @@ export const api = {
   // Capture the live game/scene view; returns the on-disk PNG path to render.
   bridgeCapture: (project: string, kind: "game" | "scene" = "game") =>
     invoke<{ pngPath: string }>("bridge_capture", { project, kind }),
+
+  // Resource funnel: copy dropped/pasted files into the project inbox.
+  stagePaths: (project: string, paths: string[]) =>
+    invoke<StagedResource[]>("stage_paths", { project, paths }),
+  pasteClipboard: (project: string) =>
+    invoke<StagedResource[]>("paste_clipboard", { project }),
+  removeStaged: (path: string) => invoke<void>("remove_staged", { path }),
 };
 
 /** Open a native folder picker. Returns null if cancelled. */
