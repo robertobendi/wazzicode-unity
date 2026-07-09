@@ -32,7 +32,7 @@ export const unityOrient: ToolDef<typeof InputShape, unknown> = {
       return { unavailable: env.error.code };
     };
 
-    const [summary, scenes, selection, compile, problems, git, ageMs] = await Promise.all([
+    const [summary, scenes, selection, compile, problems, git, ageMs, health] = await Promise.all([
       bridgeCall(ctx.bridge, BRIDGE_METHODS.systemSummary),
       bridgeCall(ctx.bridge, BRIDGE_METHODS.sceneGetOpenScenes),
       bridgeCall(ctx.bridge, BRIDGE_METHODS.selectionInspect, { includeFields: false }),
@@ -40,10 +40,25 @@ export const unityOrient: ToolDef<typeof InputShape, unknown> = {
       bridgeCall(ctx.bridge, BRIDGE_METHODS.consoleGetLogs, { level: "warning_or_error", limit: problemLimit }),
       unityCheckGitStatus.run({}, ctx),
       brainAgeMs(ctx.projectPath).catch(() => null),
+      ctx.bridge.health?.() ?? Promise.resolve(null),
     ]);
 
     const bridgeReachable = summary.ok;
     if (!bridgeReachable) warnings.push("Unity bridge not reachable — open the Editor for live state.");
+
+    // Catch the #1 footgun up front: an editor that will freeze (and hang every tool call) the
+    // moment the user focuses another window. Warn now, not after a 30-minute stall.
+    if (health) {
+      if (health.keepAwakeEnabled === false) {
+        warnings.push(
+          "'Keep Unity awake (background)' is OFF — Unity stops processing tool calls whenever its window is unfocused. Tell the user to enable Window ▸ Unity Vibe OS ▸ Keep Unity awake (background), or tool calls will hang."
+        );
+      } else if (health.editorTickAgeMs === undefined) {
+        warnings.push(
+          "The UnityVibeOS package in this project predates the background keep-awake driver — tool calls will hang whenever the Unity window is unfocused. Tell the user to update the UnityVibeOS package."
+        );
+      }
+    }
 
     const data = {
       bridgeReachable,

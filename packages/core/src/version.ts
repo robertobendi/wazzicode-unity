@@ -22,3 +22,30 @@ export interface BridgeDiscovery {
   protocolVersion: string;
   startedAt: number;
 }
+
+/**
+ * Payload of the bridge's GET /health route. Served off Unity's main thread from mirrored
+ * state, so it answers even when the editor loop is frozen — the liveness fields let clients
+ * distinguish "Unity is stalled in the background" from "Unity is busy". The editor* fields
+ * are absent on Unity packages older than the keep-awake driver.
+ */
+export interface BridgeHealth {
+  status: string;
+  unityVersion?: string;
+  projectPath?: string;
+  uptimeMs?: number;
+  /** Milliseconds since the editor main loop last ticked. */
+  editorTickAgeMs?: number;
+  /** Whether the "Keep Unity awake (background)" driver is enabled. */
+  keepAwakeEnabled?: boolean;
+  /** Focus state as of the last editor tick (stale while the loop is frozen). */
+  wasFocused?: boolean;
+  isCompiling?: boolean;
+  isPlaying?: boolean;
+}
+
+/**
+ * The editor loop normally ticks many times per second (the keep-awake waker guarantees
+ * ≤100ms latency); anything past this is a frozen loop, not a busy one.
+ */
+export const EDITOR_STALL_THRESHOLD_MS = 5_000;

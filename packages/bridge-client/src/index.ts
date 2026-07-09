@@ -6,4 +6,4 @@ export {
   type BridgeSource,
   type HttpBridgeOptions,
 } from "./httpClient.js";
-export { bridgeCall, isUnknownMethodError } from "./bridgeCall.js";
+export { bridgeCall, isUnknownMethodError, probeEditorStall } from "./bridgeCall.js";

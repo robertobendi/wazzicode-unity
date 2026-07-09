@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 
 namespace UnityVibeOS
@@ -18,6 +19,7 @@ namespace UnityVibeOS
         static volatile bool _isPlaying;
         static volatile bool _isPaused;
         static volatile bool _willChange;
+        static volatile bool _wasFocused;
         static volatile int _frameCount;
         static long _lastTickMs;
 
@@ -25,8 +27,16 @@ namespace UnityVibeOS
         public static bool IsPlaying => _isPlaying;
         public static bool IsPaused => _isPaused;
         public static bool IsTransitioning => _willChange != _isPlaying;
+        /// <summary>Focus state as of the last tick — stale by definition when the loop is frozen.</summary>
+        public static bool WasFocused => _wasFocused;
         public static int FrameCount => _frameCount;
         public static long LastTickMs => Interlocked.Read(ref _lastTickMs);
+
+        /// <summary>
+        /// Milliseconds since the editor loop last ticked. Readable from any thread; this is the
+        /// bridge's liveness signal for "Unity is frozen in the background" diagnostics.
+        /// </summary>
+        public static long TickAgeMs => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - LastTickMs;
 
         static EditorStateMirror()
         {
@@ -41,6 +51,7 @@ namespace UnityVibeOS
             _isPlaying = EditorApplication.isPlaying;
             _isPaused = EditorApplication.isPaused;
             _willChange = EditorApplication.isPlayingOrWillChangePlaymode;
+            _wasFocused = InternalEditorUtility.isApplicationActive;
             _frameCount = _isPlaying ? Time.frameCount : 0;
             Interlocked.Exchange(ref _lastTickMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         }

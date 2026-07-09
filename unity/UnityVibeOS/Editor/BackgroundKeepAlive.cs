@@ -28,12 +28,19 @@ namespace UnityVibeOS
         const string PrefKey = "UnityVibeOS.KeepAwake";
         const int WakeIntervalMs = 100;   // ≤100 ms wake latency even if the editor loop is frozen
         static Timer _waker;
+        static volatile bool _enabledCached = true;
 
         public static bool Enabled
         {
             get => EditorPrefs.GetBool(PrefKey, true);
             set { EditorPrefs.SetBool(PrefKey, value); Apply(); }
         }
+
+        /// <summary>
+        /// Last-applied Enabled value, readable from any thread (EditorPrefs is main-thread-only).
+        /// The bridge health endpoint reports this so clients can diagnose background stalls.
+        /// </summary>
+        public static bool EnabledCached => _enabledCached;
 
         static BackgroundKeepAlive()
         {
@@ -46,6 +53,7 @@ namespace UnityVibeOS
 
         static void Apply()
         {
+            _enabledCached = Enabled;
             EditorApplication.update -= Tick;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
             if (!Enabled)

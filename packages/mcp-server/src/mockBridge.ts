@@ -667,5 +667,19 @@ export function createMockBridgeClient(): BridgeClient {
     return true;
   }
 
-  return { source: "mock", call, isConnected };
+  async function health() {
+    return {
+      status: "ok",
+      unityVersion: meta.unityVersion,
+      projectPath: meta.projectPath,
+      uptimeMs: 12345,
+      editorTickAgeMs: 16,
+      keepAwakeEnabled: true,
+      wasFocused: true,
+      isCompiling: false,
+      isPlaying: false,
+    };
+  }
+
+  return { source: "mock", call, isConnected, health };
 }

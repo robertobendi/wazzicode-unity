@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ToolDef } from "../registry.js";
-import { BRIDGE_METHODS, bridgeCall, isUnknownMethodError } from "./_helpers.js";
+import { BRIDGE_METHODS, bridgeCall, isUnknownMethodError, probeEditorStall } from "./_helpers.js";
 import { CompileStatus, ToolEnvelope, err, isErrorCode } from "@uvibe/core";
 
 const InputShape = {
@@ -52,6 +52,17 @@ export const unityWaitForCompile: ToolDef<typeof InputShape, CompileStatus> = {
     }
     if (last) {
       if (last.ok) {
+        // Distinguish "compile is slow" from "the editor loop is frozen and this will never
+        // finish" — the latter must be a hard error or the agent retries forever.
+        const { stalled, health } = await probeEditorStall(ctx.bridge);
+        if (stalled && health) {
+          return err(
+            "UNITY_EDITOR_STALLED",
+            `Compilation cannot progress: Unity's editor loop has not ticked for ${Math.round((health.editorTickAgeMs ?? 0) / 1000)}s (window unfocused, keep-awake ${health.keepAwakeEnabled === false ? "OFF" : "not working"}). Ask the user to focus Unity or enable Window ▸ Unity Vibe OS ▸ Keep Unity awake (background); do not retry until then.`,
+            { source: ctx.bridge.source },
+            { editorTickAgeMs: health.editorTickAgeMs, keepAwakeEnabled: health.keepAwakeEnabled }
+          );
+        }
         last.warnings.push(`Timed out after ${timeoutMs}ms while still compiling.`);
       }
       return last;

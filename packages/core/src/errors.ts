@@ -6,6 +6,7 @@ export type ErrorCode =
   | "UNITY_NOT_CONNECTED"
   | "UNITY_COMPILING"
   | "UNITY_RELOADING"
+  | "UNITY_EDITOR_STALLED"
   | "TEST_FRAMEWORK_MISSING"
   | "PLAY_MODE_REQUIRED"
   | "UNSAVED_CHANGES"
@@ -55,8 +56,14 @@ const ERROR_META: Record<ErrorCode, ErrorMeta> = {
   UNITY_RELOADING: {
     recoverable: true,
     suggestedAction:
-      "Unity is reloading the script domain (after a compile or on entering play mode). The bridge restarts automatically — retry the call shortly. `unity_wait_for_compile` rides through reloads.",
+      "Unity is reloading the script domain (after a compile or on entering play mode). The bridge restarts automatically — retry the call shortly. `unity_wait_for_compile` rides through reloads. If this persists for more than a minute, Unity is likely paused in the background: ask the user to focus the Unity window and check Window ▸ Unity Vibe OS ▸ Keep Unity awake (background).",
     defaultMessage: "Unity is reloading the C# domain; the bridge is briefly unavailable.",
+  },
+  UNITY_EDITOR_STALLED: {
+    recoverable: true,
+    suggestedAction:
+      "Unity's editor loop is frozen — it is unfocused/minimised and not processing anything, so retrying will NOT help. STOP retrying and ask the user to focus the Unity window, or enable Window ▸ Unity Vibe OS ▸ Keep Unity awake (background) (and update the UnityVibeOS package if that menu item is missing). `uvibe doctor` confirms the fix.",
+    defaultMessage: "Unity's editor loop is not ticking; the Editor is stalled in the background.",
   },
   TEST_FRAMEWORK_MISSING: {
     recoverable: false,

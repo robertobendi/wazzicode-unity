@@ -225,12 +225,20 @@ namespace UnityVibeOS
                 var path = ctx.Request.Url?.AbsolutePath ?? "/";
                 if (ctx.Request.HttpMethod == "GET" && path == "/health")
                 {
+                    // Served entirely off the HTTP thread from mirrored state, so it answers even
+                    // when the editor main thread is frozen (unfocused with keep-awake off). That
+                    // makes it the client's probe for "is Unity stalled or just busy".
                     var healthBody = MiniJson.Serialize(new Dictionary<string, object>
                     {
                         { "status", "ok" },
                         { "unityVersion", ProjectInfo.UnityVersion },
                         { "projectPath", ProjectInfo.ProjectPath },
-                        { "uptimeMs", UptimeMs }
+                        { "uptimeMs", UptimeMs },
+                        { "editorTickAgeMs", EditorStateMirror.TickAgeMs },
+                        { "keepAwakeEnabled", BackgroundKeepAlive.EnabledCached },
+                        { "wasFocused", EditorStateMirror.WasFocused },
+                        { "isCompiling", EditorStateMirror.IsCompiling },
+                        { "isPlaying", EditorStateMirror.IsPlaying }
                     });
                     WriteResponse(ctx, 200, healthBody);
                     return;
@@ -351,7 +359,7 @@ namespace UnityVibeOS
                 // Begin failures (e.g. PLAY_MODE_REQUIRED) short-circuit the wait.
                 if (!RunOnMainThread(spec.BeginMethod, p, out _, out var beginError, out var timedOutMethod))
                 {
-                    WriteResponse(ctx, 504, MakeErrorEnvelope(id, "BRIDGE_TIMEOUT", $"Main-thread handler for '{timedOutMethod}' did not complete in time."));
+                    WriteResponse(ctx, 504, MakeErrorEnvelope(id, "BRIDGE_TIMEOUT", $"Main-thread handler for '{timedOutMethod}' did not complete in time.{StallHint()}"));
                     return;
                 }
                 if (beginError != null)
@@ -371,6 +379,24 @@ namespace UnityVibeOS
             }
 
             DispatchAndRespond(ctx, id, spec.StatusMethod, p, start, settled);
+        }
+
+        /// <summary>
+        /// Explains a main-thread timeout when the editor loop is demonstrably frozen (vs merely
+        /// busy). Built from mirrored state only, so it is safe to call on the HTTP thread.
+        /// </summary>
+        static string StallHint()
+        {
+            long ageMs = EditorStateMirror.TickAgeMs;
+            if (ageMs < 5000) return "";
+            if (!EditorStateMirror.WasFocused)
+            {
+                string keepAwake = BackgroundKeepAlive.EnabledCached
+                    ? "'Keep Unity awake (background)' is on but the loop is not ticking"
+                    : "'Keep Unity awake (background)' is OFF";
+                return $" Unity's editor loop has not ticked for {ageMs / 1000}s and the window is unfocused — {keepAwake}. Focus the Unity window, or enable Window ▸ Unity Vibe OS ▸ Keep Unity awake (background).";
+            }
+            return $" Unity's editor loop has not ticked for {ageMs / 1000}s while focused — likely a blocking import/compile; it should recover when that finishes.";
         }
 
         static bool Probe(AwaitSpec spec, IDictionary<string, object> p)
@@ -413,7 +439,7 @@ namespace UnityVibeOS
             if (!RunOnMainThread(method, p, out var result, out var captured, out _))
             {
                 var budget = TimeoutFor(method);
-                WriteResponse(ctx, 504, MakeErrorEnvelope(id, "BRIDGE_TIMEOUT", $"Main-thread handler for '{method}' did not complete within {budget.TotalSeconds:0}s."));
+                WriteResponse(ctx, 504, MakeErrorEnvelope(id, "BRIDGE_TIMEOUT", $"Main-thread handler for '{method}' did not complete within {budget.TotalSeconds:0}s.{StallHint()}"));
                 return;
             }
 

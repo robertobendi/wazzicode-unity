@@ -3,6 +3,7 @@ import http from "node:http";
 import path from "node:path";
 import {
   BridgeDiscovery,
+  BridgeHealth,
   BridgeMethod,
   BridgeResponse,
   BRIDGE_DISCOVERY_REL,
@@ -17,6 +18,12 @@ export interface BridgeClient {
   readonly source: BridgeSource;
   call<T = unknown>(method: BridgeMethod, params?: Record<string, unknown>): Promise<BridgeResponse<T>>;
   isConnected(): Promise<boolean>;
+  /**
+   * GET /health — answered by the bridge off Unity's main thread, so it works even while the
+   * editor loop is frozen. Returns null when the bridge is unreachable. Optional so simple
+   * test doubles don't have to implement it.
+   */
+  health?(): Promise<BridgeHealth | null>;
 }
 
 export interface HttpBridgeOptions {
@@ -264,7 +271,30 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
     return res.ok;
   }
 
-  return { source: "unity_bridge", call, isConnected };
+  function health(): Promise<BridgeHealth | null> {
+    const t = target();
+    return new Promise((resolve) => {
+      const req = http.request(
+        { host: t.host, port: t.port, path: "/health", method: "GET", agent, timeout: 2_000 },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            try {
+              resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as BridgeHealth);
+            } catch {
+              resolve(null);
+            }
+          });
+        }
+      );
+      req.on("timeout", () => req.destroy());
+      req.on("error", () => resolve(null));
+      req.end();
+    });
+  }
+
+  return { source: "unity_bridge", call, isConnected, health };
 }
 
 function samePath(a: string, b: string): boolean {

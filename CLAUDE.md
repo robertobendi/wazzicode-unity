@@ -74,6 +74,7 @@ This server is built for Claude Code specifically and leans on MCP features Clau
 
 - `UNITY_RELOADING` — the bridge is mid script-domain reload (post-compile or entering play). It is **recoverable**; tool calls already retry for ~20s. Just wait; don't treat it as fatal.
 - `UNITY_NOT_CONNECTED` — no Unity Editor with the UnityVibeOS package is running for this project. Ask the user to open Unity, then `uvibe doctor`.
+- `UNITY_EDITOR_STALLED` — Unity's editor loop is frozen (window unfocused with "Keep Unity awake (background)" off or the package too old to have it). Retrying is useless: nothing progresses until Unity wakes. Stop and ask the user to focus the Unity window or enable `Window ▸ Unity Vibe OS ▸ Keep Unity awake (background)`. The client detects this via the bridge's GET `/health` (served off the main thread, so it answers even while frozen) and `unity_orient` warns up front when keep-awake is off.
 - `PROJECT_IDENTITY_MISMATCH` — a Unity Editor answered but for a different project (the client auto-discovers the bridge via `Library/UnityVibeOS/bridge.json` and verifies project identity). Ask the user to open the correct project.
 - `TEST_FRAMEWORK_MISSING` — `unity_run_tests` needs `com.unity.test-framework`; suggest installing it.
 

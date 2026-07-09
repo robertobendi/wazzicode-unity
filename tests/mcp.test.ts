@@ -524,6 +524,68 @@ describe("mcp-server/long-poll awaits + legacy fallback", () => {
     expect(calls).toEqual(["compile.await", "compile.await"]);
   });
 
+  it("unity_wait_for_compile fails hard with UNITY_EDITOR_STALLED instead of soft-timing-out against a frozen editor", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        // Never settles: the editor loop is frozen so the compile makes no progress.
+        "compile.await": () => ({ isCompiling: true, hasErrors: false, errorCount: 0, warningCount: 0, errors: [], settled: false }),
+      },
+      calls
+    );
+    bridge.health = async () => ({
+      status: "ok",
+      editorTickAgeMs: 30_000,
+      keepAwakeEnabled: false,
+      wasFocused: false,
+    });
+    const tool = allTools.find((t) => t.name === "unity_wait_for_compile")!;
+    const env = await tool.run({ timeoutMs: 600 }, ctxWith(bridge));
+    expect(env.ok).toBe(false);
+    if (!env.ok) {
+      expect(env.error.code).toBe("UNITY_EDITOR_STALLED");
+      expect(env.error.message).toContain("focus Unity");
+    }
+  });
+
+  it("unity_wait_for_compile keeps the soft timeout warning when the editor is alive (genuinely slow compile)", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "compile.await": () => ({ isCompiling: true, hasErrors: false, errorCount: 0, warningCount: 0, errors: [], settled: false }),
+      },
+      calls
+    );
+    bridge.health = async () => ({
+      status: "ok",
+      editorTickAgeMs: 16,
+      keepAwakeEnabled: true,
+      wasFocused: true,
+    });
+    const tool = allTools.find((t) => t.name === "unity_wait_for_compile")!;
+    const env = await tool.run({ timeoutMs: 600 }, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    if (env.ok) expect(env.warnings.some((w) => w.includes("Timed out"))).toBe(true);
+  });
+
+  it("unity_orient warns when 'Keep Unity awake' is off", async () => {
+    const bridge = fakeBridge({}, []);
+    bridge.health = async () => ({ status: "ok", editorTickAgeMs: 16, keepAwakeEnabled: false, wasFocused: true });
+    const tool = allTools.find((t) => t.name === "unity_orient")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    if (env.ok) expect(env.warnings.some((w) => w.includes("Keep Unity awake"))).toBe(true);
+  });
+
+  it("unity_orient warns when the Unity package predates the keep-awake driver", async () => {
+    const bridge = fakeBridge({}, []);
+    bridge.health = async () => ({ status: "ok" });
+    const tool = allTools.find((t) => t.name === "unity_orient")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    if (env.ok) expect(env.warnings.some((w) => w.includes("keep-awake"))).toBe(true);
+  });
+
   it("unity_step_frame steps N frames in ONE call on new bridges", async () => {
     const calls: string[] = [];
     const bridge = fakeBridge(

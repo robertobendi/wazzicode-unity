@@ -35,6 +35,11 @@ export interface DoctorReport {
     port: number;
     reachable: boolean;
     error?: string;
+    /** Editor loop frozen (unfocused + not ticking) while the bridge socket still answers. */
+    editorStalled?: boolean;
+    editorTickAgeMs?: number;
+    /** Undefined when the Unity package predates the keep-awake driver. */
+    keepAwakeEnabled?: boolean;
   };
   git: {
     isRepo: boolean;
@@ -136,6 +141,18 @@ export async function collectDoctorReport(
     suggestions.push(
       `Open Unity Editor with the UnityVibeOS package installed; the bridge auto-starts at ${bridgeHost}:${bridgePort}.`
     );
+  if (bridge.editorStalled)
+    suggestions.push(
+      "Unity's editor loop is frozen in the background — focus the Unity window, and enable Window ▸ Unity Vibe OS ▸ Keep Unity awake (background) so tool calls keep running unfocused."
+    );
+  if (bridge.reachable && bridge.keepAwakeEnabled === false)
+    suggestions.push(
+      "'Keep Unity awake (background)' is OFF — Unity will stop processing tool calls whenever its window loses focus. Enable it under Window ▸ Unity Vibe OS."
+    );
+  if (bridge.reachable && bridge.keepAwakeEnabled === undefined && !cfg.mockMode)
+    suggestions.push(
+      "The UnityVibeOS package in Unity predates the background keep-awake driver — update it (`uvibe install-unity-package`) or tool calls will hang while Unity is unfocused."
+    );
   if (ageMs === null) suggestions.push("Run `uvibe brain` to generate the project brain.");
   if (!git.isRepo) suggestions.push("Initialize git in the project so write tools can snapshot before edits.");
 
@@ -168,7 +185,15 @@ export function formatDoctorReport(r: DoctorReport): string {
       ? `Packages/manifest.json → ${r.unityPackage.manifestRef} (pending Unity import)`
       : "(not detected)";
   lines.push(`Unity package:  ${tick(r.unityPackage.detected)} ${pkgWhere}`);
-  lines.push(`Unity bridge:   ${tick(r.bridge.reachable)} ${r.bridge.reachable ? `${r.bridge.host}:${r.bridge.port}` : `unreachable on ${r.bridge.host}:${r.bridge.port}${r.bridge.error ? ` (${r.bridge.error})` : ""}`}`);
+  let bridgeLine: string;
+  if (!r.bridge.reachable) {
+    bridgeLine = `unreachable on ${r.bridge.host}:${r.bridge.port}${r.bridge.error ? ` (${r.bridge.error})` : ""}`;
+  } else {
+    bridgeLine = `${r.bridge.host}:${r.bridge.port}`;
+    if (r.bridge.editorStalled) bridgeLine += `  ⚠ editor loop FROZEN (no tick for ${Math.round((r.bridge.editorTickAgeMs ?? 0) / 1000)}s — focus Unity)`;
+    if (r.bridge.keepAwakeEnabled === false) bridgeLine += "  ⚠ keep-awake OFF";
+  }
+  lines.push(`Unity bridge:   ${tick(r.bridge.reachable && !r.bridge.editorStalled)} ${bridgeLine}`);
   lines.push(`Git:            ${tick(r.git.isRepo)} ${r.git.isRepo ? `${r.git.branch ?? "(detached)"} — ${r.git.clean ? "clean" : "dirty"}` : r.git.available ? "(not a repo)" : "(git unavailable)"}`);
   lines.push(`Brain:          ${tick(r.brain.exists)} ${r.brain.exists ? `${formatAge(r.brain.ageMs!)} old` : "(missing — run `uvibe brain`)"}`);
   if (r.suggestions.length) {
@@ -179,12 +204,30 @@ export function formatDoctorReport(r: DoctorReport): string {
   return lines.join("\n") + "\n";
 }
 
-async function probeBridge(projectPath: string): Promise<{ reachable: boolean; error?: string }> {
+async function probeBridge(projectPath: string): Promise<Omit<DoctorReport["bridge"], "host" | "port">> {
   // The client resolves the real port from bridge.json (falling back to the default),
   // and rejects an Editor running a different project (PROJECT_IDENTITY_MISMATCH).
   const client = createHttpBridgeClient({ projectPath, timeoutMs: 1500 });
   const res = await client.call("system.health");
-  if (res.ok) return { reachable: true };
+  // GET /health is served off Unity's main thread, so it answers even when the editor loop is
+  // frozen — it both enriches a healthy report and explains an RPC timeout.
+  const health = await client.health?.();
+  const liveness = health
+    ? {
+        editorTickAgeMs: health.editorTickAgeMs,
+        keepAwakeEnabled: health.keepAwakeEnabled,
+        editorStalled:
+          typeof health.editorTickAgeMs === "number" &&
+          health.editorTickAgeMs > 5_000 &&
+          health.wasFocused === false,
+      }
+    : {};
+  if (res.ok) return { reachable: true, ...liveness };
+  if (health && res.error.code === "BRIDGE_TIMEOUT") {
+    // Socket answers but the RPC timed out — the Editor main thread is wedged, not absent.
+    // Other errors (e.g. PROJECT_IDENTITY_MISMATCH) are definitive verdicts; keep them.
+    return { reachable: true, error: `${res.error.code}: ${res.error.message}`, ...liveness };
+  }
   return { reachable: false, error: `${res.error.code}: ${res.error.message}` };
 }
 

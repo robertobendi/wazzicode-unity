@@ -2,7 +2,7 @@
 #
 # Triggers on a `desktop-v*` tag push (e.g. `git tag desktop-v0.1.0 && git push
 # --tags`) or manual dispatch. Produces, per OS:
-#   - macOS  arm64 + intel   → .dmg  (built NATIVELY on each runner, no cross)
+#   - macOS  arm64 + intel   → .dmg  (both on the arm64 runner; intel is cross-compiled)
 #   - Windows x86_64         → .msi + NSIS .exe
 #   - Linux   x86_64         → .deb + .AppImage
 # and attaches them to a DRAFT GitHub release named "Unity Vibe Studio <tag>",
@@ -37,7 +37,11 @@ jobs:
         include:
           - platform: macos-latest # Apple Silicon (M-series runner) — native arm64
             target: aarch64-apple-darwin
-          - platform: macos-13 # last Intel runner image — native x86_64 (avoids cross)
+          # Intel runners are retired (a macos-13 job queued for 24h in the first
+          # release run and was auto-cancelled) — cross-compile x86_64 from the
+          # arm64 runner instead; rustup provides the target and the sidecar is
+          # fetched per-triple, never executed at build time.
+          - platform: macos-latest
             target: x86_64-apple-darwin
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
