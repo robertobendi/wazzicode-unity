@@ -84,9 +84,23 @@ This server is built for Claude Code specifically and leans on MCP features Clau
 - `uvibe brain` — refresh project brain.
 - `uvibe verify --mock` — MVP acceptance checks against the mock bridge.
 - `uvibe autonomy [on|off|status]` — toggle Claude's write access without hand-editing config.
-- `uvibe mcp-config` — print Claude MCP config snippet.
+- `uvibe mcp-config` — print Claude MCP config snippet. `--target=codex` prints the `[mcp_servers.*]` TOML block (plus the `codex mcp add` one-liner) for the OpenAI Codex CLI, which reads TOML rather than `.mcp.json`.
 - `uvibe init` — create `.unity-vibe/` scaffold.
 - `uvibe serve` — start the MCP server (used in your Claude config).
+
+## Agent backends (desktop app)
+
+Unity Vibe Studio (`apps/desktop`) can drive **either** Claude Code (`claude -p --output-format stream-json`) or the **OpenAI Codex CLI** (`codex exec --json`), selectable in Settings. Both speak the same MCP server, so Unity capability is identical. The abstraction lives in `apps/desktop/src-tauri/src/agent/` (`Backend` enum → binary + argv + stream-capture rules); the webview's `streamMapper.ts` reduces *both* JSON vocabularies into one `StreamDraft` by dispatching on the line's own `type` (they're disjoint), so no UI code knows which CLI ran.
+
+Four Codex-specific gotchas, all already handled — don't "fix" them back:
+- Codex takes MCP servers as **TOML `-c` overrides**, not a `--mcp-config` file, and Windows paths must be TOML *literal* strings (`'C:\x'`); a basic string makes `\U` an invalid escape and the whole config fails to parse.
+- `codex exec resume` **re-declares** `--json`, `--skip-git-repo-check`, `-m` and `-c`, so they are not clap-global: those flags must be emitted *after* the `resume` subcommand or they bind to `exec` and are ignored (which would silently disable JSONL on every resumed turn). `resume` accepts no `--sandbox`, so the sandbox travels as `-c sandbox_mode='workspace-write'`.
+- Codex reports **tokens, not USD**. `cost_usd` stays `None` (never `Some(0.0)`), and the auto-loop disables its budget cap + warns rather than pretending every turn was free.
+- **Subscription only.** The app never offers an API-key sign-in, and `agent::spawn` strips `OPENAI_API_KEY`/`CODEX_API_KEY` from every Codex child (`codexauth::scrub_api_key`) so a stray env var can't silently bill API credits instead of the user's ChatGPT plan.
+
+### Dictation
+
+The desktop composer has a mic: a quantized Whisper runs locally in a Web Worker (ONNX Runtime + WASM) — offline, no credits, no native binary. The model and runtime are vendored into `apps/desktop/public/` by `pnpm --filter @uvibe/desktop bundle:whisper` and are **gitignored**; when absent, the mic button hides itself rather than failing. Code lives in `apps/desktop/src/lib/dictation/`.
 
 ## Internal planning
 

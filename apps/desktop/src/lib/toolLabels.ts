@@ -3,6 +3,11 @@
 // Employees never see raw tool names like "mcp__unity-vibe-os__unity_verify".
 // We map the common Claude Code tools and the important Unity tools to plain
 // language; anything unmapped falls back to a sentence-cased, de-prefixed name.
+//
+// Codex names its MCP calls as a (server, tool) pair rather than one flat
+// string, so `codexMcpName` re-joins them into the Claude-style name above and
+// every Unity label below is reused as-is. Codex's *native* tools (shell, patch,
+// web search) have no Claude equivalent and get their own map.
 
 const UNITY_PREFIX = "mcp__unity-vibe-os__unity_";
 const UNITY_PREFIX_ALT = "mcp__unity-vibe-os__"; // some tools may lack the unity_ segment
@@ -100,6 +105,36 @@ const UNITY_LABELS: Record<string, string> = {
   clear_console: "Clearing the console",
   manage_tools: "Adjusting available tools",
 };
+
+/**
+ * Codex's own tool items (`item.type` on the JSONL stream). These have no Claude
+ * counterpart — Claude exposes a shell/patch as named tools, Codex as item types.
+ */
+const CODEX_ITEM_LABELS: Record<string, string> = {
+  command_execution: "Running a command",
+  file_change: "Editing game code",
+  patch_apply: "Editing game code",
+  web_search: "Searching the web",
+  todo_list: "Planning steps",
+};
+
+/** Friendly label for one of Codex's native stream items. */
+export function codexItemLabel(itemType: string): string {
+  return (
+    CODEX_ITEM_LABELS[itemType] ?? sentenceCase(itemType.replace(/_/g, " "))
+  );
+}
+
+/**
+ * Re-join a Codex MCP call's (server, tool) into the flat `mcp__<server>__<tool>`
+ * name Claude uses, so both backends hit the same label table. Codex registers
+ * our server as `unity_vibe_os` (a bare TOML key can't contain hyphens — see
+ * `agent/codex.rs`), which we map back to the canonical hyphenated name.
+ */
+export function codexMcpName(server: string, tool: string): string {
+  const canonical = server === "unity_vibe_os" ? "unity-vibe-os" : server;
+  return `mcp__${canonical}__${tool}`;
+}
 
 /** Map a raw tool name to a friendly label. */
 export function toolLabel(name: string): string {

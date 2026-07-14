@@ -1,9 +1,12 @@
+use crate::agent::Backend;
 use crate::error::AppResult;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Bump when the on-disk shape changes in a way that needs migration.
-const CURRENT_SCHEMA_VERSION: u32 = 1;
+/// v2 added `agentBackend` + `codexModel`; older files deserialize cleanly
+/// (every field has a serde default) and land on the Claude backend.
+const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 /// Persistent user settings. Lives at `<config_dir>/settings.json`.
 ///
@@ -20,12 +23,22 @@ pub struct Settings {
     /// The Unity project currently in focus, if any.
     #[serde(default)]
     pub current_project: Option<String>,
-    /// Admin escape hatch: flips Claude spawns to bypassPermissions.
+    /// Which coding agent drives runs. Defaults to Claude, so an existing
+    /// settings file (schema v1, no such key) keeps its current behaviour.
+    #[serde(default)]
+    pub agent_backend: Backend,
+    /// Admin escape hatch: drops the agent's permission gate (Claude:
+    /// `bypassPermissions`; Codex: `--dangerously-bypass-approvals-and-sandbox`).
     #[serde(default)]
     pub power_mode: bool,
     /// Preferred Claude model id, or None to let the CLI decide.
     #[serde(default)]
     pub model: Option<String>,
+    /// Preferred Codex model id, or None to let the CLI decide. Kept separate
+    /// from `model` so switching backends can't hand `claude-opus-4-8` to Codex
+    /// (or `gpt-5-codex` to Claude), which would fail the run outright.
+    #[serde(default)]
+    pub codex_model: Option<String>,
     /// Show the raw stream / debug drawer in the UI.
     #[serde(default)]
     pub debug_drawer: bool,
@@ -44,14 +57,28 @@ fn default_schema_version() -> u32 {
     CURRENT_SCHEMA_VERSION
 }
 
+impl Settings {
+    /// The model override for `backend`, or `None` to let that CLI decide.
+    /// Empty strings (a cleared text field in the UI) count as unset.
+    pub fn model_for(&self, backend: Backend) -> Option<&str> {
+        let raw = match backend {
+            Backend::Claude => self.model.as_deref(),
+            Backend::Codex => self.codex_model.as_deref(),
+        };
+        raw.filter(|m| !m.trim().is_empty())
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             schema_version: CURRENT_SCHEMA_VERSION,
             recent_projects: Vec::new(),
             current_project: None,
+            agent_backend: Backend::default(),
             power_mode: false,
             model: None,
+            codex_model: None,
             debug_drawer: false,
             paired_ok: false,
             onboarded: false,
@@ -93,4 +120,41 @@ pub fn save(config_dir: &Path, settings: &Settings) -> AppResult<()> {
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, &path)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_v1_file_without_agent_backend_still_loads_as_claude() {
+        // Exactly what schema v1 wrote — no `agentBackend`, no `codexModel`.
+        let v1 = r#"{
+            "schemaVersion": 1,
+            "recentProjects": ["/Users/x/Game"],
+            "currentProject": "/Users/x/Game",
+            "powerMode": true,
+            "model": "claude-opus-4-8",
+            "debugDrawer": false,
+            "pairedOk": true,
+            "onboarded": true
+        }"#;
+        let s: Settings = serde_json::from_str(v1).expect("v1 settings must still deserialize");
+        assert_eq!(s.agent_backend, Backend::Claude);
+        assert_eq!(s.codex_model, None);
+        assert!(s.power_mode);
+        assert_eq!(s.model.as_deref(), Some("claude-opus-4-8"));
+    }
+
+    #[test]
+    fn model_for_is_per_backend_and_ignores_blanks() {
+        let s = Settings {
+            model: Some("claude-opus-4-8".into()),
+            codex_model: Some("  ".into()),
+            ..Settings::default()
+        };
+        assert_eq!(s.model_for(Backend::Claude), Some("claude-opus-4-8"));
+        // A whitespace-only override must not become `--model "  "`.
+        assert_eq!(s.model_for(Backend::Codex), None);
+    }
 }

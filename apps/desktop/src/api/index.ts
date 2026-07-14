@@ -4,10 +4,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Settings } from "@/types/settings";
+import type { AgentBackend, Settings } from "@/types/settings";
 import type { ProjectInfo } from "@/types/project";
 import type { StagedResource } from "@/types/chat";
 import type { AuthStatus, AuthVerify, PairingState } from "@/types/pairing";
+import type { CodexAuthStatus } from "@/types/codex";
 import type { LoopOptions, LoopState } from "@/types/loop";
 import type { RevertResult } from "@/types/revert";
 import type { SessionIndexEntry, SessionPayload } from "@/types/session";
@@ -31,7 +32,7 @@ export const api = {
   setCurrentProject: (path: string) =>
     invoke<Settings>("set_current_project", { path }),
 
-  // Chat: returns the runId to subscribe to (claude:stream/done/error:<runId>).
+  // Chat: returns the runId to subscribe to (agent:stream/done/error:<runId>).
   chatSend: (project: string, prompt: string, resumeSessionId?: string | null) =>
     invoke<string>("chat_send", { project, prompt, resumeSessionId }),
   chatCancel: (runId: string) => invoke<void>("chat_cancel", { runId }),
@@ -83,6 +84,15 @@ export const api = {
   authVerify: () => invoke<AuthVerify>("auth_verify"),
   authClear: () => invoke<void>("auth_clear"),
 
+  // Codex sign-in. Credentials stay with the Codex CLI (~/.codex) — nothing
+  // here returns a token. Browser sign-in streams progress on `codex:login`.
+  // ChatGPT-subscription only: there is no API-key command, because that bills
+  // API credits rather than the user's plan (Rust also scrubs OPENAI_API_KEY).
+  codexAuthStatus: () => invoke<CodexAuthStatus>("codex_auth_status"),
+  codexLoginStart: () => invoke<void>("codex_login_start"),
+  codexLoginCancel: () => invoke<void>("codex_login_cancel"),
+  codexLogout: () => invoke<void>("codex_logout"),
+
   // Auto mode: the autonomous dev loop. State arrives on the `loop:update`
   // event; loopStart returns the loop id.
   loopStart: (project: string, goal: string, options: LoopOptions) =>
@@ -91,9 +101,12 @@ export const api = {
   loopState: () => invoke<LoopState | null>("loop_state"),
 
   // Onboarding wizard. Setup + install stream progress on `onboarding:progress`.
+  // The CLI steps take the backend, so only the selected agent must be present.
   onboardingStatus: () => invoke<OnboardingStatus>("onboarding_status"),
-  onboardingCheckCli: () => invoke<CliStatus>("onboarding_check_cli"),
-  onboardingInstallCli: () => invoke<CliStatus>("onboarding_install_cli"),
+  onboardingCheckCli: (backend: AgentBackend) =>
+    invoke<CliStatus>("onboarding_check_cli", { backend }),
+  onboardingInstallCli: (backend: AgentBackend) =>
+    invoke<CliStatus>("onboarding_install_cli", { backend }),
   onboardingSetupProject: (project: string) =>
     invoke<SetupResult>("onboarding_setup_project", { project }),
 };

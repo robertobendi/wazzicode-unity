@@ -26,10 +26,19 @@ pub async fn loop_start(
         return Err(AppError::Other("busy: a chat is running".into()));
     }
     let mcp_config = crate::mcpconfig::ensure_mcp_config(&app, &state.config_dir, &project_path)?;
+    let mcp_entry = crate::mcpconfig::mcp_entry(&app, &project_path);
     let settings = state.settings.read().await.clone();
     state
         .loops
-        .start(app, project_path, goal, options, settings, mcp_config)
+        .start(
+            app,
+            project_path,
+            goal,
+            options,
+            settings,
+            mcp_config,
+            mcp_entry,
+        )
         .await
 }
 

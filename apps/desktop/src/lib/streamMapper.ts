@@ -1,10 +1,17 @@
-// Pure reducer over Claude Code's `--output-format stream-json` lines.
+// Pure reducer over a headless agent's newline-delimited JSON stream.
 //
-// Rust emits each parsed JSON line as a `claude:stream:<runId>` event; this
+// Rust emits each parsed JSON line as an `agent:stream:<runId>` event; this
 // module folds them into a `StreamDraft` the chat store projects onto the
 // assistant message. No Tauri imports — fully unit-testable.
 //
-// Line shapes handled (verified against Claude Code 2.1.198):
+// TWO backends feed this, and it dispatches on the line's own `type` rather than
+// on a backend flag threaded down from settings. That's not a shortcut: the
+// vocabularies are disjoint (Claude says `system`/`assistant`/`user`/`result`,
+// Codex says `thread.*`/`turn.*`/`item.*`), so the shape *is* the discriminator —
+// and a run started before the user flipped the picker still reduces correctly,
+// which a settings-derived flag would get wrong.
+//
+// Claude line shapes handled (verified against Claude Code 2.1.198):
 //   {type:"system", subtype:"init", session_id, tools:[...], model}
 //   {type:"stream_event", event:{type:"content_block_delta",
 //        delta:{type:"text_delta", text}}}
@@ -14,8 +21,11 @@
 //   {type:"result", subtype:"success", total_cost_usd, is_error, result}
 // Everything else (other system subtypes, rate_limit_event, message_start/stop,
 // content_block_start/stop, message_delta) is ignored.
+//
+// Codex line shapes live in `codexStream.ts`.
 
 import type { ToolActivity } from "@/types/chat";
+import { isCodexEvent, reduceCodex } from "./codexStream";
 import { toolLabel } from "./toolLabels";
 
 export interface StreamDraft {
@@ -23,12 +33,16 @@ export interface StreamDraft {
   text: string;
   activities: ToolActivity[];
   sessionId?: string;
-  /** Tool names advertised in the system/init event. */
+  /** Tool names advertised in the system/init event (Claude only — Codex doesn't
+   *  announce its toolset up front). */
   toolsSeen: string[];
   /** True when the MCP Unity tools are actually available this run. */
   hasUnityTools: boolean;
-  /** Final turn cost, from the `result` event. */
+  /** Final turn cost in USD. Claude only: Codex reports tokens, not dollars, so
+   *  this stays undefined there — which is the signal NOT to render "$0.00". */
   cost?: number;
+  /** Total tokens for the turn, when the backend reports them (Codex). */
+  tokens?: number;
   isError: boolean;
   done: boolean;
 }
@@ -51,6 +65,8 @@ type Raw = Record<string, any>;
 export function reduceStream(draft: StreamDraft, raw: unknown): StreamDraft {
   if (!raw || typeof raw !== "object") return draft;
   const v = raw as Raw;
+
+  if (isCodexEvent(v.type)) return reduceCodex(draft, v);
 
   switch (v.type) {
     case "system":

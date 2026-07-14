@@ -1,16 +1,16 @@
-//! Chat commands: spawn/cancel a headless Claude run against a project.
+//! Chat commands: spawn/cancel a headless agent run against a project.
 
-use crate::claude::flags::{build_args, FlagInput};
+use crate::agent::flags::{build_args, FlagInput};
 use crate::error::AppResult;
 use crate::state::AppState;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, State};
 
 /// Start a chat turn. Writes the app-managed MCP config, builds the argv from
-/// current settings, spawns Claude, and returns the `runId` the frontend
-/// subscribes to (`claude:stream:<runId>`, `claude:done:<runId>`,
-/// `claude:error:<runId>`). Errors with `"busy"` if a run is already active
-/// for the project.
+/// current settings, spawns the selected agent backend (Claude or Codex), and
+/// returns the `runId` the frontend subscribes to (`agent:stream:<runId>`,
+/// `agent:done:<runId>`, `agent:error:<runId>`). Errors with `"busy"` if a run
+/// is already active for the project.
 #[tauri::command]
 pub async fn chat_send(
     app: AppHandle,
@@ -48,17 +48,23 @@ pub async fn chat_send(
     }
 
     let mcp_config = crate::mcpconfig::ensure_mcp_config(&app, &state.config_dir, &project_path)?;
+    let mcp_entry = crate::mcpconfig::mcp_entry(&app, &project_path);
     let settings = state.settings.read().await.clone();
+    let backend = settings.agent_backend;
     let args = build_args(
+        backend,
         &settings,
         &FlagInput {
             mcp_config_path: &mcp_config,
+            mcp_entry: &mcp_entry,
             resume_session_id: resume_session_id.as_deref(),
+            // Chat turns are user-paced; only the auto-loop caps turns.
+            max_turns: None,
         },
     );
     state
         .sessions
-        .start_run(app, project_path, prompt, args)
+        .start_run(app, backend, project_path, prompt, args)
         .await
 }
 

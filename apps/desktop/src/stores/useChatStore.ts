@@ -6,6 +6,7 @@ import {
   type StreamDraft,
 } from "@/lib/streamMapper";
 import { friendlyError } from "@/lib/errorMessages";
+import { agentLabel } from "@/lib/agentLabel";
 import { assemblePrompt } from "@/lib/promptAssembly";
 import type {
   Attachment,
@@ -22,7 +23,7 @@ function newId(): string {
 }
 
 function emptySession(): ChatSession {
-  return { sessionId: null, activeRunId: null, totalCostUsd: 0 };
+  return { sessionId: null, activeRunId: null, totalCostUsd: 0, totalTokens: 0 };
 }
 
 interface ChatState {
@@ -50,7 +51,7 @@ interface ChatState {
     totalCostUsd: number;
   }) => void;
 
-  // Called by useClaudeStream — not part of the public UI surface.
+  // Called by useAgentStream — not part of the public UI surface.
   ingest: (runId: string, raw: unknown) => void;
   finish: (runId: string, done: DoneEvent) => void;
   fail: (runId: string, err: ErrorEvent) => void;
@@ -107,7 +108,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadSession: ({ messages, sessionId, totalCostUsd }) =>
     set({
       messages,
-      session: { sessionId, activeRunId: null, totalCostUsd },
+      session: {
+        sessionId,
+        activeRunId: null,
+        totalCostUsd,
+        // Not persisted (the session file predates it) — re-derive from the
+        // messages so a resumed Codex chat still shows its running total.
+        totalTokens: messages.reduce((n, m) => n + (m.tokens ?? 0), 0),
+      },
       running: false,
       activeRunId: null,
       assistantId: null,
@@ -166,9 +174,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (raw.includes("auto mode")) {
         friendly = "Auto mode is running — stop it to chat.";
       } else if (raw.startsWith("busy")) {
-        friendly = "Claude is still working on the last message.";
+        friendly = `${agentLabel()} is still working on the last message.`;
       } else {
-        friendly = friendlyError(raw, "Couldn't start Claude.");
+        friendly = friendlyError(raw, `Couldn't start ${agentLabel()}.`);
       }
       get().fail("", { friendly, raw });
     }
@@ -208,9 +216,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
               streaming: false,
               text: m.text || done.resultText || "",
               costUsd: done.costUsd ?? undefined,
+              tokens: done.tokens ?? undefined,
               error:
                 done.isError && !m.text
-                  ? "Claude ran into a problem."
+                  ? `${agentLabel()} ran into a problem.`
                   : m.error,
             }
           : m,
@@ -225,6 +234,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           sessionId: done.sessionId ?? state.session.sessionId,
           activeRunId: null,
           totalCostUsd: state.session.totalCostUsd + (done.costUsd ?? 0),
+          totalTokens: state.session.totalTokens + (done.tokens ?? 0),
         },
       };
     }),

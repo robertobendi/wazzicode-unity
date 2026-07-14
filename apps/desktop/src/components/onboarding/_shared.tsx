@@ -3,7 +3,7 @@
 
 import type { ReactNode } from "react";
 
-export const STEP_LABELS = ["Claude", "Project", "Set up", "Connect", "Ready"];
+export const STEP_LABELS = ["Agent", "Project", "Set up", "Connect", "Ready"];
 
 export function Stepper({ current }: { current: number }) {
   return (

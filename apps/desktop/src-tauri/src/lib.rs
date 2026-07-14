@@ -1,5 +1,6 @@
+pub mod agent;
 pub mod bridge;
-pub mod claude;
+pub mod codexauth;
 pub mod commands;
 pub mod error;
 pub mod gitutil;
@@ -103,6 +104,10 @@ pub fn run() {
             commands::pairing::auth_status,
             commands::pairing::auth_verify,
             commands::pairing::auth_clear,
+            commands::codex_auth::codex_auth_status,
+            commands::codex_auth::codex_login_start,
+            commands::codex_auth::codex_login_cancel,
+            commands::codex_auth::codex_logout,
             commands::onboarding::onboarding_status,
             commands::onboarding::onboarding_check_cli,
             commands::onboarding::onboarding_install_cli,

@@ -87,6 +87,10 @@ export async function runSetup(g: GlobalOptions, parsed: ParsedArgs): Promise<Co
   log(`  2. cd ${project}  — Claude Code reads .mcp.json from the project root.`);
   log("  3. Restart Claude Code in this directory and approve the unity-vibe-os server when prompted.");
   log("  4. Verify with:  claude mcp list   (or run `uvibe doctor` again).");
+  log("");
+  log("Using the Codex CLI instead of Claude Code?");
+  log("  Codex reads TOML, not .mcp.json:  uvibe mcp-config --target=codex");
+  log("  (it prints the `codex mcp add` one-liner that registers the server for you).");
 
   return { exitCode: 0, stdout: lines.join("\n") + "\n" };
 }

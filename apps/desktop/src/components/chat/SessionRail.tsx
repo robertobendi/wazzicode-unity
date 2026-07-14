@@ -2,10 +2,10 @@ import { useState } from "react";
 import { useSessionsStore } from "@/stores/useSessionsStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useToastStore } from "@/stores/useToastStore";
+import { useSettingsStore } from "@/stores/useSettingsStore";
 import { relativeTime } from "@/lib/relativeTime";
+import { BACKENDS } from "@/types/settings";
 import { PlusIcon, TrashIcon } from "../shell/icons";
-
-const BUSY_COPY = "Claude is still working on the last message.";
 
 /** Left rail: past conversations, newest-first, with resume + delete. */
 export default function SessionRail() {
@@ -17,23 +17,27 @@ export default function SessionRail() {
   const project = useChatStore((s) => s.project);
   const running = useChatStore((s) => s.running);
   const showToast = useToastStore((s) => s.show);
+  const agentLabel = useSettingsStore(
+    (s) => BACKENDS[s.settings?.agentBackend ?? "claude"].label,
+  );
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   if (!project) return null;
   const proj = project;
+  const busyCopy = `${agentLabel} is still working on the last message.`;
 
   async function onOpen(id: string) {
     if (running) {
-      showToast(BUSY_COPY);
+      showToast(busyCopy);
       return;
     }
     const ok = await open(proj, id);
-    if (!ok) showToast(BUSY_COPY);
+    if (!ok) showToast(busyCopy);
   }
 
   function onNewChat() {
     if (running) {
-      showToast(BUSY_COPY);
+      showToast(busyCopy);
       return;
     }
     void newChat(proj);

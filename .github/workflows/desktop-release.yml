@@ -113,6 +113,15 @@ jobs:
         working-directory: apps/desktop
         run: node scripts/bundle-uvibe.mjs
 
+      # Vendor the offline dictation model + ONNX runtime into public/ so the mic
+      # works with no network and no API credits. Host-agnostic (pure WASM), so
+      # unlike the Node sidecar it needs no --target. Without this the app still
+      # builds — it just ships with the mic button hidden, which would be a silent
+      # feature regression rather than a build failure. Hence: not optional.
+      - name: Vendor dictation model (Whisper + ONNX runtime)
+        working-directory: apps/desktop
+        run: node scripts/fetch-whisper.mjs
+
       # tauri-action runs `tauri build` in apps/desktop with the args appended
       # verbatim, so the overlay config + target match the local invocation. It
       # also upserts one draft release per tag and uploads this leg's bundles.

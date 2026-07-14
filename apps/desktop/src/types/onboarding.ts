@@ -2,6 +2,7 @@
 // camelCase). Keep the two in sync.
 
 import type { ProjectInfo } from "@/types/project";
+import type { AgentBackend } from "@/types/settings";
 
 export interface CliStatus {
   found: boolean;
@@ -15,7 +16,10 @@ export interface NodeSidecar {
 }
 
 export interface OnboardingStatus {
+  /** The backend the user has selected — decides which CLI status matters. */
+  agentBackend: AgentBackend;
   claudeCli: CliStatus;
+  codexCli: CliStatus;
   nodeSidecar: NodeSidecar;
   currentProject: string | null;
   projectReady: ProjectInfo | null;

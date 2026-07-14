@@ -23,6 +23,7 @@ Commands:
   doctor                     Health check: MCP server, Unity bridge, brain, git, config.
   verify [--mock]            Run MVP acceptance checks against the mock bridge.
   mcp-config [--write]       Print or write .mcp.json. Use --write for the project-local file Claude Code auto-discovers.
+                             --target=codex prints the [mcp_servers.*] TOML block (and the "codex mcp add" line) for the Codex CLI.
   autonomy [on|off|status]   Toggle Claude's write access (read_only ↔ autopilot+writes+autoSnapshot) without editing config by hand.
   install-unity-package      Install com.uvibe.os into a Unity project (--mode=copy|manifest|symlink; copy is default & portable).
   gsd-auto                   Detect GSD CLI / show internal planning workflow status.

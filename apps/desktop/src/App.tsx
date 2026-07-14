@@ -10,6 +10,7 @@ import { useLoopEvents } from "@/hooks/useLoopEvents";
 import { useCheckpointEvents } from "@/hooks/useCheckpointEvents";
 import { useLoopStore } from "@/stores/useLoopStore";
 import PairingScreen from "@/components/pairing/PairingScreen";
+import CodexAuthScreen from "@/components/codex/CodexAuthScreen";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 import ProjectPicker from "@/components/project/ProjectPicker";
 import ChatView from "@/components/chat/ChatView";
@@ -82,11 +83,17 @@ export default function App() {
     );
   }
 
-  // Pairing gate FIRST (connection is per-machine, not per-project): show it
-  // when this machine hasn't connected — or on admin re-pair. Uses the persisted
-  // flag only (no per-launch probe); PairingScreen itself re-checks on mount.
-  const needsPairing = !settings.pairedOk || repairing;
-  if (needsPairing) {
+  // Auth gate FIRST (the connection is per-machine, not per-project), routed by
+  // backend. Claude: show it when this machine hasn't paired — or on admin
+  // re-pair; the persisted `pairedOk` flag decides (PairingScreen re-checks on
+  // mount). Codex: there's no such flag — the CLI's own sign-in state is the
+  // truth, so we only interrupt when the user explicitly asks to sign in, and
+  // CodexAuthScreen probes for itself.
+  if (settings.agentBackend === "codex") {
+    if (repairing) {
+      return <CodexAuthScreen onDone={() => setRepairing(false)} />;
+    }
+  } else if (!settings.pairedOk || repairing) {
     return (
       <PairingScreen
         onDone={() => {

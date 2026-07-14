@@ -1,13 +1,24 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useChatStore } from "@/stores/useChatStore";
 import { useAttachmentsStore } from "@/stores/useAttachmentsStore";
 import { useLoopStore } from "@/stores/useLoopStore";
+import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useQuickActions } from "@/hooks/useQuickActions";
+import { useDictation } from "@/hooks/useDictation";
 import { isLoopActive } from "@/types/loop";
+import { BACKENDS } from "@/types/settings";
 import { api } from "@/api";
 import AttachmentChip from "./AttachmentChip";
+import { MicIcon } from "../shell/icons";
 
-/** Prompt input: Enter to send, Shift+Enter for a newline, Stop while running. */
+/**
+ * Prompt input: Enter to send, Shift+Enter for a newline, Stop while running.
+ *
+ * The mic dictates locally (offline Whisper — see `hooks/useDictation`). It
+ * *appends* to whatever is already typed rather than replacing it, so speech and
+ * typing compose; and it hides itself entirely when the dictation model isn't in
+ * the build, rather than offering a button that can only fail.
+ */
 export default function Composer() {
   const running = useChatStore((s) => s.running);
   const send = useChatStore((s) => s.send);
@@ -19,8 +30,24 @@ export default function Composer() {
   const addAttachments = useAttachmentsStore((s) => s.add);
   const clearAttachments = useAttachmentsStore((s) => s.clear);
   const quickActions = useQuickActions(project);
+  const agentLabel = useSettingsStore(
+    (s) => BACKENDS[s.settings?.agentBackend ?? "claude"].label,
+  );
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+
+  // Dictation appends, so a user can type half a thought and speak the rest.
+  const appendDictated = useCallback((text: string) => {
+    setValue((cur) => (cur.trim() ? `${cur.trimEnd()} ${text}` : text));
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (el) {
+        el.focus();
+        autosize(el);
+      }
+    });
+  }, []);
+  const dictation = useDictation(appendDictated);
 
   const canSend =
     (value.trim() || attachments.length > 0) && !running && !loopRunning;
@@ -128,10 +155,19 @@ export default function Composer() {
             placeholder={
               loopRunning
                 ? "Auto mode is running…"
-                : "Ask Claude to change your game…"
+                : dictation.state === "recording"
+                  ? "Listening… click the mic to finish."
+                  : dictation.state === "transcribing"
+                    ? "Transcribing…"
+                    : `Ask ${agentLabel} to change your game…`
             }
             className="selectable max-h-40 flex-1 resize-none rounded-xl border border-ink-700 bg-ink-850 px-3.5 py-2.5 text-sm text-fg placeholder:text-fg-dim transition-colors duration-150 focus:border-ink-600 focus:outline-none disabled:opacity-50"
           />
+
+          {dictation.state !== "unsupported" && !loopRunning && (
+            <MicButton dictation={dictation} />
+          )}
+
           {running ? (
             <button
               onClick={() => void cancel()}
@@ -151,6 +187,48 @@ export default function Composer() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Mic toggle: click to talk, click again to transcribe. */
+function MicButton({
+  dictation,
+}: {
+  dictation: ReturnType<typeof useDictation>;
+}) {
+  const { state, error, start, stop } = dictation;
+  const recording = state === "recording";
+  const busy = state === "transcribing";
+
+  const title = error
+    ? error
+    : recording
+      ? "Stop and transcribe"
+      : busy
+        ? "Transcribing…"
+        : "Dictate (runs locally on this machine)";
+
+  return (
+    <button
+      onClick={() => (recording ? stop() : start())}
+      disabled={busy}
+      title={title}
+      aria-label={title}
+      aria-pressed={recording}
+      className={`relative shrink-0 rounded-xl border px-3 py-2.5 transition-colors duration-150 disabled:opacity-60 ${
+        recording
+          ? "border-danger/40 bg-danger/15 text-danger"
+          : state === "error"
+            ? "border-danger/40 bg-ink-850 text-danger hover:bg-ink-800"
+            : "border-ink-700 bg-ink-850 text-fg-muted hover:bg-ink-800 hover:text-fg"
+      }`}
+    >
+      {busy ? (
+        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-fg-dim border-t-transparent" />
+      ) : (
+        <MicIcon className={recording ? "animate-pulse" : undefined} />
+      )}
+    </button>
   );
 }
 

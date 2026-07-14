@@ -13,7 +13,7 @@ const KNOWN = [
   { id: "init", label: "Setting up Unity Vibe OS" },
   { id: "install_package", label: "Installing the Unity package" },
   { id: "autonomy", label: "Enabling AI edits" },
-  { id: "mcp_config", label: "Connecting Claude to Unity" },
+  { id: "mcp_config", label: "Connecting your agent to Unity" },
   { id: "gitignore", label: "Tidying project settings" },
   { id: "doctor", label: "Double-checking everything" },
 ] as const;

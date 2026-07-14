@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useLoopStore } from "@/stores/useLoopStore";
+import { useSettingsStore } from "@/stores/useSettingsStore";
 import { isLoopActive, type LoopStatus } from "@/types/loop";
+import { BACKENDS } from "@/types/settings";
 import IterationTimeline from "./IterationTimeline";
 import GoalCard from "./GoalCard";
 
@@ -137,6 +139,9 @@ function NowDoing({
 }
 
 function StatusBanner({ status }: { status: LoopStatus }) {
+  const agentLabel = useSettingsStore(
+    (s) => BACKENDS[s.settings?.agentBackend ?? "claude"].label,
+  );
   const map: Record<
     LoopStatus,
     { text: string; cls: string } | undefined
@@ -147,7 +152,7 @@ function StatusBanner({ status }: { status: LoopStatus }) {
     },
     stopped: { text: "Stopped.", cls: "bg-ink-800 text-fg-muted" },
     blocked: {
-      text: "Claude got stuck and couldn't continue. Try refining the goal.",
+      text: `${agentLabel} got stuck and couldn't continue. Try refining the goal.`,
       cls: "bg-danger/10 text-danger",
     },
     max_iterations: {

@@ -124,3 +124,12 @@ export function DocIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function MicIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="16" height="16">
+      <rect x="9" y="2" width="6" height="11" rx="3" />
+      <path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4M8 22h8" />
+    </svg>
+  );
+}

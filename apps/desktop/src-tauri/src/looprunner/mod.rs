@@ -3,9 +3,10 @@
 //! One goal → repeated builder turns until the goal is reached, the budget runs
 //! out, the loop gets stuck, or the user hits Stop. Two roles, no more:
 //!
-//!   1. **Builder** — a resumed Claude session told to implement the next small
-//!      increment, run `unity_verify`, screenshot, and end with a fenced JSON
-//!      verdict (`done` / `continue` / `blocked`).
+//!   1. **Builder** — a resumed agent session (Claude or Codex, whichever the
+//!      user selected) told to implement the next small increment, run
+//!      `unity_verify`, screenshot, and end with a fenced JSON verdict
+//!      (`done` / `continue` / `blocked`).
 //!   2. **QA critic** — a *cold* (unresumed) harsh reviewer that only runs when
 //!      the builder claims `done` (and `qaEvery > 0`); a fail feeds its notes
 //!      back into the next builder turn.
@@ -13,8 +14,13 @@
 //! Between the two, a **deterministic reflector** (pure fns in [`reflect`]) —
 //! not an LLM — parses the verdict and makes every stop/continue decision; each
 //! iteration is git-checkpointed and screenshotted. All spawning reuses the
-//! shared [`crate::claude::spawn_streaming`] core, so loop turns stream to the
-//! webview under `claude:stream:loop:<loopId>:<i>:<builder|qa>` just like chat.
+//! shared [`crate::agent::spawn_streaming`] core, so loop turns stream to the
+//! webview under `agent:stream:loop:<loopId>:<i>:<builder|qa>` just like chat.
+//!
+//! Backends differ in one way that matters here: Claude prices each turn, Codex
+//! doesn't (it reports tokens). The USD budget cap is therefore inert on Codex,
+//! and rather than pretend every turn cost $0 — which would look like a working
+//! budget that never trips — the loop disables the cap explicitly and warns.
 //!
 //! Exactly one loop runs per app. State is persisted to
 //! `<project>/.unity-vibe/loop/<loopId>/state.json` and mirrored to the webview
@@ -23,9 +29,10 @@
 
 pub mod reflect;
 
-use crate::claude::flags::{build_args, FlagInput};
-use crate::claude::{spawn_streaming, ChildHandle, ExitInfo};
+use crate::agent::flags::{build_args, FlagInput};
+use crate::agent::{spawn_streaming, Backend, ChildHandle, ExitInfo};
 use crate::error::{AppError, AppResult};
+use crate::mcpconfig::McpEntry;
 use crate::store::settings::Settings;
 use base64::Engine;
 use reflect::Step;
@@ -146,6 +153,7 @@ impl LoopManager {
         options: LoopOptions,
         settings: Settings,
         mcp_config: PathBuf,
+        mcp_entry: McpEntry,
     ) -> AppResult<String> {
         let mut guard = self.active.lock().await;
         if let Some(existing) = guard.as_ref() {
@@ -191,6 +199,7 @@ impl LoopManager {
             shared: shared.clone(),
             settings,
             mcp_config,
+            mcp_entry,
             goal,
             options,
         };
@@ -254,13 +263,27 @@ struct Driver {
     shared: Arc<LoopShared>,
     settings: Settings,
     mcp_config: PathBuf,
+    mcp_entry: McpEntry,
     goal: String,
     options: LoopOptions,
 }
 
 impl Driver {
     async fn run(self) {
-        let max_cost = self.options.max_cost_usd;
+        // Codex reports tokens, not dollars, so `cost_usd` is never populated and
+        // the running total would sit at $0 forever — a budget cap that silently
+        // never fires. Disable it outright and say so; `max_iterations` is then
+        // the real bound.
+        let max_cost = if self.backend().reports_cost() {
+            self.options.max_cost_usd
+        } else {
+            self.warn_once(
+                "Budget cap: Codex doesn't report per-turn cost, so the $ cap is \
+                 inactive — this loop is bounded by the iteration cap instead.",
+            )
+            .await;
+            f64::INFINITY
+        };
         let max_iter = self.options.max_iterations;
         let qa_enabled = self.options.qa_every > 0;
 
@@ -400,24 +423,38 @@ impl Driver {
         self.shared.stop.load(Ordering::SeqCst)
     }
 
-    /// Build the argv for one turn: the shared chat flags + `--resume` (builder
-    /// only) + a `--max-turns` cap.
+    /// The agent backend this loop was started with. Snapshotted in `settings`
+    /// at `loop_start`, so flipping the picker mid-loop can't swap the CLI
+    /// underneath a resumed session.
+    fn backend(&self) -> Backend {
+        self.settings.agent_backend
+    }
+
+    /// Build the argv for one turn: the shared chat flags + resume (builder only)
+    /// + a per-run turn cap (Claude enforces it; Codex ignores it).
     fn turn_args(&self, resume: Option<&str>, max_turns: u32) -> Vec<String> {
-        let mut args = build_args(
+        build_args(
+            self.backend(),
             &self.settings,
             &FlagInput {
                 mcp_config_path: &self.mcp_config,
+                mcp_entry: &self.mcp_entry,
                 resume_session_id: resume,
+                max_turns: Some(max_turns),
             },
-        );
-        args.push("--max-turns".into());
-        args.push(max_turns.to_string());
-        args
+        )
     }
 
     /// Spawn one turn, register its child for cancellation, await the result.
     async fn run_turn(&self, run_id: String, args: Vec<String>, prompt: String) -> ExitInfo {
-        match spawn_streaming(self.app.clone(), run_id, &self.shared.project, args, prompt) {
+        match spawn_streaming(
+            self.app.clone(),
+            self.backend(),
+            run_id,
+            &self.shared.project,
+            args,
+            prompt,
+        ) {
             Ok((handle, join)) => {
                 *self.shared.child.lock().await = Some(handle);
                 let info = join.await.unwrap_or_default();

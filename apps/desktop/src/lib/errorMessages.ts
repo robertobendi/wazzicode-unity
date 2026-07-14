@@ -1,8 +1,18 @@
 // Turn raw error text (bridge error codes, CLI stderr) into human-friendly,
 // non-technical messages. Returns null when nothing matches so callers can
 // fall back to whatever friendly text the backend already provided.
+//
+// Auth expiry is the one message that differs per agent — the two backends have
+// completely different recovery paths (re-pair vs. sign in), so the copy has to
+// name the right one. Callers don't pass it: it's read from settings.
 
-export function mapErrorMessage(raw: string | undefined | null): string | null {
+import { currentBackend } from "@/lib/agentLabel";
+import type { AgentBackend } from "@/types/settings";
+
+export function mapErrorMessage(
+  raw: string | undefined | null,
+  backend: AgentBackend = currentBackend(),
+): string | null {
   if (!raw) return null;
   const text = raw.toLowerCase();
 
@@ -22,7 +32,9 @@ export function mapErrorMessage(raw: string | undefined | null): string | null {
     text.includes("not logged in") ||
     text.includes("authentication")
   ) {
-    return "Your connection expired — go to Settings → Re-pair account.";
+    return backend === "codex"
+      ? "Codex isn't signed in — go to Settings → Sign in to Codex."
+      : "Your connection expired — go to Settings → Re-pair account.";
   }
   return null;
 }
@@ -31,6 +43,7 @@ export function mapErrorMessage(raw: string | undefined | null): string | null {
 export function friendlyError(
   raw: string | undefined | null,
   fallback: string,
+  backend?: AgentBackend,
 ): string {
-  return mapErrorMessage(raw) ?? fallback;
+  return mapErrorMessage(raw, backend ?? currentBackend()) ?? fallback;
 }

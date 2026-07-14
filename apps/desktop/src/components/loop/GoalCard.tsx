@@ -2,9 +2,11 @@ import { useRef, useState } from "react";
 import { useChatStore } from "@/stores/useChatStore";
 import { useLoopStore } from "@/stores/useLoopStore";
 import { useAttachmentsStore } from "@/stores/useAttachmentsStore";
+import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useResourceDnd } from "@/hooks/useResourceDnd";
 import AttachmentChip from "@/components/chat/AttachmentChip";
 import { DEFAULT_LOOP_OPTIONS } from "@/types/loop";
+import { BACKENDS } from "@/types/settings";
 
 /**
  * Auto-mode entry point: describe a goal, optionally attach reference images,
@@ -20,6 +22,9 @@ export default function GoalCard() {
   const attachments = useAttachmentsStore((s) => s.items);
   const removeAttachment = useAttachmentsStore((s) => s.remove);
   const clearAttachments = useAttachmentsStore((s) => s.clear);
+  const agentLabel = useSettingsStore(
+    (s) => BACKENDS[s.settings?.agentBackend ?? "claude"].label,
+  );
 
   const [goal, setGoal] = useState("");
   const [maxIterations, setMaxIterations] = useState(
@@ -54,7 +59,7 @@ export default function GoalCard() {
       <div>
         <h2 className="text-lg font-semibold text-fg">Auto mode</h2>
         <p className="mt-1 text-sm text-fg-muted">
-          Describe what you want, and Claude will build it step by step —
+          Describe what you want, and {agentLabel} will build it step by step —
           checking its own work and committing after each step. You can stop
           any time.
         </p>

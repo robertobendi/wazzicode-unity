@@ -2,7 +2,8 @@
 //!
 //! - `onboarding_status` — one call the wizard uses to pick its starting step.
 //! - `onboarding_check_cli` / `onboarding_install_cli` — detect / install the
-//!   Claude CLI (streaming progress on `onboarding:progress`).
+//!   selected agent's CLI, Claude or Codex (streaming progress on
+//!   `onboarding:progress`).
 //! - `onboarding_setup_project` — the "prepare this project" sequence: uvibe
 //!   init → install the Unity package (if needed) → autonomy on → write the
 //!   app-managed MCP config → patch `.gitignore` → verify with `uvibe doctor`.
@@ -11,6 +12,7 @@
 //! uvibe binary the chat/loop MCP server will (bundled sidecar in release, the
 //! monorepo CLI in dev).
 
+use crate::agent::Backend;
 use crate::error::{AppError, AppResult};
 use crate::proc;
 use crate::state::AppState;
@@ -41,12 +43,17 @@ pub struct NodeSidecar {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OnboardingStatus {
+    /// The agent the user has chosen. The wizard gates the CLI + sign-in steps
+    /// on this, so only the selected backend has to be installed.
+    pub agent_backend: Backend,
     pub claude_cli: CliStatus,
+    pub codex_cli: CliStatus,
     pub node_sidecar: NodeSidecar,
     pub current_project: Option<String>,
     /// Inspection of `current_project` (if any), so the wizard can pre-fill.
     pub project_ready: Option<crate::commands::project::ProjectInfo>,
     /// This machine has connected at least once (persisted `paired_ok`).
+    /// Claude-only; Codex readiness is `codexAuth.loggedIn` (polled separately).
     pub paired_ok: bool,
 }
 
@@ -81,23 +88,26 @@ pub async fn onboarding_status(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<OnboardingStatus> {
-    let (current_project, paired_ok) = {
+    let (current_project, paired_ok, agent_backend) = {
         let s = state.settings.read().await;
-        (s.current_project.clone(), s.paired_ok)
+        (s.current_project.clone(), s.paired_ok, s.agent_backend)
     };
     let bundled = crate::mcpconfig::has_bundled_sidecar(&app);
 
     let cur = current_project.clone();
-    let (claude_cli, project_ready) = tokio::task::spawn_blocking(move || {
-        let cli = check_cli_blocking();
+    let (claude_cli, codex_cli, project_ready) = tokio::task::spawn_blocking(move || {
+        let claude = check_cli_blocking(Backend::Claude);
+        let codex = check_cli_blocking(Backend::Codex);
         let pr = cur.map(crate::commands::project::inspect_project);
-        (cli, pr)
+        (claude, codex, pr)
     })
     .await
     .map_err(|e| AppError::Other(format!("status task failed: {e}")))?;
 
     Ok(OnboardingStatus {
+        agent_backend,
         claude_cli,
+        codex_cli,
         node_sidecar: NodeSidecar { bundled },
         current_project,
         project_ready,
@@ -105,21 +115,21 @@ pub async fn onboarding_status(
     })
 }
 
-/// Is the Claude CLI installed, and what version? Blocking probe under the hood.
+/// Is `backend`'s CLI installed, and what version? Blocking probe under the hood.
 #[tauri::command]
-pub async fn onboarding_check_cli() -> AppResult<CliStatus> {
-    tokio::task::spawn_blocking(check_cli_blocking)
+pub async fn onboarding_check_cli(backend: Backend) -> AppResult<CliStatus> {
+    tokio::task::spawn_blocking(move || check_cli_blocking(backend))
         .await
         .map_err(|e| AppError::Other(format!("cli check task failed: {e}")))
 }
 
-/// Install the Claude CLI via the official installer, streaming progress lines on
-/// `onboarding:progress` ({step:"install_cli", line}). Re-checks afterwards and
-/// returns the resulting status; errors with a copy-able manual command on
+/// Install `backend`'s CLI via its official installer, streaming progress lines
+/// on `onboarding:progress` ({step:"install_cli", line}). Re-checks afterwards
+/// and returns the resulting status; errors with a copy-able manual command on
 /// failure. Requires network. Long timeout — installers can be slow.
 #[tauri::command]
-pub async fn onboarding_install_cli(app: AppHandle) -> AppResult<CliStatus> {
-    tokio::task::spawn_blocking(move || install_cli_blocking(&app))
+pub async fn onboarding_install_cli(app: AppHandle, backend: Backend) -> AppResult<CliStatus> {
+    tokio::task::spawn_blocking(move || install_cli_blocking(&app, backend))
         .await
         .map_err(|e| AppError::Other(format!("install task failed: {e}")))?
 }
@@ -149,15 +159,16 @@ pub async fn onboarding_setup_project(
 
 // --- CLI detection / install ---
 
-fn check_cli_blocking() -> CliStatus {
-    match proc::resolve("claude") {
+fn check_cli_blocking(backend: Backend) -> CliStatus {
+    let bin = backend.bin();
+    match proc::resolve(bin) {
         None => CliStatus {
             found: false,
             path: None,
             version: None,
         },
         Some(p) => {
-            let version = proc::command("claude")
+            let version = proc::command(bin)
                 .ok()
                 .and_then(|mut cmd| {
                     cmd.arg("--version");
@@ -175,49 +186,76 @@ fn check_cli_blocking() -> CliStatus {
     }
 }
 
-fn install_cli_blocking(app: &AppHandle) -> AppResult<CliStatus> {
-    let (program, args) = install_plan();
+fn install_cli_blocking(app: &AppHandle, backend: Backend) -> AppResult<CliStatus> {
+    let label = backend.label();
+    let (program, args) = install_plan(backend);
     let mut cmd = proc::command(program)?;
     cmd.args(&args);
-    emit_line(app, "install_cli", &format!("Installing the Claude CLI ({program})…"));
+    emit_line(
+        app,
+        "install_cli",
+        &format!("Installing the {label} CLI ({program})…"),
+    );
     // Some installers exit nonzero yet still install; re-check regardless.
     let _ = stream_process(app, "install_cli", cmd, Duration::from_secs(600))?;
 
-    let status = check_cli_blocking();
+    let status = check_cli_blocking(backend);
     if status.found {
-        emit_line(app, "install_cli", "Claude CLI is ready.");
+        emit_line(app, "install_cli", &format!("{label} CLI is ready."));
         return Ok(status);
     }
     Err(AppError::Other(format!(
-        "Couldn't install the Claude CLI automatically. Ask your admin to run this in a terminal, then click Continue:\n  {}",
-        manual_install_command()
+        "Couldn't install the {label} CLI automatically. Run this in a terminal, then click Continue:\n  {}",
+        manual_install_command(backend)
     )))
 }
 
-/// The installer invocation per OS. Pure (branches on target_os) so it's unit-
-/// testable on the host.
-fn install_plan() -> (&'static str, Vec<&'static str>) {
-    #[cfg(target_os = "windows")]
-    {
-        (
-            "powershell",
-            vec!["-NoProfile", "-Command", "irm https://claude.ai/install.ps1 | iex"],
-        )
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        ("bash", vec!["-c", "curl -fsSL https://claude.ai/install.sh | bash"])
+/// The installer invocation per backend + OS. Pure (branches on target_os) so
+/// it's unit-testable on the host.
+///
+/// Codex ships on npm rather than behind a shell installer, so it needs a Node
+/// toolchain on PATH — the app's bundled Node sidecar is deliberately *not* on
+/// PATH (it's an implementation detail of the MCP server), so we call the user's
+/// `npm`. If they don't have one, the manual hint below covers Homebrew.
+fn install_plan(backend: Backend) -> (&'static str, Vec<&'static str>) {
+    match backend {
+        Backend::Codex => ("npm", vec!["install", "-g", "@openai/codex"]),
+        Backend::Claude => {
+            #[cfg(target_os = "windows")]
+            {
+                (
+                    "powershell",
+                    vec![
+                        "-NoProfile",
+                        "-Command",
+                        "irm https://claude.ai/install.ps1 | iex",
+                    ],
+                )
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                (
+                    "bash",
+                    vec!["-c", "curl -fsSL https://claude.ai/install.sh | bash"],
+                )
+            }
+        }
     }
 }
 
-fn manual_install_command() -> &'static str {
-    #[cfg(target_os = "windows")]
-    {
-        "irm https://claude.ai/install.ps1 | iex"
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        "curl -fsSL https://claude.ai/install.sh | bash"
+fn manual_install_command(backend: Backend) -> &'static str {
+    match backend {
+        Backend::Codex => "npm install -g @openai/codex    (or: brew install codex)",
+        Backend::Claude => {
+            #[cfg(target_os = "windows")]
+            {
+                "irm https://claude.ai/install.ps1 | iex"
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                "curl -fsSL https://claude.ai/install.sh | bash"
+            }
+        }
     }
 }
 
@@ -665,7 +703,7 @@ mod tests {
 
     #[test]
     fn install_plan_matches_host_os() {
-        let (program, args) = install_plan();
+        let (program, args) = install_plan(Backend::Claude);
         #[cfg(target_os = "windows")]
         {
             assert_eq!(program, "powershell");
@@ -676,5 +714,13 @@ mod tests {
             assert_eq!(program, "bash");
             assert!(args.iter().any(|a| a.contains("install.sh")));
         }
+    }
+
+    #[test]
+    fn codex_installs_from_npm_on_every_os() {
+        let (program, args) = install_plan(Backend::Codex);
+        assert_eq!(program, "npm");
+        assert!(args.contains(&"@openai/codex"));
+        assert!(manual_install_command(Backend::Codex).contains("@openai/codex"));
     }
 }

@@ -154,6 +154,32 @@ describe("cli/mcp-config", () => {
     expect(obj.mcpServers["unity-vibe-os"].command).toBe("uvibe");
     expect(obj.mcpServers["unity-vibe-os"].args).toEqual(["serve"]);
   });
+
+  it("emits a TOML block for --target=codex, quoted so Windows paths survive", async () => {
+    const r = await runMcpConfig(g({ json: false }), {
+      command: "mcp-config",
+      positional: [],
+      flags: { target: "codex" },
+    });
+    expect(r.exitCode).toBe(0);
+    const out = r.stdout!;
+
+    // Bare TOML key — Codex can't take the hyphenated `unity-vibe-os`.
+    expect(out).toContain("[mcp_servers.unity_vibe_os]");
+    expect(out).toContain("[mcp_servers.unity_vibe_os.env]");
+    expect(out).toContain(`UVIBE_PROJECT = '${workDir}'`);
+    // Unity calls are slow; the default per-tool timeout would cut them off.
+    expect(out).toContain("tool_timeout_sec = 900");
+    // The CLI one-liner that writes the user's config for them.
+    expect(out).toContain("codex mcp add unity_vibe_os");
+
+    // The whole point of literal strings: a backslash must NOT be escaped, and
+    // must NOT appear inside a basic (double-quoted) string, where `\U` in
+    // `C:\Users\…` is an invalid TOML escape and the config fails to parse.
+    const commandLine = out.split("\n").find((l) => l.startsWith("command = "))!;
+    expect(commandLine).toMatch(/^command = '.*'$/);
+    expect(commandLine).not.toContain("\\\\");
+  });
 });
 
 describe("cli/setup", () => {

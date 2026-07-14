@@ -1,21 +1,49 @@
-//! App-managed `--mcp-config` writer + uvibe CLI resolution.
+//! App-managed MCP server wiring + uvibe CLI resolution.
 //!
 //! Mirrors `apps/cli/src/commands/mcpConfig.ts:buildEntry`: the entry runs the
 //! uvibe CLI's `serve` command via Node with `UVIBE_PROJECT` pointing at the
-//! Unity project, so Claude's headless run gets the `unity-vibe-os` MCP server
+//! Unity project, so a headless agent run gets the `unity-vibe-os` MCP server
 //! without touching the game repo's own `.mcp.json`.
 //!
-//! We key the file by a stable hash of the project path so multiple projects
-//! don't collide, and rewrite it on every chat send (cheap, self-healing).
+//! The two backends consume that entry differently:
+//!   - **Claude** reads a JSON file passed as `--mcp-config` (written here, keyed
+//!     by a stable hash of the project path so projects don't collide, rewritten
+//!     on every send — cheap and self-healing).
+//!   - **Codex** has no equivalent flag; it takes `-c` TOML overrides on the
+//!     command line (see `agent::codex`), built from the same [`McpEntry`].
+//!
+//! Both paths therefore describe one server, from one source of truth.
 
 use crate::error::AppResult;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
-/// Write `<config_dir>/mcp/<projectHash>.json` and return its path.
-/// `config_dir` is the app's config dir (already `.../unity-vibe-studio`).
-/// `app` is needed to resolve the bundled sidecar + uvibe.cjs in release builds.
+/// The `unity-vibe-os` MCP server as a backend-neutral triple. Rendered to JSON
+/// for Claude ([`ensure_mcp_config`]) or to TOML `-c` overrides for Codex.
+#[derive(Debug, Clone)]
+pub struct McpEntry {
+    pub command: String,
+    pub args: Vec<String>,
+    /// Value for the server's `UVIBE_PROJECT` env var — the Unity project path.
+    pub project: String,
+}
+
+/// Resolve the uvibe CLI and describe the MCP server entry for `project`.
+pub fn mcp_entry(app: &AppHandle, project: &Path) -> McpEntry {
+    let (command, mut args) = resolve_uvibe(app);
+    args.push("serve".into());
+    McpEntry {
+        command,
+        args,
+        project: project.to_string_lossy().into_owned(),
+    }
+}
+
+/// Write `<config_dir>/mcp/<projectHash>.json` (Claude's `--mcp-config`) and
+/// return its path. `config_dir` is the app's config dir (already
+/// `.../unity-vibe-studio`). `app` is needed to resolve the bundled sidecar +
+/// uvibe.cjs in release builds.
 pub fn ensure_mcp_config(
     app: &AppHandle,
     config_dir: &Path,
@@ -25,14 +53,13 @@ pub fn ensure_mcp_config(
     std::fs::create_dir_all(&dir)?;
     let file = dir.join(format!("{}.json", project_hash(project)));
 
-    let (command, mut args) = resolve_uvibe(app);
-    args.push("serve".into());
+    let entry = mcp_entry(app, project);
     let config = serde_json::json!({
         "mcpServers": {
             "unity-vibe-os": {
-                "command": command,
-                "args": args,
-                "env": { "UVIBE_PROJECT": project.to_string_lossy() }
+                "command": entry.command,
+                "args": entry.args,
+                "env": { "UVIBE_PROJECT": entry.project }
             }
         }
     });

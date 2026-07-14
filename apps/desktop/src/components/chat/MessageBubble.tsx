@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ChatMessage } from "@/types/chat";
+import { formatTokens } from "@/lib/formatTokens";
 import ToolActivityChip from "./ToolActivityChip";
 import AttachmentChip from "./AttachmentChip";
 
@@ -65,11 +66,17 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
           <ErrorBanner text={message.error} detail={message.errorRaw} />
         )}
 
-        {typeof message.costUsd === "number" && (
+        {/* Claude prices a turn; Codex only counts tokens. Show whichever the
+            backend actually reported — never a fabricated $0.00. */}
+        {typeof message.costUsd === "number" ? (
           <div className="tabular-nums text-[11px] text-fg-dim">
             ${message.costUsd.toFixed(4)}
           </div>
-        )}
+        ) : typeof message.tokens === "number" && message.tokens > 0 ? (
+          <div className="tabular-nums text-[11px] text-fg-dim">
+            {formatTokens(message.tokens)} tokens
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -7,7 +7,7 @@ import { isLoopActive, type LoopOptions, type LoopState } from "@/types/loop";
  * Auto-mode state. The Rust driver owns the loop; this store just mirrors the
  * `loop:update` broadcasts and exposes start/stop actions. `nowDoing` is the
  * live friendly label of the current builder/QA turn, fed by `useLoopEvents`
- * from the sub-run's `claude:stream` events.
+ * from the sub-run's `agent:stream` events.
  */
 interface LoopStoreState {
   state: LoopState | null;

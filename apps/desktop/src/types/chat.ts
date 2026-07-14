@@ -60,6 +60,9 @@ export interface ChatMessage {
   createdAt: number;
   /** Cost of this turn, from the `result` event. */
   costUsd?: number;
+  /** Tokens for the turn, on backends that report them instead of a price
+   *  (Codex). Exactly one of `costUsd` / `tokens` is set. */
+  tokens?: number;
   /** Friendly error text when the turn failed. */
   error?: string;
   /** Raw error detail behind `error`, shown under a "Details" disclosure. */
@@ -72,18 +75,25 @@ export interface ChatSession {
   /** Non-null while a run is in flight. */
   activeRunId: string | null;
   totalCostUsd: number;
+  /** Running token total, on backends that report tokens instead of a price
+   *  (Codex). Stays 0 on Claude. */
+  totalTokens: number;
 }
 
-/** Payload of `claude:done:<runId>`. */
+/** Payload of `agent:done:<runId>`. */
 export interface DoneEvent {
   sessionId: string | null;
+  /** USD cost of the turn. `null` on backends that don't price a turn (Codex),
+   *  which is deliberately distinct from 0 — see `tokens`. */
   costUsd: number | null;
+  /** Total tokens for the turn, on backends that report them (Codex). */
+  tokens: number | null;
   isError: boolean;
   resultText: string | null;
   numTurns: number | null;
 }
 
-/** Payload of `claude:error:<runId>`. */
+/** Payload of `agent:error:<runId>`. */
 export interface ErrorEvent {
   friendly: string;
   raw: string;

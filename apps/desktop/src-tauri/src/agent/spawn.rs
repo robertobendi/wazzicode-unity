@@ -1,24 +1,33 @@
-//! Shared headless-Claude spawn + stream core.
+//! Shared headless-agent spawn + stream core.
 //!
 //! Both the chat session manager (`session.rs`) and the auto-loop runner
-//! (`looprunner`) spawn `claude -p --output-format stream-json …`, stream each
-//! parsed JSON line to the webview as `claude:stream:<runId>`, and need the
-//! same cancellation semantics (kill the whole process *group* — Claude spawns
-//! the MCP server as a child, so a plain SIGKILL on the parent would orphan
-//! it). This module is that single implementation.
+//! (`looprunner`) spawn a headless coding agent — `claude -p --output-format
+//! stream-json …` or `codex exec --json …` — stream each parsed JSON line to the
+//! webview as `agent:stream:<runId>`, and need the same cancellation semantics
+//! (kill the whole process *group*: the agent spawns the MCP server as a child,
+//! so a plain SIGKILL on the parent would orphan it). This module is that single
+//! implementation.
+//!
+//! The backend only changes two things here: which binary we spawn, and which
+//! JSON vocabulary we read off stdout. Everything else — process-group kill,
+//! stdin prompt, stderr tail, the [`ExitInfo`] contract — is shared, and the
+//! webview receives whichever raw lines the CLI produced (its reducer handles
+//! both shapes).
 //!
 //! `spawn_streaming` returns a [`ChildHandle`] (for cancellation) plus a
 //! `JoinHandle<ExitInfo>` the caller can either **await** (the loop drives
 //! turns sequentially and consumes the `ExitInfo`) or **detach** (chat fires
-//! its terminal `claude:done`/`claude:error` events off the reader task). The
+//! its terminal `agent:done`/`agent:error` events off the reader task). The
 //! core itself only emits the streaming events; terminal events are the
 //! caller's concern.
 
+use crate::agent::Backend;
 use crate::error::{AppError, AppResult};
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+#[cfg(unix)]
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -29,11 +38,16 @@ use tokio::task::JoinHandle;
 #[derive(Debug, Default, Clone)]
 pub struct ExitInfo {
     pub session_id: Option<String>,
+    /// Turn cost in USD. `None` for backends that don't price a turn (Codex
+    /// reports tokens instead) — distinct from `Some(0.0)`, which would mean a
+    /// genuinely free turn and would silently defeat the loop's cost cap.
     pub cost_usd: Option<f64>,
+    /// Total tokens for the run, when the backend reports them (Codex).
+    pub tokens: Option<u64>,
     pub is_error: bool,
     pub result_text: Option<String>,
     pub num_turns: Option<u64>,
-    /// A `result` line was seen — the run produced a real answer.
+    /// A terminal "the run produced an answer" line was seen.
     pub result_seen: bool,
     /// The run was cancelled via its [`ChildHandle`] (killed process tree).
     pub cancelled: bool,
@@ -60,14 +74,15 @@ impl ChildHandle {
     }
 }
 
-/// Spawn a `claude -p` run for `project` with `args` (everything after the
-/// program name; the prompt is fed via stdin, not argv). Each parsed JSON line
-/// is emitted as `claude:stream:<run_id>`; non-JSON lines go to `debug:raw`.
+/// Spawn a headless `backend` run for `project` with `args` (everything after
+/// the program name; the prompt is fed via stdin, not argv). Each parsed JSON
+/// line is emitted as `agent:stream:<run_id>`; non-JSON lines go to `debug:raw`.
 ///
 /// Returns the cancellation handle and the reader task's join handle, which
 /// resolves to the captured [`ExitInfo`] once the child exits.
 pub fn spawn_streaming(
     app: AppHandle,
+    backend: Backend,
     run_id: String,
     project: &Path,
     args: Vec<String>,
@@ -75,17 +90,27 @@ pub fn spawn_streaming(
 ) -> AppResult<(ChildHandle, JoinHandle<ExitInfo>)> {
     // Reuse proc's PATH augmentation + no-window handling, then override the
     // stdio it nulls (we need to write the prompt and read the stream).
-    let mut std_cmd = crate::proc::command("claude")?;
+    let mut std_cmd = crate::proc::command(backend.bin())?;
     std_cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .current_dir(project)
         .args(&args);
-    // No token management: the spawn inherits the parent environment as-is and
-    // authenticates with the Claude CLI's OWN stored credentials (`~/.claude`),
-    // established once via the pairing flow / an existing `claude login`.
-    // Own process group so cancellation can kill the whole tree (Claude + its
+    // No token management: the spawn inherits the parent environment and
+    // authenticates with the CLI's OWN stored credentials (`~/.claude`,
+    // `~/.codex`), established once via the pairing / sign-in flow.
+    //
+    // One exception, and it's about money: Codex will authenticate with
+    // `OPENAI_API_KEY` if it finds one in the environment, which bills **API
+    // credits** instead of the user's ChatGPT subscription. A dev who happens to
+    // export that key in their shell would silently spend from the wrong wallet.
+    // Strip it, so a Codex run can only ever use the subscription it signed in
+    // with. (This app deliberately offers no API-key sign-in at all.)
+    if backend == Backend::Codex {
+        crate::codexauth::scrub_api_key(&mut std_cmd);
+    }
+    // Own process group so cancellation can kill the whole tree (the agent + its
     // MCP server child) with a single group signal.
     #[cfg(unix)]
     {
@@ -95,16 +120,16 @@ pub fn spawn_streaming(
 
     let mut cmd = tokio::process::Command::from(std_cmd);
     cmd.kill_on_drop(true);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| AppError::Other(format!("could not start Claude: {e}")))?;
+    let mut child = cmd.spawn().map_err(|e| {
+        AppError::Other(format!("could not start {}: {e}", backend.label()))
+    })?;
 
     let pid = child.id();
     let child_stdin = child.stdin.take();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
 
-    // Prompt → stdin, then EOF so Claude starts working.
+    // Prompt → stdin, then EOF so the agent starts working.
     if let Some(mut sin) = child_stdin {
         tokio::spawn(async move {
             let _ = sin.write_all(prompt.as_bytes()).await;
@@ -131,8 +156,8 @@ pub fn spawn_streaming(
                 }
                 match serde_json::from_str::<serde_json::Value>(&line) {
                     Ok(value) => {
-                        capture(&mut captured, &value);
-                        let _ = app.emit(&format!("claude:stream:{run_id}"), &value);
+                        capture(backend, &mut captured, &value);
+                        let _ = app.emit(&format!("agent:stream:{run_id}"), &value);
                     }
                     Err(_) => {
                         // Non-JSON line — surface only to the debug drawer.
@@ -155,6 +180,7 @@ pub fn spawn_streaming(
         ExitInfo {
             session_id: captured.session_id,
             cost_usd: captured.cost_usd,
+            tokens: captured.tokens,
             is_error: captured.is_error,
             result_text: captured.result_text,
             num_turns: captured.num_turns,
@@ -200,19 +226,29 @@ async fn kill_tree(pid: Option<u32>, child: Arc<AsyncMutex<tokio::process::Child
     let _ = child.lock().await.start_kill();
 }
 
-/// Fields pulled off the stream for the `ExitInfo` / terminal events.
+/// Fields pulled off the stream for the `ExitInfo` / terminal events. Written by
+/// whichever backend's `capture` is driving; shared so both normalize onto one
+/// shape.
 #[derive(Default)]
-struct Captured {
-    session_id: Option<String>,
-    cost_usd: Option<f64>,
-    is_error: bool,
-    result_text: Option<String>,
-    num_turns: Option<u64>,
-    result_seen: bool,
+pub struct Captured {
+    pub session_id: Option<String>,
+    pub cost_usd: Option<f64>,
+    pub tokens: Option<u64>,
+    pub is_error: bool,
+    pub result_text: Option<String>,
+    pub num_turns: Option<u64>,
+    pub result_seen: bool,
 }
 
-/// Pull the fields we need off each stream line.
-fn capture(c: &mut Captured, v: &serde_json::Value) {
+/// Pull the fields we need off each stream line, per the backend's vocabulary.
+fn capture(backend: Backend, c: &mut Captured, v: &serde_json::Value) {
+    match backend {
+        Backend::Claude => capture_claude(c, v),
+        Backend::Codex => crate::agent::codex::capture(c, v),
+    }
+}
+
+fn capture_claude(c: &mut Captured, v: &serde_json::Value) {
     match v.get("type").and_then(|t| t.as_str()) {
         Some("system") => {
             if v.get("subtype").and_then(|s| s.as_str()) == Some("init") {
@@ -261,23 +297,69 @@ async fn read_tail<R: tokio::io::AsyncRead + Unpin>(mut r: R) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
-/// Best-effort human message when Claude dies without producing a result. The
+/// Best-effort human message when the agent dies without producing a result. The
 /// webview's `errorMessages.ts` refines this further from the raw tail.
-pub fn friendly_spawn_error(stderr_tail: &str, exit_code: Option<i32>) -> String {
+pub fn friendly_spawn_error(backend: Backend, stderr_tail: &str, exit_code: Option<i32>) -> String {
     let lower = stderr_tail.to_lowercase();
     if lower.contains("not logged in")
         || lower.contains("api key")
         || lower.contains("oauth")
         || lower.contains("401")
+        || lower.contains("unauthorized")
         || lower.contains("authentication")
     {
-        return "Your connection expired — go to Settings → Re-pair account.".into();
+        return match backend {
+            Backend::Claude => "Your connection expired — go to Settings → Re-pair account.".into(),
+            Backend::Codex => "Codex isn't signed in — go to Settings → Sign in to Codex.".into(),
+        };
     }
     if lower.contains("enoent") || lower.contains("not found") {
-        return "The Claude CLI couldn't start. It may not be installed.".into();
+        return format!(
+            "The {} CLI couldn't start. It may not be installed.",
+            backend.label()
+        );
     }
     match exit_code {
-        Some(code) => format!("Claude stopped unexpectedly (exit code {code})."),
-        None => "Claude stopped unexpectedly.".into(),
+        Some(code) => format!("{} stopped unexpectedly (exit code {code}).", backend.label()),
+        None => format!("{} stopped unexpectedly.", backend.label()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_failures_point_at_the_right_sign_in() {
+        let claude = friendly_spawn_error(Backend::Claude, "Error: not logged in", Some(1));
+        assert!(claude.contains("Re-pair"));
+        let codex = friendly_spawn_error(Backend::Codex, "401 Unauthorized", Some(1));
+        assert!(codex.contains("Sign in to Codex"));
+    }
+
+    #[test]
+    fn missing_binary_names_the_selected_backend() {
+        let msg = friendly_spawn_error(Backend::Codex, "ENOENT", None);
+        assert!(msg.contains("Codex CLI"));
+    }
+
+    #[test]
+    fn claude_capture_reads_result_line() {
+        let mut c = Captured::default();
+        capture(
+            Backend::Claude,
+            &mut c,
+            &serde_json::json!({"type":"system","subtype":"init","session_id":"s1"}),
+        );
+        capture(
+            Backend::Claude,
+            &mut c,
+            &serde_json::json!({"type":"result","total_cost_usd":0.42,"is_error":false,
+                "result":"ok","num_turns":3,"session_id":"s1"}),
+        );
+        assert_eq!(c.session_id.as_deref(), Some("s1"));
+        assert_eq!(c.cost_usd, Some(0.42));
+        assert!(c.result_seen);
+        assert_eq!(c.num_turns, Some(3));
     }
 }

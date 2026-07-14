@@ -1,18 +1,20 @@
-//! Headless Claude session manager (chat turns).
+//! Headless agent session manager (chat turns).
 //!
-//! Spawns `claude -p --output-format stream-json …` per chat turn via the
-//! shared [`spawn_streaming`](crate::claude::spawn) core, which streams stdout
-//! (one JSON object per line) to the webview as `claude:stream:<runId>`. On
-//! exit this manager emits either `claude:done:<runId>` (a `result` event was
-//! seen) or `claude:error:<runId>` (crash / never produced a result, or user
-//! cancellation). Stream *parsing* into chat messages happens in the webview
-//! (`src/lib/streamMapper.ts`); Rust stays a thin, dumb pipe.
+//! Spawns the selected backend (`claude -p …` or `codex exec --json …`) per chat
+//! turn via the shared [`spawn_streaming`](crate::agent::spawn) core, which
+//! streams stdout (one JSON object per line) to the webview as
+//! `agent:stream:<runId>`. On exit this manager emits either `agent:done:<runId>`
+//! (a terminal result was seen) or `agent:error:<runId>` (crash / never produced
+//! a result, or user cancellation). Stream *parsing* into chat messages happens
+//! in the webview (`src/lib/streamMapper.ts`, which reduces both vocabularies);
+//! Rust stays a thin, dumb pipe.
 //!
 //! Concurrency: at most one active run per project. Cancellation kills the
 //! whole process group, then the reader task produces an `ExitInfo` with
 //! `cancelled: true` so there's a single exit-emit code path.
 
-use crate::claude::spawn::{friendly_spawn_error, spawn_streaming, ChildHandle, ExitInfo};
+use crate::agent::spawn::{friendly_spawn_error, spawn_streaming, ChildHandle, ExitInfo};
+use crate::agent::Backend;
 use crate::error::{AppError, AppResult};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -32,11 +34,12 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    /// Spawn a Claude run. Returns the `runId` used in the event names.
+    /// Spawn an agent run. Returns the `runId` used in the event names.
     /// Errors with `"busy"` if a run for `project` is already active.
     pub async fn start_run(
         &self,
         app: AppHandle,
+        backend: Backend,
         project: PathBuf,
         prompt: String,
         args: Vec<String>,
@@ -47,7 +50,8 @@ impl SessionManager {
         }
 
         let run_id = nanoid::nanoid!();
-        let (handle, join) = spawn_streaming(app.clone(), run_id.clone(), &project, args, prompt)?;
+        let (handle, join) =
+            spawn_streaming(app.clone(), backend, run_id.clone(), &project, args, prompt)?;
         self.runs
             .lock()
             .unwrap()
@@ -58,7 +62,7 @@ impl SessionManager {
         tokio::spawn(async move {
             let info = join.await.unwrap_or_default();
             runs_map.lock().unwrap().remove(&run_id_task);
-            emit_terminal(&app, &run_id_task, &info);
+            emit_terminal(&app, backend, &run_id_task, &info);
         });
 
         Ok(run_id)
@@ -89,19 +93,20 @@ impl SessionManager {
     }
 }
 
-/// Emit the terminal `claude:done`/`claude:error` event for a finished run.
-fn emit_terminal(app: &AppHandle, run_id: &str, info: &ExitInfo) {
+/// Emit the terminal `agent:done`/`agent:error` event for a finished run.
+fn emit_terminal(app: &AppHandle, backend: Backend, run_id: &str, info: &ExitInfo) {
     if info.cancelled {
         let _ = app.emit(
-            &format!("claude:error:{run_id}"),
+            &format!("agent:error:{run_id}"),
             serde_json::json!({ "friendly": "Stopped.", "raw": "Run cancelled by user." }),
         );
     } else if info.result_seen {
         let _ = app.emit(
-            &format!("claude:done:{run_id}"),
+            &format!("agent:done:{run_id}"),
             serde_json::json!({
                 "sessionId": info.session_id,
                 "costUsd": info.cost_usd,
+                "tokens": info.tokens,
                 "isError": info.is_error,
                 "resultText": info.result_text,
                 "numTurns": info.num_turns,
@@ -109,9 +114,9 @@ fn emit_terminal(app: &AppHandle, run_id: &str, info: &ExitInfo) {
         );
     } else {
         let _ = app.emit(
-            &format!("claude:error:{run_id}"),
+            &format!("agent:error:{run_id}"),
             serde_json::json!({
-                "friendly": friendly_spawn_error(&info.stderr_tail, info.exit_code),
+                "friendly": friendly_spawn_error(backend, &info.stderr_tail, info.exit_code),
                 "raw": format!("{}\n(exit code: {:?})", info.stderr_tail, info.exit_code),
             }),
         );

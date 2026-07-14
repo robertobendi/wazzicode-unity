@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { api } from "@/api";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import PairingScreen from "@/components/pairing/PairingScreen";
+import CodexAuthScreen from "@/components/codex/CodexAuthScreen";
 import type { OnboardingStatus } from "@/types/onboarding";
 import type { ProjectInfo } from "@/types/project";
+import type { AgentBackend } from "@/types/settings";
 import { Spinner, Stepper } from "./_shared";
 import WelcomeStep from "./WelcomeStep";
 import ProjectStep from "./ProjectStep";
@@ -20,13 +22,19 @@ const STEP = {
 
 /**
  * First-run wizard. Subsumes the pairing gate + project pick on a fresh install:
- * detect/install the Claude CLI → pick project → prepare it → connect the
- * company account → confirm Unity connects. Completing sets settings.onboarded.
+ * pick the agent and detect/install its CLI → pick project → prepare it →
+ * sign in / connect the account → confirm Unity connects. Completing sets
+ * settings.onboarded.
+ *
+ * Everything after step 1 is backend-aware: the "Connect" step routes to the
+ * Claude pairing flow or the Codex sign-in flow, which have nothing in common
+ * beyond "the agent can now talk to its provider".
  */
 export default function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   const setSettings = useSettingsStore((s) => s.setSettings);
   const updateSettings = useSettingsStore((s) => s.update);
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
+  const [backend, setBackend] = useState<AgentBackend>("claude");
   const [step, setStep] = useState<number>(STEP.welcome);
   const [project, setProject] = useState<ProjectInfo | null>(null);
 
@@ -38,6 +46,7 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
       .then((s) => {
         if (!alive) return;
         setStatus(s);
+        setBackend(s.agentBackend);
         if (s.projectReady?.ok) setProject(s.projectReady);
         setStep(startStep(s));
       })
@@ -46,6 +55,13 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
       alive = false;
     };
   }, []);
+
+  function pickBackend(next: AgentBackend) {
+    setBackend(next);
+    // Persist immediately — chat/loop runs read this from settings, and the
+    // wizard can be abandoned halfway.
+    void updateSettings({ agentBackend: next });
+  }
 
   async function pickProject(info: ProjectInfo) {
     setProject(info);
@@ -67,10 +83,14 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
     );
   }
 
-  // Connect step: hand off to the full PairingScreen. It check-firsts (already
-  // authenticated → "Already connected ✓" and continues) and otherwise runs the
-  // copy-link-to-admin flow. Its own stepper replaces the wizard chrome here.
+  // Connect step: hand off to the selected backend's full-screen auth flow. Both
+  // check-first (already connected → a tick and continue) and replace the wizard
+  // chrome with their own. Codex has no `pairedOk` — being signed in with the
+  // CLI *is* the satisfied state, and CodexAuthScreen probes that itself.
   if (step === STEP.connect) {
+    if (backend === "codex") {
+      return <CodexAuthScreen onDone={() => setStep(STEP.ready)} />;
+    }
     return (
       <PairingScreen
         onDone={() => {
@@ -90,7 +110,9 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
 
         {step === STEP.welcome && (
           <WelcomeStep
-            initial={status.claudeCli}
+            backend={backend}
+            onBackendChange={pickBackend}
+            initial={cliFor(status, backend)}
             onContinue={() => setStep(STEP.project)}
           />
         )}
@@ -124,15 +146,22 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
   );
 }
 
+/** The CLI status that matters for the selected backend. */
+function cliFor(s: OnboardingStatus, backend: AgentBackend) {
+  return backend === "codex" ? s.codexCli : s.claudeCli;
+}
+
 /** Earliest step whose prerequisite isn't already satisfied. */
 function startStep(s: OnboardingStatus): number {
-  if (!s.claudeCli.found) return STEP.welcome;
+  if (!cliFor(s, s.agentBackend).found) return STEP.welcome;
   if (!s.projectReady?.ok) return STEP.project;
   return STEP.setup;
 }
 
 const EMPTY_STATUS: OnboardingStatus = {
+  agentBackend: "claude",
   claudeCli: { found: false, path: null, version: null },
+  codexCli: { found: false, path: null, version: null },
   nodeSidecar: { bundled: false },
   currentProject: null,
   projectReady: null,

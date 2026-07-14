@@ -1,11 +1,14 @@
 import { useChatStore } from "@/stores/useChatStore";
 import { useStatusStore } from "@/stores/useStatusStore";
+import { formatTokens } from "@/lib/formatTokens";
 import type { BridgeState } from "@/types/status";
 
-/** Bottom bar: Unity connection pill + running session cost. */
+/** Bottom bar: Unity connection pill + running session cost (or tokens, on a
+ *  backend that doesn't price its turns — see `formatTokens`). */
 export default function StatusBar() {
   const status = useStatusStore((s) => s.status);
   const totalCost = useChatStore((s) => s.session.totalCostUsd);
+  const totalTokens = useChatStore((s) => s.session.totalTokens);
 
   const label = status.compiling
     ? "Unity is recompiling — hang on…"
@@ -19,9 +22,13 @@ export default function StatusBar() {
         <span className={`h-2 w-2 rounded-full ${dotColor(status.state)}`} />
         <span className="text-fg-muted">{label}</span>
       </div>
-      {totalCost > 0 && (
+      {totalCost > 0 ? (
         <span className="tabular-nums">Session ${totalCost.toFixed(4)}</span>
-      )}
+      ) : totalTokens > 0 ? (
+        <span className="tabular-nums">
+          Session {formatTokens(totalTokens)} tokens
+        </span>
+      ) : null}
     </footer>
   );
 }

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { useClaudeStream } from "@/hooks/useClaudeStream";
+import { useAgentStream } from "@/hooks/useAgentStream";
 import { useResourceDnd } from "@/hooks/useResourceDnd";
 import { useChatStore } from "@/stores/useChatStore";
 import MessageList from "./MessageList";
@@ -7,7 +7,7 @@ import Composer from "./Composer";
 
 /** The main chat surface. Wires the Claude event stream + resource drag-drop. */
 export default function ChatView() {
-  useClaudeStream();
+  useAgentStream();
   const project = useChatStore((s) => s.project);
   const columnRef = useRef<HTMLDivElement>(null);
   const dragActive = useResourceDnd(project, columnRef);
