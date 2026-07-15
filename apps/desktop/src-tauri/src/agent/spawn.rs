@@ -120,9 +120,9 @@ pub fn spawn_streaming(
 
     let mut cmd = tokio::process::Command::from(std_cmd);
     cmd.kill_on_drop(true);
-    let mut child = cmd.spawn().map_err(|e| {
-        AppError::Other(format!("could not start {}: {e}", backend.label()))
-    })?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| AppError::Other(format!("could not start {}: {e}", backend.label())))?;
 
     let pid = child.id();
     let child_stdin = child.stdin.take();
@@ -250,11 +250,9 @@ fn capture(backend: Backend, c: &mut Captured, v: &serde_json::Value) {
 
 fn capture_claude(c: &mut Captured, v: &serde_json::Value) {
     match v.get("type").and_then(|t| t.as_str()) {
-        Some("system") => {
-            if v.get("subtype").and_then(|s| s.as_str()) == Some("init") {
-                if let Some(sid) = v.get("session_id").and_then(|s| s.as_str()) {
-                    c.session_id = Some(sid.to_string());
-                }
+        Some("system") if v.get("subtype").and_then(|s| s.as_str()) == Some("init") => {
+            if let Some(sid) = v.get("session_id").and_then(|s| s.as_str()) {
+                c.session_id = Some(sid.to_string());
             }
         }
         Some("result") => {
@@ -320,7 +318,10 @@ pub fn friendly_spawn_error(backend: Backend, stderr_tail: &str, exit_code: Opti
         );
     }
     match exit_code {
-        Some(code) => format!("{} stopped unexpectedly (exit code {code}).", backend.label()),
+        Some(code) => format!(
+            "{} stopped unexpectedly (exit code {code}).",
+            backend.label()
+        ),
         None => format!("{} stopped unexpectedly.", backend.label()),
     }
 }

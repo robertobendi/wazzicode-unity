@@ -1,6 +1,6 @@
 [package]
 name = "unity-vibe-studio"
-version = "0.2.0"
+version = "0.2.1"
 description = "Unity Vibe Studio — chat-first desktop app for AI-assisted Unity work"
 authors = ["Roberto Bendinelli"]
 edition = "2021"

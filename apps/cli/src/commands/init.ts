@@ -6,6 +6,8 @@ import { CommandResult, GlobalOptions } from "../options.js";
 
 const CLAUDE_MD_BEGIN = "<!-- BEGIN unity-vibe-os -->";
 const CLAUDE_MD_END = "<!-- END unity-vibe-os -->";
+const AGENTS_MD_BEGIN = "<!-- BEGIN unity-vibe-os -->";
+const AGENTS_MD_END = "<!-- END unity-vibe-os -->";
 
 export async function runInit(g: GlobalOptions): Promise<CommandResult> {
   const out: string[] = [];
@@ -22,8 +24,29 @@ export async function runInit(g: GlobalOptions): Promise<CommandResult> {
   }
 
   const claudeMd = path.join(g.project, "CLAUDE.md");
-  const status = await upsertClaudeMd(claudeMd, g.project);
-  out.push(`${status} ${claudeMd}`);
+  const claudeStatus = await upsertAgentInstructions(
+    claudeMd,
+    g.project,
+    CLAUDE_MD_BEGIN,
+    CLAUDE_MD_END,
+    "CLAUDE.md",
+    "Claude Code",
+  );
+  out.push(`${claudeStatus} ${claudeMd}`);
+
+  // Codex discovers repository guidance through AGENTS.md. Keep a native file
+  // for each client instead of relying on Codex to know about Claude's file.
+  // The marker-delimited update is idempotent and preserves existing guidance.
+  const agentsMd = path.join(g.project, "AGENTS.md");
+  const agentsStatus = await upsertAgentInstructions(
+    agentsMd,
+    g.project,
+    AGENTS_MD_BEGIN,
+    AGENTS_MD_END,
+    "AGENTS.md",
+    "Codex and other coding agents",
+  );
+  out.push(`${agentsStatus} ${agentsMd}`);
 
   if (g.json) {
     return { exitCode: 0, stdout: JSON.stringify({ project: g.project, actions: out }, null, 2) + "\n" };
@@ -34,16 +57,23 @@ export async function runInit(g: GlobalOptions): Promise<CommandResult> {
   };
 }
 
-async function upsertClaudeMd(file: string, projectPath: string): Promise<"created" | "updated" | "appended"> {
-  const block = renderClaudeBlock(projectPath);
+async function upsertAgentInstructions(
+  file: string,
+  projectPath: string,
+  begin: string,
+  end: string,
+  filename: string,
+  audience: string,
+): Promise<"created" | "updated" | "appended"> {
+  const block = renderAgentBlock(projectPath, begin, end);
   if (!(await exists(file))) {
-    await fs.writeFile(file, defaultClaudeMd(projectPath, block), "utf8");
+    await fs.writeFile(file, defaultAgentMd(projectPath, block, filename, audience), "utf8");
     return "created";
   }
   const existing = await fs.readFile(file, "utf8");
-  if (existing.includes(CLAUDE_MD_BEGIN) && existing.includes(CLAUDE_MD_END)) {
+  if (existing.includes(begin) && existing.includes(end)) {
     const replaced = existing.replace(
-      new RegExp(`${escapeRe(CLAUDE_MD_BEGIN)}[\\s\\S]*?${escapeRe(CLAUDE_MD_END)}`),
+      new RegExp(`${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}`),
       block
     );
     await fs.writeFile(file, replaced, "utf8");
@@ -55,9 +85,9 @@ async function upsertClaudeMd(file: string, projectPath: string): Promise<"creat
   return "appended";
 }
 
-function renderClaudeBlock(projectPath: string): string {
+function renderAgentBlock(projectPath: string, begin: string, end: string): string {
   return [
-    CLAUDE_MD_BEGIN,
+    begin,
     "## Unity Vibe OS",
     "",
     "This project has **Unity Vibe OS** installed. Always prefer the `unity_*` MCP tools over reading raw `.unity` / `.prefab` YAML.",
@@ -90,16 +120,21 @@ function renderClaudeBlock(projectPath: string): string {
     "",
     `If anything seems off, run \`uvibe doctor --project=${projectPath}\` (or via \`node /path/to/wazzicode-unity/apps/cli/bin/uvibe doctor --project=${projectPath}\`).`,
     "",
-    CLAUDE_MD_END,
+    end,
   ].join("\n");
 }
 
-function defaultClaudeMd(projectPath: string, uvibeBlock: string): string {
+function defaultAgentMd(
+  projectPath: string,
+  uvibeBlock: string,
+  filename: string,
+  audience: string,
+): string {
   const name = path.basename(projectPath);
   return [
-    `# CLAUDE.md — ${name}`,
+    `# ${filename} — ${name}`,
     "",
-    "Project-specific instructions for Claude Code.",
+    `Project-specific instructions for ${audience}.`,
     "",
     uvibeBlock,
     "",

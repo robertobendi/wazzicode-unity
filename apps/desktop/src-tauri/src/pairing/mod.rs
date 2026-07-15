@@ -41,7 +41,7 @@ use tauri::{AppHandle, Emitter};
 
 mod parse;
 pub use parse::verify_probe;
-use parse::{find_oauth_url, find_token, looks_like_prompt, strip_ansi, tail, failure_reason};
+use parse::{failure_reason, find_oauth_url, find_token, looks_like_prompt, strip_ansi, tail};
 
 /// A very wide PTY so the CLI never wraps the (~230 char) OAuth URL across
 /// lines — see module docs. Height is irrelevant for a hidden PTY.
@@ -184,7 +184,10 @@ impl PairingManager {
         // parent value can't re-introduce URL wrapping (we rely on the wide PTY
         // winsize below).
         for (k, v) in std::env::vars() {
-            if matches!(k.as_str(), "TERM" | "PATH" | "BROWSER" | "COLUMNS" | "LINES") {
+            if matches!(
+                k.as_str(),
+                "TERM" | "PATH" | "BROWSER" | "COLUMNS" | "LINES"
+            ) {
                 continue;
             }
             cmd.env(k, v);
@@ -432,7 +435,11 @@ impl PairingManager {
 
             // A cancel/start-over already published Idle — say nothing more.
             if cancelled.load(Ordering::SeqCst) {
-                shared.active.lock().unwrap_or_else(|e| e.into_inner()).take();
+                shared
+                    .active
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .take();
                 return;
             }
 
@@ -474,7 +481,11 @@ impl PairingManager {
                 }
             }
             shared.publish(&app, st);
-            shared.active.lock().unwrap_or_else(|e| e.into_inner()).take();
+            shared
+                .active
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
         });
     }
 }

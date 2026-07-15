@@ -22,7 +22,9 @@ pub async fn chat_send(
     let project_path = PathBuf::from(&project);
     // Chat and auto mode are mutually exclusive per project.
     if state.loops.is_running_for(&project_path).await {
-        return Err(crate::error::AppError::Other("busy: auto mode is running".into()));
+        return Err(crate::error::AppError::Other(
+            "busy: auto mode is running".into(),
+        ));
     }
 
     // Safety net: before the AI touches anything, take a "studio checkpoint" —
@@ -31,11 +33,12 @@ pub async fn chat_send(
     // git repo. Blocking git work runs off the async runtime.
     let cp_project = project_path.clone();
     let cp_prompt = prompt.clone();
-    let checkpoint =
-        tokio::task::spawn_blocking(move || crate::gitutil::make_checkpoint(&cp_project, &cp_prompt))
-            .await
-            .ok()
-            .flatten();
+    let checkpoint = tokio::task::spawn_blocking(move || {
+        crate::gitutil::make_checkpoint(&cp_project, &cp_prompt)
+    })
+    .await
+    .ok()
+    .flatten();
     if let Some(cp) = checkpoint {
         state
             .checkpoints

@@ -22,12 +22,15 @@ function g(extra: Partial<GlobalOptions> = {}): GlobalOptions {
 }
 
 describe("cli/init", () => {
-  it("creates config.json, conventions.md, CLAUDE.md", async () => {
+  it("creates config.json, conventions.md, CLAUDE.md, and AGENTS.md", async () => {
     const r = await runInit(g());
     expect(r.exitCode).toBe(0);
     await fs.access(path.join(workDir, ".unity-vibe", "config.json"));
     await fs.access(path.join(workDir, ".unity-vibe", "conventions.md"));
     await fs.access(path.join(workDir, "CLAUDE.md"));
+    const agents = await fs.readFile(path.join(workDir, "AGENTS.md"), "utf8");
+    expect(agents).toContain("<!-- BEGIN unity-vibe-os -->");
+    expect(agents).toContain("unity_inspect_selected");
   });
 });
 
@@ -228,6 +231,10 @@ describe("cli/setup", () => {
       expect(cmd).toContain("<!-- END unity-vibe-os -->");
       expect(cmd).toContain("unity_inspect_selected");
       expect(cmd).toContain("unity_capture_game_view");
+      // Codex automatically discovers AGENTS.md from the project root.
+      const agents = await fs.readFile(path.join(tmp, "AGENTS.md"), "utf8");
+      expect(agents).toContain("<!-- BEGIN unity-vibe-os -->");
+      expect(agents).toContain("unity_inspect_selected");
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -269,6 +276,27 @@ describe("cli/init re-runs preserve user content in CLAUDE.md", () => {
       after = await fs.readFile(claudeMd, "utf8");
       expect(after).toContain("never delete code");
       expect((after.match(/<!-- BEGIN unity-vibe-os -->/g) ?? []).length).toBe(1); // only one block
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cli/init re-runs preserve user content in AGENTS.md", () => {
+  it("appends once and updates only the managed Codex guidance", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-init-agents-"));
+    try {
+      await fs.mkdir(path.join(tmp, ".unity-vibe"), { recursive: true });
+      const agentsMd = path.join(tmp, "AGENTS.md");
+      await fs.writeFile(agentsMd, "# Team rules\n\n- keep commits focused\n", "utf8");
+
+      await runInit({ project: tmp, mock: false, json: false });
+      await runInit({ project: tmp, mock: false, json: false });
+
+      const after = await fs.readFile(agentsMd, "utf8");
+      expect(after).toContain("keep commits focused");
+      expect(after).toContain("unity_capture_game_view");
+      expect((after.match(/<!-- BEGIN unity-vibe-os -->/g) ?? []).length).toBe(1);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }

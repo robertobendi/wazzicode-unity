@@ -55,10 +55,7 @@ mod tests {
     #[test]
     fn serializes_lowercase_and_defaults_to_claude() {
         assert_eq!(Backend::default(), Backend::Claude);
-        assert_eq!(
-            serde_json::to_string(&Backend::Codex).unwrap(),
-            "\"codex\""
-        );
+        assert_eq!(serde_json::to_string(&Backend::Codex).unwrap(), "\"codex\"");
         let b: Backend = serde_json::from_str("\"claude\"").unwrap();
         assert_eq!(b, Backend::Claude);
     }

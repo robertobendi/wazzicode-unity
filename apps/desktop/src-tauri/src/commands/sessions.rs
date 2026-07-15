@@ -47,10 +47,7 @@ pub async fn list_sessions(project: String) -> AppResult<Vec<SessionIndexEntry>>
 
 /// Load one session's full payload.
 #[tauri::command]
-pub async fn load_session(
-    project: String,
-    session_id: String,
-) -> AppResult<serde_json::Value> {
+pub async fn load_session(project: String, session_id: String) -> AppResult<serde_json::Value> {
     tokio::task::spawn_blocking(move || load_session_blocking(&project, &session_id))
         .await
         .map_err(|e| AppError::Other(format!("load task failed: {e}")))?
@@ -111,7 +108,7 @@ fn list_sessions_blocking(project: &str) -> AppResult<Vec<SessionIndexEntry>> {
         }
     }
     // Newest-first.
-    out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    out.sort_by_key(|item| std::cmp::Reverse(item.updated_at));
     Ok(out)
 }
 
@@ -137,10 +134,7 @@ fn delete_session_blocking(project: &str, session_id: &str) -> AppResult<()> {
 // --- helpers ---------------------------------------------------------------
 
 fn sessions_dir(project: &Path) -> PathBuf {
-    project
-        .join(".unity-vibe")
-        .join("studio")
-        .join("sessions")
+    project.join(".unity-vibe").join("studio").join("sessions")
 }
 
 /// Build the on-disk path for `session_id`, refusing any id that isn't a plain
@@ -175,10 +169,7 @@ fn index_from_value(value: &serde_json::Value) -> Option<SessionIndexEntry> {
         .and_then(|v| v.as_str())
         .unwrap_or("Untitled")
         .to_string();
-    let updated_at = value
-        .get("updatedAt")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+    let updated_at = value.get("updatedAt").and_then(|v| v.as_i64()).unwrap_or(0);
     let total_cost_usd = value
         .get("totalCostUsd")
         .and_then(|v| v.as_f64())
@@ -272,7 +263,8 @@ mod tests {
         let proj = project.to_str().unwrap();
 
         for (id, updated) in [("old", 100_i64), ("new", 900_i64), ("mid", 500_i64)] {
-            let payload = json!({ "sessionId": id, "title": id, "updatedAt": updated, "messages": [] });
+            let payload =
+                json!({ "sessionId": id, "title": id, "updatedAt": updated, "messages": [] });
             save_session_blocking(proj, &payload).unwrap();
         }
         // A corrupt file must not break the listing.
@@ -288,7 +280,9 @@ mod tests {
     #[test]
     fn list_missing_dir_is_empty() {
         let project = tmp_project();
-        assert!(list_sessions_blocking(project.to_str().unwrap()).unwrap().is_empty());
+        assert!(list_sessions_blocking(project.to_str().unwrap())
+            .unwrap()
+            .is_empty());
         std::fs::remove_dir_all(&project).ok();
     }
 }

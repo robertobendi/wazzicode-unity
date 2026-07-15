@@ -142,7 +142,9 @@ impl CodexLoginManager {
         {
             let guard = self.child.lock().await;
             if guard.is_some() {
-                return Err(AppError::Other("A Codex sign-in is already running.".into()));
+                return Err(AppError::Other(
+                    "A Codex sign-in is already running.".into(),
+                ));
             }
         }
 
@@ -254,7 +256,7 @@ fn find_url(line: &str) -> Option<String> {
     let end = rest
         .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '<' || c == '>')
         .unwrap_or(rest.len());
-    let url = rest[..end].trim_end_matches(|c| matches!(c, '.' | ',' | ')' | ']'));
+    let url = rest[..end].trim_end_matches(['.', ',', ')', ']']);
     if url.len() > "https://".len() {
         Some(url.to_string())
     } else {

@@ -151,7 +151,14 @@ pub async fn onboarding_setup_project(
     let pkg_source = crate::mcpconfig::unity_package_source(&app);
 
     tokio::task::spawn_blocking(move || {
-        setup_blocking(app, project_path, config_dir, uvibe_cmd, uvibe_prefix, pkg_source)
+        setup_blocking(
+            app,
+            project_path,
+            config_dir,
+            uvibe_cmd,
+            uvibe_prefix,
+            pkg_source,
+        )
     })
     .await
     .map_err(|e| AppError::Other(format!("setup task failed: {e}")))?
@@ -283,7 +290,11 @@ fn setup_blocking(
 
     // (b) Install the Unity Editor package unless it's already there.
     if unity_package_installed(&project) {
-        emit_line(&app, "install_package", "Unity package already installed — skipping.");
+        emit_line(
+            &app,
+            "install_package",
+            "Unity package already installed — skipping.",
+        );
         steps.push(SetupStep {
             id: "install_package".into(),
             ok: true,
@@ -307,7 +318,11 @@ fn setup_blocking(
             ],
         ));
     } else {
-        emit_line(&app, "install_package", "Couldn't find the UnityVibeOS package to install.");
+        emit_line(
+            &app,
+            "install_package",
+            "Couldn't find the UnityVibeOS package to install.",
+        );
         steps.push(SetupStep {
             id: "install_package".into(),
             ok: false,
@@ -325,7 +340,7 @@ fn setup_blocking(
     ));
 
     // (d) App-managed MCP config (so the chat/loop runs get the unity server).
-    emit_line(&app, "mcp_config", "Writing the Claude connection…");
+    emit_line(&app, "mcp_config", "Writing the agent connection…");
     match crate::mcpconfig::ensure_mcp_config(&app, &config_dir, &project) {
         Ok(p) => steps.push(SetupStep {
             id: "mcp_config".into(),
@@ -389,7 +404,13 @@ fn run_uvibe_step(
         Ok((ok, tail)) => SetupStep {
             id: id.into(),
             ok,
-            detail: last_line(&tail).unwrap_or_else(|| if ok { "done".into() } else { "failed".into() }),
+            detail: last_line(&tail).unwrap_or_else(|| {
+                if ok {
+                    "done".into()
+                } else {
+                    "failed".into()
+                }
+            }),
         },
         Err(e) => SetupStep {
             id: id.into(),
@@ -578,8 +599,16 @@ fn stream_process(
         .spawn()
         .map_err(|e| AppError::Other(format!("could not start {step}: {e}")))?;
 
-    let out_handle = std::thread::spawn(stream_reader(app.clone(), step.to_string(), child.stdout.take()));
-    let err_handle = std::thread::spawn(stream_reader(app.clone(), step.to_string(), child.stderr.take()));
+    let out_handle = std::thread::spawn(stream_reader(
+        app.clone(),
+        step.to_string(),
+        child.stdout.take(),
+    ));
+    let err_handle = std::thread::spawn(stream_reader(
+        app.clone(),
+        step.to_string(),
+        child.stderr.take(),
+    ));
 
     let deadline = Instant::now() + timeout;
     let status = loop {
@@ -694,7 +723,8 @@ mod tests {
 
     #[test]
     fn manifest_detection_from_fixture() {
-        let with = r#"{"dependencies":{"com.unity.ugui":"1.0.0","com.uvibe.os":"file:UnityVibeOS"}}"#;
+        let with =
+            r#"{"dependencies":{"com.unity.ugui":"1.0.0","com.uvibe.os":"file:UnityVibeOS"}}"#;
         let without = r#"{"dependencies":{"com.unity.ugui":"1.0.0"}}"#;
         assert!(manifest_str_has_uvibe(with));
         assert!(!manifest_str_has_uvibe(without));

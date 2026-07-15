@@ -145,6 +145,7 @@ pub struct LoopManager {
 impl LoopManager {
     /// Start a loop. Errors `"busy"` if one is already active. Spawns a single
     /// tokio task driving the iteration state machine.
+    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         &self,
         app: AppHandle,
@@ -163,10 +164,7 @@ impl LoopManager {
         }
 
         let loop_id = nanoid::nanoid!();
-        let dir = project
-            .join(".unity-vibe")
-            .join("loop")
-            .join(&loop_id);
+        let dir = project.join(".unity-vibe").join("loop").join(&loop_id);
         std::fs::create_dir_all(&dir)?;
         // A human-readable goal file next to the machine state.
         let _ = std::fs::write(dir.join("goal.md"), &goal);
@@ -398,9 +396,7 @@ impl Driver {
                         Step::CostCapped => return self.finish(LoopStatus::CostCapped).await,
                         _ => {
                             // QA failed → carry its notes into the next builder.
-                            qa_feedback = qa
-                                .map(|q| q.notes)
-                                .filter(|n| !n.trim().is_empty());
+                            qa_feedback = qa.map(|q| q.notes).filter(|n| !n.trim().is_empty());
                             if reflect::gate_iterations(i + 1, max_iter) == Step::MaxIterations {
                                 return self.finish(LoopStatus::MaxIterations).await;
                             }
@@ -571,7 +567,12 @@ fn git_commit(
 ) -> Result<Option<String>, String> {
     // An `add -A` failure is almost always "not a git repository" → Err.
     crate::gitutil::add_all(project)?;
-    let msg = format!("vibe-loop {} iter {}: {}", loop8, i, trim_summary(summary, 72));
+    let msg = format!(
+        "vibe-loop {} iter {}: {}",
+        loop8,
+        i,
+        trim_summary(summary, 72)
+    );
     // "nothing to commit" (clean tree) and any other commit no-op are non-fatal
     // — just no checkpoint this iteration.
     if !crate::gitutil::commit(project, &msg)? {

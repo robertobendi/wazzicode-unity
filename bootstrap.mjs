@@ -21,7 +21,7 @@
 //        a) writes .unity-vibe/{config.json, conventions.md, project_brain.{md,json}, claude_context.md}
 //        b) embeds com.uvibe.os under the project's Packages/ (portable; auto-discovered)
 //        c) writes .mcp.json at the Unity project root (Claude Code auto-discovers)
-//        d) updates CLAUDE.md with usage rules (marker-delimited; preserves your content)
+//        d) updates CLAUDE.md and AGENTS.md with usage rules (marker-delimited; preserves your content)
 //        e) runs `uvibe doctor`
 //
 // Idempotent. Safe to re-run.

@@ -204,14 +204,20 @@ mod tests {
 
     #[test]
     fn checkpoint_message_trims_and_prefixes() {
-        assert_eq!(checkpoint_message("Make the coins spin"), "studio checkpoint: Make the coins spin");
+        assert_eq!(
+            checkpoint_message("Make the coins spin"),
+            "studio checkpoint: Make the coins spin"
+        );
         let long = "a".repeat(200);
         let msg = checkpoint_message(&long);
         assert!(msg.starts_with("studio checkpoint: "));
         // 60 chars of prompt after the prefix.
         assert_eq!(msg.len(), "studio checkpoint: ".len() + 60);
         // Newlines collapse to a single line.
-        assert_eq!(checkpoint_message("line one\nline two"), "studio checkpoint: line one line two");
+        assert_eq!(
+            checkpoint_message("line one\nline two"),
+            "studio checkpoint: line one line two"
+        );
         assert_eq!(checkpoint_message("   "), "studio checkpoint");
     }
 
@@ -251,10 +257,19 @@ mod tests {
         clean(&dir, &[".unity-vibe/"]).unwrap();
 
         // Tracked edit rolled back, AI-created file removed, studio state kept.
-        assert_eq!(std::fs::read_to_string(dir.join("keep.txt")).unwrap(), "original");
-        assert!(!dir.join("ai_new.cs").exists(), "AI-created untracked file should be cleaned");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("keep.txt")).unwrap(),
+            "original"
+        );
         assert!(
-            dir.join(".unity-vibe").join("studio").join("s.json").exists(),
+            !dir.join("ai_new.cs").exists(),
+            "AI-created untracked file should be cleaned"
+        );
+        assert!(
+            dir.join(".unity-vibe")
+                .join("studio")
+                .join("s.json")
+                .exists(),
             "studio state dir must survive revert"
         );
 

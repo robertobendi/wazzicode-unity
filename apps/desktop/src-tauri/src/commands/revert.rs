@@ -29,15 +29,11 @@ pub struct RevertResult {
 /// Roll `project` back to its last studio checkpoint. Errors if nothing is
 /// available to undo, or if a chat/loop is still running for the project.
 #[tauri::command]
-pub async fn revert_last(
-    project: String,
-    state: State<'_, AppState>,
-) -> AppResult<RevertResult> {
+pub async fn revert_last(project: String, state: State<'_, AppState>) -> AppResult<RevertResult> {
     let project_path = PathBuf::from(&project);
 
     // Guard: never rewind the tree out from under a live edit.
-    if state.sessions.has_run_for(&project_path)
-        || state.loops.is_running_for(&project_path).await
+    if state.sessions.has_run_for(&project_path) || state.loops.is_running_for(&project_path).await
     {
         return Err(AppError::Other(
             "Something is still running — wait for it to finish, then undo.".into(),

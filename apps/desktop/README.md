@@ -86,7 +86,7 @@ every Unity capability is identical; only the CLI underneath changes.
 | -------------- | ------------------------------ | ----------------------------------- |
 | CLI            | `claude`                       | `codex`                             |
 | Install        | official installer (automatic) | `npm install -g @openai/codex`      |
-| Sign-in        | admin pairing (below)          | ChatGPT sign-in, or an API key      |
+| Sign-in        | admin pairing (below)          | ChatGPT subscription sign-in        |
 | Streaming      | token-by-token                 | per message (tool chips still live) |
 | Per-turn cost  | reported in USD                | tokens only — no price              |
 

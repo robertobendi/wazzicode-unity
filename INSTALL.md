@@ -25,7 +25,7 @@ node /absolute/path/to/wazzicode-unity/bootstrap.mjs
    - Writes `.unity-vibe/{config.json, conventions.md, project_brain.{md,json}, claude_context.md}`.
    - Adds `"com.uvibe.os": "file:..."` to `Packages/manifest.json`.
    - Writes `.mcp.json` at the Unity project root with **absolute paths** (no `uvibe` on PATH required).
-   - Updates `CLAUDE.md` with a marker-delimited Unity Vibe OS section (preserves your prior content; regenerated each run).
+   - Updates `CLAUDE.md` (Claude Code) and `AGENTS.md` (Codex) with marker-delimited Unity Vibe OS sections. Existing project instructions are preserved and reruns update only the managed sections.
    - Runs `uvibe doctor` for a green-light check.
 
 ## After bootstrap
@@ -90,6 +90,6 @@ Each step is idempotent.
 rm /path/to/UnityProject/.mcp.json
 rm -rf /path/to/UnityProject/.unity-vibe
 
-# 3. (Optional) Strip the unity-vibe-os block from CLAUDE.md
+# 3. (Optional) Strip the unity-vibe-os blocks from CLAUDE.md and AGENTS.md
 # It's clearly marked: <!-- BEGIN unity-vibe-os --> ... <!-- END unity-vibe-os -->
 ```

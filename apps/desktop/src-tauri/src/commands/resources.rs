@@ -35,10 +35,7 @@ pub struct StagedResource {
 /// Paths already inside the inbox are returned as-is (no re-copy). Fails with a
 /// clear message on a missing file or one over the size cap.
 #[tauri::command]
-pub async fn stage_paths(
-    project: String,
-    paths: Vec<String>,
-) -> AppResult<Vec<StagedResource>> {
+pub async fn stage_paths(project: String, paths: Vec<String>) -> AppResult<Vec<StagedResource>> {
     tokio::task::spawn_blocking(move || stage_paths_blocking(&project, &paths))
         .await
         .map_err(|e| AppError::Other(format!("stage task failed: {e}")))?
@@ -73,7 +70,12 @@ fn stage_paths_blocking(project: &str, paths: &[String]) -> AppResult<Vec<Staged
 
     let mut out = Vec::with_capacity(paths.len());
     for p in paths {
-        out.push(stage_one(&inbox, canon_inbox.as_deref(), Path::new(p), &ts)?);
+        out.push(stage_one(
+            &inbox,
+            canon_inbox.as_deref(),
+            Path::new(p),
+            &ts,
+        )?);
     }
     Ok(out)
 }
@@ -417,7 +419,8 @@ mod tests {
         // macOS /var is a symlink to /private/var).
         let existing = &staged[1].staged_path;
         let before = fs::read_dir(inbox_dir(&project)).unwrap().count();
-        let again = stage_paths_blocking(project.to_str().unwrap(), &[existing.clone()]).unwrap();
+        let again = stage_paths_blocking(project.to_str().unwrap(), std::slice::from_ref(existing))
+            .unwrap();
         let after = fs::read_dir(inbox_dir(&project)).unwrap().count();
         assert_eq!(before, after, "re-staging must not create a new copy");
         assert_eq!(

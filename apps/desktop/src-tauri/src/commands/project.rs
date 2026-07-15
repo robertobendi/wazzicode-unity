@@ -64,10 +64,7 @@ pub fn inspect_project(path: String) -> ProjectInfo {
 /// Set the focused project and record it in the recents list (dedup,
 /// most-recent-first, capped at 8).
 #[tauri::command]
-pub async fn set_current_project(
-    path: String,
-    state: State<'_, AppState>,
-) -> AppResult<Settings> {
+pub async fn set_current_project(path: String, state: State<'_, AppState>) -> AppResult<Settings> {
     let mut settings = state.settings.write().await;
     settings.current_project = Some(path.clone());
     settings.recent_projects.retain(|p| p != &path);
@@ -79,10 +76,8 @@ pub async fn set_current_project(
 
 /// Read `m_EditorVersion:` out of ProjectSettings/ProjectVersion.txt.
 fn read_unity_version(project: &Path) -> Option<String> {
-    let txt = std::fs::read_to_string(
-        project.join("ProjectSettings").join("ProjectVersion.txt"),
-    )
-    .ok()?;
+    let txt =
+        std::fs::read_to_string(project.join("ProjectSettings").join("ProjectVersion.txt")).ok()?;
     for line in txt.lines() {
         if let Some(rest) = line.strip_prefix("m_EditorVersion:") {
             let v = rest.trim();

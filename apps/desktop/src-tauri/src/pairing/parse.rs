@@ -27,9 +27,9 @@ fn ansi_re() -> &'static Regex {
     RE.get_or_init(|| {
         Regex::new(concat!(
             r"\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]", // CSI
-            r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)",         // OSC (BEL or ST terminated)
-            r"|\x1b[78=>Mc]",                              // save/restore/keypad/index/reset
-            r"|\x1b[()#%][0-9A-Za-z]",                     // charset / DEC selects
+            r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)",        // OSC (BEL or ST terminated)
+            r"|\x1b[78=>Mc]",                             // save/restore/keypad/index/reset
+            r"|\x1b[()#%][0-9A-Za-z]",                    // charset / DEC selects
         ))
         .expect("ansi regex")
     })
@@ -113,10 +113,7 @@ fn host_allowed(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://") else {
         return false;
     };
-    let authority = rest
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or("");
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     let host = authority
         .rsplit('@')
         .next()

@@ -22,7 +22,7 @@ Or run it yourself:
 node /ABS/PATH/TO/wazzicode-unity/bootstrap.mjs /ABS/PATH/TO/MyUnityProject
 ```
 
-That single command installs deps, builds, drops the Unity package into `Packages/manifest.json`, generates `.unity-vibe/`, writes a per-project `.mcp.json` (Claude Code auto-discovers it), and updates `CLAUDE.md` with usage rules. Idempotent — safe to re-run.
+That single command installs deps, builds, drops the Unity package into `Packages/manifest.json`, generates `.unity-vibe/`, writes a per-project `.mcp.json` (Claude Code auto-discovers it), and updates both `CLAUDE.md` and `AGENTS.md` with usage rules for Claude Code and Codex. Idempotent — safe to re-run and preserves your existing instructions.
 
 ### Step 2 — Open Unity, restart Claude Code
 
@@ -196,7 +196,7 @@ INSTALL.md                 install detail (prerequisites, flags, uninstall)
 
 - ✅ **67/67 vitest** green — registry, safety gates, tool groups, annotations, prompts, resources, server instructions, and end-to-end MCP exchange against the mock bridge (multimodal images decoded and rendered).
 - ✅ Shipped: full inspection, **C# script editing + `unity_verify`**, **`unity_reflect`/`unity_docs`**, scene/prefab/asset writes (gated, Undo-able), play-mode/runtime, screenshots, tool groups, Claude-Code-native slash commands/resources/annotations, one-command `uvibe autonomy on`.
-- ✅ One-command install: `bootstrap.mjs` → idempotent, per-project `.mcp.json` with absolute paths, marker-delimited `CLAUDE.md` block.
+- ✅ One-command install: `bootstrap.mjs` → idempotent, per-project `.mcp.json` with absolute paths, marker-delimited `CLAUDE.md` and `AGENTS.md` blocks.
 - ⚠ The TypeScript/MCP layer is fully tested here, but the **Unity Editor C# package must be compiled inside a Unity Editor to runtime-verify** — especially the newer `ScriptEditor` / `CodeExecutor` / `ReflectionBridge`. See [`docs/UNITY_MANUAL_TEST_CHECKLIST.md`](docs/UNITY_MANUAL_TEST_CHECKLIST.md).
 - 🚧 Broader domains (physics, VFX, ProBuilder, UI Toolkit, profiler) are out of scope for now — see `.planning/ROADMAP.md`.
 

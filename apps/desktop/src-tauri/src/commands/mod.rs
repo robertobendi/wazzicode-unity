@@ -7,7 +7,7 @@ pub mod project;
 pub mod quick_actions;
 pub mod resources;
 pub mod revert;
-pub mod sessions;
 pub mod screenshot;
+pub mod sessions;
 pub mod settings;
 pub mod status;

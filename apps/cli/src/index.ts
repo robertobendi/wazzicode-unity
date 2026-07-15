@@ -17,7 +17,7 @@ Usage: uvibe <command> [--project=<path>] [--mock] [--json]
 
 Commands:
   setup                      One-shot: init + install-unity-package + brain + write .mcp.json + doctor.
-  init                       Create .unity-vibe/ scaffold (config.json, conventions.md, CLAUDE.md).
+  init                       Create .unity-vibe/ scaffold plus Claude (CLAUDE.md) and Codex (AGENTS.md) guidance.
   serve                      Start the MCP server over stdio (use this in Claude Code MCP config).
   brain                      Generate the project brain (.unity-vibe/project_brain.{md,json}, claude_context.md).
   doctor                     Health check: MCP server, Unity bridge, brain, git, config.

@@ -31,7 +31,7 @@ export async function runSetup(g: GlobalOptions, parsed: ParsedArgs): Promise<Co
     : "copy") as "manifest" | "symlink" | "copy";
 
   // Step 1: init scaffold
-  log("[1/5] init  — .unity-vibe/config.json + conventions.md + CLAUDE.md");
+  log("[1/5] init  — .unity-vibe/config.json + conventions.md + CLAUDE.md + AGENTS.md");
   const initRes = await runInit(g);
   if (initRes.exitCode !== 0) return passthrough(initRes, lines);
   pushIndented(lines, initRes.stdout);

@@ -180,9 +180,13 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(15);
 /// real errors so callers can map them to friendly text: `UNITY_NOT_CONNECTED`
 /// when there's no discovery file, `UNITY_RELOADING` when the socket is down,
 /// or the bridge's own `CODE: message` on an `ok:false` response.
-pub async fn call(project: &Path, method: &str, params: serde_json::Value) -> AppResult<serde_json::Value> {
-    let disco = read_discovery(project)
-        .ok_or_else(|| AppError::Other("UNITY_NOT_CONNECTED".into()))?;
+pub async fn call(
+    project: &Path,
+    method: &str,
+    params: serde_json::Value,
+) -> AppResult<serde_json::Value> {
+    let disco =
+        read_discovery(project).ok_or_else(|| AppError::Other("UNITY_NOT_CONNECTED".into()))?;
     let host = disco.host.unwrap_or_else(|| DEFAULT_HOST.into());
     let url = format!("http://{host}:{}/rpc", disco.port);
 
@@ -293,11 +297,7 @@ fn project_name(project: &Path) -> String {
 /// Case-insensitive, trailing-separator-normalized path compare — mirrors
 /// `samePath` in httpClient.ts.
 fn same_path(a: &str, project: &Path) -> bool {
-    let norm = |s: &str| {
-        s.replace('\\', "/")
-            .trim_end_matches('/')
-            .to_lowercase()
-    };
+    let norm = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_lowercase();
     norm(a) == norm(&project.to_string_lossy())
 }
 
@@ -307,10 +307,7 @@ mod tests {
 
     #[test]
     fn same_path_normalizes() {
-        assert!(same_path(
-            "/Users/x/Game/",
-            Path::new("/Users/x/Game")
-        ));
+        assert!(same_path("/Users/x/Game/", Path::new("/Users/x/Game")));
         assert!(same_path(
             "C:\\Users\\X\\Game",
             Path::new("C:/Users/x/Game")

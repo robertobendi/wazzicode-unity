@@ -44,11 +44,7 @@ pub fn mcp_entry(app: &AppHandle, project: &Path) -> McpEntry {
 /// return its path. `config_dir` is the app's config dir (already
 /// `.../unity-vibe-studio`). `app` is needed to resolve the bundled sidecar +
 /// uvibe.cjs in release builds.
-pub fn ensure_mcp_config(
-    app: &AppHandle,
-    config_dir: &Path,
-    project: &Path,
-) -> AppResult<PathBuf> {
+pub fn ensure_mcp_config(app: &AppHandle, config_dir: &Path, project: &Path) -> AppResult<PathBuf> {
     let dir = config_dir.join("mcp");
     std::fs::create_dir_all(&dir)?;
     let file = dir.join(format!("{}.json", project_hash(project)));
@@ -109,8 +105,7 @@ pub fn unity_package_source(app: &AppHandle) -> Option<PathBuf> {
             return Some(bundled);
         }
     }
-    dev_repo_path(&["unity", "UnityVibeOS"])
-        .filter(|p| p.join("package.json").is_file())
+    dev_repo_path(&["unity", "UnityVibeOS"]).filter(|p| p.join("package.json").is_file())
 }
 
 /// True when both bundled pieces (sidecar node + uvibe.cjs) are present — i.e.
@@ -203,7 +198,10 @@ mod tests {
     fn dev_repo_path_finds_monorepo_cli() {
         // The manifest-dir fallback should locate the CLI shim in this checkout.
         let uvibe = dev_repo_path(&["apps", "cli", "bin", "uvibe"]);
-        assert!(uvibe.is_some(), "expected to find apps/cli/bin/uvibe in the monorepo");
+        assert!(
+            uvibe.is_some(),
+            "expected to find apps/cli/bin/uvibe in the monorepo"
+        );
         assert!(uvibe.unwrap().is_file());
     }
 }

@@ -40,10 +40,12 @@ let asrPromise: Promise<Asr> | null = null;
 
 /** Load once, reuse for every later dictation. */
 function load(): Promise<Asr> {
-  asrPromise ??= pipeline("automatic-speech-recognition", MODEL_ID, {
-    dtype: "q8",
-    device: "wasm",
-  });
+  if (!asrPromise) {
+    asrPromise = pipeline("automatic-speech-recognition", MODEL_ID, {
+      dtype: "q8",
+      device: "wasm",
+    });
+  }
   return asrPromise;
 }
 

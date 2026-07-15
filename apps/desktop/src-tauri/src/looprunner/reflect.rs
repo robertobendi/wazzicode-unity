@@ -268,20 +268,26 @@ mod tests {
 
     #[test]
     fn captures_screenshot_path_and_drops_empty() {
-        let with = reflect_builder("```json\n{\"status\":\"continue\",\"screenshotPath\":\"/tmp/a.png\"}\n```");
+        let with = reflect_builder(
+            "```json\n{\"status\":\"continue\",\"screenshotPath\":\"/tmp/a.png\"}\n```",
+        );
         assert_eq!(with.screenshot_path.as_deref(), Some("/tmp/a.png"));
-        let without = reflect_builder("```json\n{\"status\":\"continue\",\"screenshotPath\":\"\"}\n```");
+        let without =
+            reflect_builder("```json\n{\"status\":\"continue\",\"screenshotPath\":\"\"}\n```");
         assert_eq!(without.screenshot_path, None);
     }
 
     #[test]
     fn parses_qa_block() {
-        let qa = parse_qa("```json\n{\"pass\":true,\"score\":8,\"notes\":\"looks good\"}\n```").unwrap();
+        let qa =
+            parse_qa("```json\n{\"pass\":true,\"score\":8,\"notes\":\"looks good\"}\n```").unwrap();
         assert!(qa.pass);
         assert_eq!(qa.score, Some(8.0));
         assert_eq!(qa.notes, "looks good");
 
-        let fail = parse_qa("```json\n{\"pass\":false,\"notes\":\"the cube is blue not red\"}\n```").unwrap();
+        let fail =
+            parse_qa("```json\n{\"pass\":false,\"notes\":\"the cube is blue not red\"}\n```")
+                .unwrap();
         assert!(!fail.pass);
         assert_eq!(fail.score, None);
 
@@ -338,16 +344,16 @@ mod tests {
             decide_after_builder(true, 0.0, 5.0, Verdict::Done, 0, true),
             Step::Stopped
         );
-        assert_eq!(
-            decide_after_qa(true, 0.0, 5.0, Some(true)),
-            Step::Stopped
-        );
+        assert_eq!(decide_after_qa(true, 0.0, 5.0, Some(true)), Step::Stopped);
     }
 
     #[test]
     fn qa_pass_finishes_fail_or_unparseable_continues() {
         assert_eq!(decide_after_qa(false, 0.0, 5.0, Some(true)), Step::Done);
-        assert_eq!(decide_after_qa(false, 0.0, 5.0, Some(false)), Step::Continue);
+        assert_eq!(
+            decide_after_qa(false, 0.0, 5.0, Some(false)),
+            Step::Continue
+        );
         assert_eq!(decide_after_qa(false, 0.0, 5.0, None), Step::Continue);
     }
 

@@ -194,8 +194,7 @@ fn probe_dir(dir: &std::path::Path, bin: &str) -> Option<PathBuf> {
     #[cfg(windows)]
     {
         // Honor PATHEXT — Windows resolves `gh` to `gh.exe`/`gh.cmd`/etc.
-        let pathext = std::env::var("PATHEXT")
-            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+        let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
         // Exact name first in case the caller passed `gh.exe`.
         let direct = dir.join(bin);
         if direct.is_file() {
@@ -309,7 +308,11 @@ pub fn apply_no_prompt_env(cmd: &mut Command) {
 #[cfg(unix)]
 fn noop_askpass() -> Option<PathBuf> {
     let p = PathBuf::from("/bin/true");
-    if p.is_file() { Some(p) } else { None }
+    if p.is_file() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 #[cfg(windows)]
@@ -371,7 +374,7 @@ pub fn output_with_timeout(mut cmd: Command, timeout: Duration) -> Result<Output
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait(); // reap — no zombie
-                    // Join the readers so their pipes close cleanly.
+                                          // Join the readers so their pipes close cleanly.
                     let _ = out_handle.join();
                     let _ = err_handle.join();
                     return Err(AppError::Other(format!(
@@ -423,7 +426,10 @@ fn read_to_end_capped<R: std::io::Read>(pipe: Option<R>) -> Vec<u8> {
 }
 
 fn missing_message(bin: &str) -> String {
-    format!("{bin} is not installed or not on PATH — {}", install_hint(bin))
+    format!(
+        "{bin} is not installed or not on PATH — {}",
+        install_hint(bin)
+    )
 }
 
 #[cfg(all(test, unix))]
@@ -466,19 +472,46 @@ mod tests {
 fn install_hint(bin: &str) -> &'static str {
     match bin {
         "gh" => {
-            #[cfg(target_os = "macos")] { "install with `brew install gh`" }
-            #[cfg(target_os = "linux")] { "see https://github.com/cli/cli#installation" }
-            #[cfg(target_os = "windows")] { "install with `winget install GitHub.cli`" }
+            #[cfg(target_os = "macos")]
+            {
+                "install with `brew install gh`"
+            }
+            #[cfg(target_os = "linux")]
+            {
+                "see https://github.com/cli/cli#installation"
+            }
+            #[cfg(target_os = "windows")]
+            {
+                "install with `winget install GitHub.cli`"
+            }
         }
         "glab" => {
-            #[cfg(target_os = "macos")] { "install with `brew install glab`" }
-            #[cfg(target_os = "linux")] { "see https://gitlab.com/gitlab-org/cli#installation" }
-            #[cfg(target_os = "windows")] { "install with `winget install glab.glab`" }
+            #[cfg(target_os = "macos")]
+            {
+                "install with `brew install glab`"
+            }
+            #[cfg(target_os = "linux")]
+            {
+                "see https://gitlab.com/gitlab-org/cli#installation"
+            }
+            #[cfg(target_os = "windows")]
+            {
+                "install with `winget install glab.glab`"
+            }
         }
         "git" => {
-            #[cfg(target_os = "macos")] { "install Xcode Command Line Tools (`xcode-select --install`) or run `brew install git`" }
-            #[cfg(target_os = "linux")] { "install via your package manager (e.g. `apt install git`)" }
-            #[cfg(target_os = "windows")] { "install with `winget install Git.Git`" }
+            #[cfg(target_os = "macos")]
+            {
+                "install Xcode Command Line Tools (`xcode-select --install`) or run `brew install git`"
+            }
+            #[cfg(target_os = "linux")]
+            {
+                "install via your package manager (e.g. `apt install git`)"
+            }
+            #[cfg(target_os = "windows")]
+            {
+                "install with `winget install Git.Git`"
+            }
         }
         _ => "please install it and make sure it's on your PATH",
     }

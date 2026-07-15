@@ -90,7 +90,9 @@ mod tests {
     fn defaults_are_present() {
         let d = default_quick_actions();
         assert_eq!(d.len(), 3);
-        assert!(d.iter().all(|a| !a.label.is_empty() && !a.prompt.is_empty()));
+        assert!(d
+            .iter()
+            .all(|a| !a.label.is_empty() && !a.prompt.is_empty()));
     }
 
     #[test]
@@ -106,7 +108,7 @@ mod tests {
         assert!(parse_override("not json").is_none());
         assert!(parse_override("{}").is_none()); // object, not array
         assert!(parse_override("[]").is_none()); // empty array
-        // All entries blank → treated as empty → None.
+                                                 // All entries blank → treated as empty → None.
         assert!(parse_override(r#"[{"label":"  ","prompt":""}]"#).is_none());
     }
 
