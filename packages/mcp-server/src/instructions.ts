@@ -18,7 +18,7 @@ EDIT C#: \`unity_read_script\` (returns a sha256) → \`unity_create_script\` fo
 
 BUILD SCENES: unity_create_gameobject, unity_add_component, unity_set_serialized_field, unity_assign_reference, unity_set_transform, unity_reparent, unity_instantiate_prefab, unity_save_scene. Every scene/prefab edit is Undo-wrapped (Ctrl+Z). Bundle a known multi-step plan into ONE \`unity_batch\` call.
 
-PLAY-TEST: unity_enter_play_mode → observe with unity_get_console_logs / unity_find_runtime_objects / unity_inspect_runtime_object / unity_get_performance_stats / unity_simulate_input → unity_exit_play_mode. Screenshot tools (unity_capture_game_view, unity_capture_editor_window) return real images — use them to SEE what you built; pass format:"jpg" when capturing repeatedly (≈10x smaller). unity_step_frame steps N frames in one call.
+PLAY-TEST: unity_enter_play_mode → observe with unity_get_console_logs / unity_find_runtime_objects / unity_inspect_runtime_object / unity_get_performance_stats / unity_simulate_input → unity_exit_play_mode. unity_capture_game_view, unity_capture_scene_view, and unity_capture_selected return real images — use them to SEE what you built; pass format:"jpg" when capturing repeatedly (≈10x smaller). On macOS, never call unity_capture_editor_window: Unity's framebuffer API can terminate the Editor, so the tool intentionally returns FEATURE_UNAVAILABLE. unity_step_frame steps N frames in one call.
 
 DIAGNOSE: unity_find_missing_scripts, unity_find_missing_references, unity_find_references / unity_find_dependencies before any rename/delete.
 

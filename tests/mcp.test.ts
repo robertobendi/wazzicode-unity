@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations, UNITY_PROMPTS, createServer, readSceneHierarchyResource, readConsoleResource, readActionLogResource, SERVER_INSTRUCTIONS } from "@uvibe/mcp-server";
 import type { BridgeMethod, BridgeResponse } from "@uvibe/core";
 import type { BridgeClient } from "@uvibe/mcp-server";
+import { isEditorWindowCaptureSupported, unityCaptureEditorWindow } from "../packages/mcp-server/src/tools/unityCaptureEditorWindow.js";
 
 describe("mcp-server/registry", () => {
   it("registers all tools with unique names and real descriptions", () => {
@@ -161,6 +162,31 @@ describe("mcp-server/instructions", () => {
       // Strip trailing underscores from prose, then check membership.
       const clean = name.replace(/_+$/, "");
       expect(names.has(clean), `instructions reference unknown tool ${clean}`).toBe(true);
+    }
+  });
+
+  it("blocks unsafe whole-editor capture on macOS without calling Unity", async () => {
+    expect(isEditorWindowCaptureSupported("darwin")).toBe(false);
+    expect(isEditorWindowCaptureSupported("linux")).toBe(true);
+    expect(isEditorWindowCaptureSupported("win32")).toBe(true);
+    expect(SERVER_INSTRUCTIONS).toContain("never call unity_capture_editor_window");
+
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+    const bridge = createMockBridgeClient();
+    const call = vi.spyOn(bridge, "call");
+    try {
+      const result = await unityCaptureEditorWindow.run(
+        { save: false },
+        { bridge, projectPath: process.cwd(), configMockMode: false }
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe("FEATURE_UNAVAILABLE");
+        expect(result.error.recoverable).toBe(false);
+      }
+      expect(call).not.toHaveBeenCalled();
+    } finally {
+      platform.mockRestore();
     }
   });
 });

@@ -19,7 +19,12 @@ describe("reliability/bridge discovery + reload survival", () => {
 
   beforeAll(() => {
     // Discovery file present but pointing at a dead port → bridge "known" but socket down.
-    projectKnown = makeProject({ port: 1, host: "127.0.0.1", projectPath: "/whatever" });
+    projectKnown = makeProject({
+      port: 1,
+      host: "127.0.0.1",
+      projectPath: "/whatever",
+      pid: process.pid,
+    });
     // No discovery file at all.
     projectUnknown = mkdtempSync(path.join(tmpdir(), "uvibe-none-"));
   });

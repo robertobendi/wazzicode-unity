@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
+#if !UNITY_EDITOR_OSX
 using UnityEditorInternal;
+#endif
 using UnityEngine;
 
 namespace UnityVibeOS
@@ -89,6 +91,12 @@ namespace UnityVibeOS
         /// </summary>
         public static IDictionary<string, object> CaptureEditorWindow(int maxWidth)
         {
+#if UNITY_EDITOR_OSX
+            throw new BridgeRouter.HandlerError(
+                "FEATURE_UNAVAILABLE",
+                "Whole-editor capture is disabled on macOS because Unity's framebuffer API can terminate the Editor. Use scene-view or game-view capture instead."
+            );
+#else
             Rect r;
             try
             {
@@ -161,6 +169,7 @@ namespace UnityVibeOS
             {
                 UnityEngine.Object.DestroyImmediate(tex);
             }
+#endif
         }
 
         // -------- helpers --------

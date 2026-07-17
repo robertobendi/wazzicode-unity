@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { ToolDef } from "../registry.js";
-import { BRIDGE_METHODS, ScreenshotResult } from "@uvibe/core";
+import { BRIDGE_METHODS, ScreenshotResult, err } from "@uvibe/core";
 import { screenshotCall } from "./_screenshot.js";
+
+export function isEditorWindowCaptureSupported(platform: NodeJS.Platform): boolean {
+  return platform !== "darwin";
+}
 
 const InputShape = {
   maxWidth: z
@@ -19,10 +23,17 @@ const InputShape = {
 export const unityCaptureEditorWindow: ToolDef<typeof InputShape, ScreenshotResult> = {
   name: "unity_capture_editor_window",
   description:
-    "Captures the WHOLE Unity Editor main window — every docked panel (toolbar, Hierarchy, Scene/Game view, Inspector, Project, Console) exactly as it appears on screen — as a PNG and returns it as a multimodal image so Claude can SEE the editor itself. Unlike unity_capture_game_view/scene_view (which render a camera off-screen), this reads the OS framebuffer. Auto-saves to .unity-vibe/screenshots/ unless save=false.",
+    "Captures the whole Unity Editor main window as a PNG by reading the OS framebuffer. Disabled on macOS because Unity's framebuffer API can terminate the Editor; use unity_capture_scene_view or unity_capture_game_view there. Auto-saves to .unity-vibe/screenshots/ unless save=false.",
   requires: ["unity_bridge"],
   inputShape: InputShape,
   async run(args, ctx) {
+    if (!isEditorWindowCaptureSupported(process.platform)) {
+      return err(
+        "FEATURE_UNAVAILABLE",
+        "Whole-editor capture is disabled on macOS because Unity's framebuffer API can terminate the Editor. Use unity_capture_scene_view or unity_capture_game_view instead.",
+        { source: ctx.bridge.source }
+      );
+    }
     return screenshotCall(
       ctx.bridge,
       BRIDGE_METHODS.screenshotEditorWindow,

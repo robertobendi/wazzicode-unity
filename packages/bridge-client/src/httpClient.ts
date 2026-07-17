@@ -132,13 +132,25 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
     return disco;
   }
 
-  function target(): { host: string; port: number; expectProject?: string; bridgeKnown: boolean } {
+  function target(): {
+    host: string;
+    port: number;
+    expectProject?: string;
+    unityPid?: number;
+    bridgeKnown: boolean;
+  } {
     const disco = discovery();
     if (explicitPort !== undefined) {
       return { host: opts.host ?? DEFAULT_BRIDGE_HOST, port: explicitPort, bridgeKnown: false };
     }
     if (disco) {
-      return { host: disco.host, port: disco.port, expectProject: disco.projectPath, bridgeKnown: true };
+      return {
+        host: disco.host,
+        port: disco.port,
+        expectProject: disco.projectPath,
+        unityPid: disco.pid > 0 ? disco.pid : undefined,
+        bridgeKnown: true,
+      };
     }
     return { host: opts.host ?? DEFAULT_BRIDGE_HOST, port: opts.port ?? DEFAULT_BRIDGE_PORT, bridgeKnown: false };
   }
@@ -248,17 +260,34 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
           });
           return;
         }
-        // Connection refused. If a discovery file exists, the bridge lives here but its socket
-        // is briefly down — almost always a script-domain reload (post-compile / entering play).
-        // Surface that as the recoverable UNITY_RELOADING so callers retry instead of giving up.
-        const code = t.bridgeKnown ? "UNITY_RELOADING" : "UNITY_NOT_CONNECTED";
-        finish({
-          id: body.id,
-          ok: false,
-          result: null,
-          error: { code, message: e?.message ?? "Bridge call failed." },
-          meta: {},
-        });
+        const classify = () => {
+          const editorExited = t.unityPid !== undefined && processHasExited(t.unityPid);
+          // A known, live Editor with a closed socket is normally reloading its C# domain. A dead
+          // discovery PID is terminal for this call: classifying a native crash as reloading makes
+          // bridgeCall retry the operation that killed Unity.
+          const code = t.bridgeKnown && !editorExited ? "UNITY_RELOADING" : "UNITY_NOT_CONNECTED";
+          const message = editorExited
+            ? `Unity Editor process ${t.unityPid} exited while handling '${method}'.`
+            : (e?.message ?? "Bridge call failed.");
+          finish({
+            id: body.id,
+            ok: false,
+            result: null,
+            error: {
+              code,
+              message,
+              ...(editorExited
+                ? { details: { editorExited: true, unityPid: t.unityPid, method } }
+                : {}),
+            },
+            meta: {},
+          });
+        };
+
+        // On a native abort the socket closes just before the OS reaps Unity. Give that transition
+        // a short grace window; a domain reload keeps the same PID alive and remains retryable.
+        if (t.unityPid !== undefined) setTimeout(classify, 100);
+        else classify();
       });
 
       req.write(payload);
@@ -295,6 +324,16 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
   }
 
   return { source: "unity_bridge", call, isConnected, health };
+}
+
+/** True only when the OS confirms that a previously discovered Unity PID no longer exists. */
+function processHasExited(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "ESRCH";
+  }
 }
 
 function samePath(a: string, b: string): boolean {

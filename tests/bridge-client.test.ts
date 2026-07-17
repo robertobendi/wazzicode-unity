@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -18,6 +20,16 @@ function tmpProject(): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), "uvibe-bridge-client-"));
   tmpDirs.push(dir);
   return dir;
+}
+
+function writeDiscovery(project: string, port: number, pid: number): void {
+  const discoPath = path.join(project, BRIDGE_DISCOVERY_REL);
+  mkdirSync(path.dirname(discoPath), { recursive: true });
+  writeFileSync(
+    discoPath,
+    JSON.stringify({ port, host: "127.0.0.1", projectPath: project, pid }),
+    "utf8"
+  );
 }
 
 afterAll(() => {
@@ -58,6 +70,35 @@ describe("bridge-client", () => {
 
     writeFileSync(discoPath, JSON.stringify({ host: "127.0.0.1" }), "utf8");
     expect(readBridgeDiscovery(project)).toBeNull();
+  });
+
+  it("does not classify a socket failure as reload when the discovered Unity PID exited", async () => {
+    const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+    const pid = child.pid;
+    expect(pid).toBeTypeOf("number");
+    await once(child, "exit");
+
+    const project = tmpProject();
+    writeDiscovery(project, 39998, pid!);
+    const client = createHttpBridgeClient({ projectPath: project, timeoutMs: 500 });
+    const res = await bridgeCall(client, "system.health");
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("UNITY_NOT_CONNECTED");
+      expect(res.error.message).toContain(`process ${pid} exited`);
+      expect(res.error.details).toMatchObject({ editorExited: true, unityPid: pid });
+    }
+  });
+
+  it("keeps a socket failure retryable while the discovered Unity PID is alive", async () => {
+    const project = tmpProject();
+    writeDiscovery(project, 39997, process.pid);
+    const client = createHttpBridgeClient({ projectPath: project, timeoutMs: 500 });
+    const res = await client.call("system.health");
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("UNITY_RELOADING");
   });
 
   it("bridgeCall retries through UNITY_RELOADING and succeeds once the bridge is back", async () => {
