@@ -1,16 +1,12 @@
 //! Hidden-PTY driver for the company-account pairing flow.
 //!
-//! Model: **CLI-managed credentials, no token handling by us.** We run
+//! We run
 //! `claude setup-token` in a hidden PTY (it refuses to run without a TTY), scan
 //! its output for the OAuth URL, show the employee a "send this link to your
 //! admin" screen, take back the one-time code the admin returns, and type it
-//! into the PTY. The Claude CLI then stores its OWN credentials in `~/.claude`;
-//! all later `claude` spawns just inherit the parent environment and use those.
-//! We never capture, store, log, or inject any token — a detected
-//! `sk-ant-oat01-…` in the transcript is used ONLY as an early "the exchange
-//! succeeded" signal so we can stop waiting on the CLI's TUI (it stays open
-//! after login). Success is decided by a cheap verify probe, not by us holding a
-//! credential.
+//! into the PTY. The command prints (but does not save) a long-lived OAuth token,
+//! so we store it in the OS credential store and inject it only into app-launched
+//! Claude processes. It is never emitted or logged.
 //!
 //! Observed `claude setup-token` output (CLI 2.1.198, macOS), which drove the
 //! parser design:
@@ -41,7 +37,9 @@ use tauri::{AppHandle, Emitter};
 
 mod parse;
 pub use parse::verify_probe;
-use parse::{failure_reason, find_oauth_url, find_token, looks_like_prompt, strip_ansi, tail};
+use parse::{
+    failure_reason, find_oauth_url, find_token, looks_like_prompt, redact_tokens, strip_ansi, tail,
+};
 
 /// A very wide PTY so the CLI never wraps the (~230 char) OAuth URL across
 /// lines — see module docs. Height is irrelevant for a hidden PTY.
@@ -75,8 +73,8 @@ pub struct PairingState {
     pub phase: Phase,
     /// The OAuth URL to forward to the admin (set at `AwaitingAdmin`).
     pub oauth_url: Option<String>,
-    /// Always `"cli_managed"` on success (kept for UI compat; the UI stays quiet
-    /// about it). We don't manage tokens — the CLI holds its own credentials.
+    /// `"app_managed_oauth"` on success. The token is never exposed to the
+    /// webview.
     pub mode: Option<String>,
     /// Friendly failure message (set at `Failed`).
     pub error: Option<String>,
@@ -149,6 +147,39 @@ impl Shared {
         *self.state.lock().unwrap_or_else(|e| e.into_inner()) = Some(next.clone());
         let _ = app.emit("pairing:update", &next);
     }
+
+    fn clear_active_if(&self, id: &str) {
+        let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        take_if(&mut active, |candidate| candidate.id == id);
+    }
+
+    fn publish_if_active(&self, app: &AppHandle, id: &str, next: PairingState) -> bool {
+        let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if !active.as_ref().is_some_and(|candidate| candidate.id == id) {
+            return false;
+        }
+        self.publish(app, next);
+        true
+    }
+
+    fn finish_if_active(&self, app: &AppHandle, id: &str, next: PairingState) -> bool {
+        let mut active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if !active.as_ref().is_some_and(|candidate| candidate.id == id) {
+            return false;
+        }
+        self.publish(app, next);
+        active.take();
+        true
+    }
+
+    fn store_token_if_active(&self, id: &str, token: &str) -> AppResult<bool> {
+        let active = self.active.lock().unwrap_or_else(|e| e.into_inner());
+        if !active.as_ref().is_some_and(|candidate| candidate.id == id) {
+            return Ok(false);
+        }
+        crate::claudeauth::store_oauth_token(token)?;
+        Ok(true)
+    }
 }
 
 impl PairingManager {
@@ -175,6 +206,10 @@ impl PairingManager {
         };
 
         let mut cmd = CommandBuilder::new(claude);
+        cmd.arg("--setting-sources");
+        cmd.arg("");
+        cmd.arg("--settings");
+        cmd.arg(crate::claudeauth::pairing_settings_json()?);
         cmd.arg("setup-token");
         if let Some(home) = dirs::home_dir() {
             cmd.cwd(home);
@@ -187,11 +222,15 @@ impl PairingManager {
             if matches!(
                 k.as_str(),
                 "TERM" | "PATH" | "BROWSER" | "COLUMNS" | "LINES"
-            ) {
+            ) || crate::claudeauth::is_isolated_var(&k)
+            {
                 continue;
             }
             cmd.env(k, v);
         }
+        // CommandBuilder seeds a base environment before the loop above, so
+        // explicitly remove provider keys as well as skipping manual copies.
+        crate::claudeauth::scrub_pty_credentials(&mut cmd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("PATH", crate::proc::search_path());
         // Discourage the CLI from auto-opening a browser on the employee's box
@@ -233,7 +272,7 @@ impl PairingManager {
         let mut starting = PairingState::idle();
         starting.phase = Phase::Starting;
         starting.pairing_id = Some(id.clone());
-        self.shared.publish(&app, starting);
+        self.shared.publish_if_active(&app, &id, starting);
         log::info!("pairing {id}: started setup-token");
 
         spawn_watchdog(child.clone(), finished.clone(), timed_out.clone());
@@ -283,16 +322,14 @@ impl PairingManager {
         // Preserve the URL/prompt fields already in state.
         if let Some(mut st) = self.snapshot() {
             st.phase = Phase::Submitting;
-            self.shared.publish(&app, st);
+            self.shared.publish_if_active(&app, pairing_id, st);
         }
         log::info!("pairing {pairing_id}: code submitted");
 
-        // The CLI accepts the code, prints its success screen, and (observed
-        // live) keeps the TUI open rather than exiting. The reader resolves
-        // early the moment a token appears in the stream; this grace watchdog
-        // covers the no-token variant (CLI stored its own credentials): if the
-        // child is still alive after the grace period, kill it on purpose and
-        // let the verify probe decide the outcome honestly.
+        // The CLI accepts the code, prints the setup token, and can keep the TUI
+        // open rather than exiting. The reader resolves as soon as it captures
+        // that token; this watchdog prevents a changed or malformed CLI output
+        // from leaving pairing stuck indefinitely.
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_secs(POST_SUBMIT_GRACE_SECS));
             if !finished.load(Ordering::SeqCst) && !cancelled.load(Ordering::SeqCst) {
@@ -356,6 +393,7 @@ impl PairingManager {
             let mut url_seen = false;
             let mut prompt_seen = false;
             let mut token_seen = false;
+            let mut captured_token: Option<String> = None;
             let mut oauth_url: Option<String> = None;
 
             loop {
@@ -394,7 +432,7 @@ impl PairingManager {
                                 st.pairing_id = Some(id.clone());
                                 st.oauth_url = Some(url);
                                 st.prompt_seen = prompt_seen;
-                                shared.publish(&app, st);
+                                shared.publish_if_active(&app, &id, st);
                             }
                         }
                         if !prompt_seen && looks_like_prompt(&transcript) {
@@ -406,15 +444,15 @@ impl PairingManager {
                                 st.pairing_id = Some(id.clone());
                                 st.oauth_url = oauth_url.clone();
                                 st.prompt_seen = true;
-                                shared.publish(&app, st);
+                                shared.publish_if_active(&app, &id, st);
                             }
                         }
-                        if !token_seen && find_token(&transcript).is_some() {
-                            // A token on screen means the exchange succeeded. We
-                            // do NOT capture or store it — it's only a signal to
-                            // stop waiting on the CLI's TUI (it stays open after
-                            // login). Resolve now via the post-loop verify path.
+                        if !token_seen {
+                            let Some(token) = find_token(&transcript) else {
+                                continue;
+                            };
                             token_seen = true;
+                            captured_token = Some(token);
                             log::info!("pairing {id}: exchange succeeded; resolving early");
                             intentional.store(true, Ordering::SeqCst);
                             let mut st = PairingState::idle();
@@ -422,7 +460,7 @@ impl PairingManager {
                             st.pairing_id = Some(id.clone());
                             st.oauth_url = oauth_url.clone();
                             st.prompt_seen = prompt_seen;
-                            shared.publish(&app, st);
+                            shared.publish_if_active(&app, &id, st);
                             let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
                         }
                     }
@@ -435,15 +473,11 @@ impl PairingManager {
 
             // A cancel/start-over already published Idle — say nothing more.
             if cancelled.load(Ordering::SeqCst) {
-                shared
-                    .active
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .take();
+                shared.clear_active_if(&id);
                 return;
             }
 
-            let stripped = strip_ansi(&transcript);
+            let stripped = redact_tokens(&strip_ansi(&transcript));
             let raw_tail = tail(&stripped, RAW_TAIL_BYTES);
             let did_timeout = timed_out.load(Ordering::SeqCst);
             // An intentional kill (token captured, or post-submit grace) is a
@@ -453,9 +487,13 @@ impl PairingManager {
             let exit_ok = intentional_finish
                 || (status.map(|s| s.success()).unwrap_or(false) && !did_timeout);
 
-            let _ = token_seen; // success signal only; nothing captured/stored
             let outcome = if exit_ok {
-                resolve_outcome()
+                captured_token
+                    .as_deref()
+                    .map(|token| resolve_outcome(token, &shared, &id))
+                    .unwrap_or_else(|| {
+                        Outcome::Failed("Claude finished pairing without returning a token.".into())
+                    })
             } else if did_timeout {
                 Outcome::Failed("Pairing timed out. Please start over.".into())
             } else {
@@ -471,7 +509,7 @@ impl PairingManager {
             match outcome {
                 Outcome::Paired => {
                     st.phase = Phase::Paired;
-                    st.mode = Some("cli_managed".into());
+                    st.mode = Some("app_managed_oauth".into());
                     st.oauth_url = oauth_url;
                 }
                 Outcome::Failed(reason) => {
@@ -480,13 +518,16 @@ impl PairingManager {
                     st.oauth_url = oauth_url;
                 }
             }
-            shared.publish(&app, st);
-            shared
-                .active
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .take();
+            shared.finish_if_active(&app, &id, st);
         });
+    }
+}
+
+fn take_if<T>(slot: &mut Option<T>, predicate: impl FnOnce(&T) -> bool) -> Option<T> {
+    if slot.as_ref().is_some_and(predicate) {
+        slot.take()
+    } else {
+        None
     }
 }
 
@@ -495,15 +536,19 @@ enum Outcome {
     Failed(String),
 }
 
-/// Decide the outcome after `setup-token` finished (or we killed it on the
-/// success path). We store nothing — the CLI holds its own credentials — so the
-/// honest arbiter is a cheap probe against those credentials.
-fn resolve_outcome() -> Outcome {
-    match verify_probe() {
-        Ok(()) => Outcome::Paired,
-        Err(_) => Outcome::Failed(
+/// Verify the candidate directly, then promote it. A bad re-pair never
+/// overwrites the last working credential.
+fn resolve_outcome(token: &str, shared: &Shared, pairing_id: &str) -> Outcome {
+    if parse::verify_probe_with_token(token).is_err() {
+        return Outcome::Failed(
             "Pairing finished but the account check didn't pass. Please try again.".into(),
-        ),
+        );
+    }
+
+    match shared.store_token_if_active(pairing_id, token) {
+        Ok(true) => Outcome::Paired,
+        Ok(false) => Outcome::Failed("This pairing is no longer active.".into()),
+        Err(error) => Outcome::Failed(format!("The token couldn't be saved securely: {error}")),
     }
 }
 
@@ -554,5 +599,14 @@ mod tests {
         cap_front(&mut s, 50);
         assert!(s.len() <= 50);
         assert!(s.chars().all(|c| c == 'α')); // never split a codepoint
+    }
+
+    #[test]
+    fn stale_pairing_cleanup_does_not_take_a_newer_active_value() {
+        let mut active = Some("new");
+        assert_eq!(take_if(&mut active, |id| *id == "old"), None);
+        assert_eq!(active, Some("new"));
+        assert_eq!(take_if(&mut active, |id| *id == "new"), Some("new"));
+        assert_eq!(active, None);
     }
 }

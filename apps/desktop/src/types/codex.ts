@@ -8,7 +8,7 @@ export interface CodexAuthStatus {
   /** Is the `codex` binary on PATH at all? */
   installed: boolean;
   loggedIn: boolean;
-  /** Whatever `codex login status` printed (account / auth mode). Display only. */
+  /** CLI status or an actionable explanation for an incompatible login mode. */
   detail: string | null;
 }
 

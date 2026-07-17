@@ -1,14 +1,19 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useChatStore } from "@/stores/useChatStore";
 import { useAttachmentsStore } from "@/stores/useAttachmentsStore";
 import { useLoopStore } from "@/stores/useLoopStore";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useQuickActions } from "@/hooks/useQuickActions";
 import { useDictation } from "@/hooks/useDictation";
+import { useCliInstallActive } from "@/hooks/useOnboarding";
 import { isLoopActive } from "@/types/loop";
 import { BACKENDS } from "@/types/settings";
+import type { AgentRunOptions } from "@/types/agent";
+import { runOptionsFromSettings } from "@/lib/agentOptions";
+import { runOptionsSummary } from "@/lib/modelCatalog";
 import { api } from "@/api";
 import AttachmentChip from "./AttachmentChip";
+import AgentRunControls from "@/components/agent/AgentRunControls";
 import { MicIcon } from "../shell/icons";
 
 /**
@@ -25,16 +30,39 @@ export default function Composer() {
   const cancel = useChatStore((s) => s.cancel);
   const project = useChatStore((s) => s.project);
   const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
+  const cliInstalling = useCliInstallActive();
   const attachments = useAttachmentsStore((s) => s.items);
   const removeAttachment = useAttachmentsStore((s) => s.remove);
   const addAttachments = useAttachmentsStore((s) => s.add);
   const clearAttachments = useAttachmentsStore((s) => s.clear);
   const quickActions = useQuickActions(project);
-  const agentLabel = useSettingsStore(
-    (s) => BACKENDS[s.settings?.agentBackend ?? "claude"].label,
+  const settings = useSettingsStore((s) => s.settings);
+  const sessionOptions = useChatStore((s) => s.session.runOptions);
+  const [runOptions, setRunOptions] = useState<AgentRunOptions>(() =>
+    settings
+      ? runOptionsFromSettings(settings)
+      : { backend: "claude", model: null, effort: null },
   );
+  const [tuningOpen, setTuningOpen] = useState(false);
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (sessionOptions) {
+      setRunOptions(sessionOptions);
+    } else if (settings) {
+      setRunOptions(runOptionsFromSettings(settings));
+    }
+  }, [
+    sessionOptions,
+    settings?.agentBackend,
+    settings?.model,
+    settings?.codexModel,
+    settings?.effort,
+    settings?.codexEffort,
+  ]);
+
+  const agentLabel = BACKENDS[runOptions.backend].label;
 
   // Dictation appends, so a user can type half a thought and speak the rest.
   const appendDictated = useCallback((text: string) => {
@@ -50,7 +78,10 @@ export default function Composer() {
   const dictation = useDictation(appendDictated);
 
   const canSend =
-    (value.trim() || attachments.length > 0) && !running && !loopRunning;
+    (value.trim() || attachments.length > 0) &&
+    !running &&
+    !loopRunning &&
+    !cliInstalling;
 
   // A quiet starter-prompt row, only on an empty, idle composer.
   const showQuickActions =
@@ -76,7 +107,7 @@ export default function Composer() {
     if (!canSend) return;
     const text = value.trim();
     setValue("");
-    void send(text, attachments);
+    void send(text, attachments, runOptions);
     clearAttachments(); // detach — the files now belong to the sent message
     requestAnimationFrame(() => autosize(ref.current));
   }
@@ -112,7 +143,7 @@ export default function Composer() {
   }
 
   return (
-    <div className="border-t border-white/5 bg-ink-900 px-4 py-3">
+    <div className="glass-bar mx-3 mb-3 rounded-2xl border px-4 py-3">
       <div className="mx-auto max-w-2xl">
         {showQuickActions && (
           <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5">
@@ -140,6 +171,34 @@ export default function Composer() {
           </div>
         )}
 
+        <div className="mb-2">
+          <button
+            type="button"
+            onClick={() => setTuningOpen((open) => !open)}
+            aria-expanded={tuningOpen}
+            className="flex max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-xs text-fg-dim transition-colors hover:text-fg-muted"
+          >
+            <span className="font-medium text-fg-muted">{agentLabel}</span>
+            <span className="truncate">{runOptionsSummary(runOptions)}</span>
+            <span aria-hidden>{tuningOpen ? "−" : "+"}</span>
+          </button>
+          {tuningOpen && (
+            <div className="glass-card mt-1.5 rounded-xl border p-3">
+              <AgentRunControls
+                value={runOptions}
+                onChange={setRunOptions}
+                disabled={running || !!sessionOptions}
+              />
+              {sessionOptions && (
+                <p className="mt-2 text-[11px] leading-relaxed text-fg-dim">
+                  These choices stay fixed for this conversation. Start a new
+                  chat to use different ones.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="flex items-end gap-2">
           <textarea
             ref={ref}
@@ -155,13 +214,15 @@ export default function Composer() {
             placeholder={
               loopRunning
                 ? "Auto mode is running…"
+                : cliInstalling
+                  ? "Finishing the CLI install…"
                 : dictation.state === "recording"
                   ? "Listening… click the mic to finish."
                   : dictation.state === "transcribing"
                     ? "Transcribing…"
                     : `Ask ${agentLabel} to change your game…`
             }
-            className="selectable max-h-40 flex-1 resize-none rounded-xl border border-ink-700 bg-ink-850 px-3.5 py-2.5 text-sm text-fg placeholder:text-fg-dim transition-colors duration-150 focus:border-ink-600 focus:outline-none disabled:opacity-50"
+            className="selectable max-h-40 flex-1 resize-none rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5 text-sm text-fg placeholder:text-fg-dim transition-colors duration-150 focus:border-accent/40 focus:bg-black/35 focus:outline-none disabled:opacity-50"
           />
 
           {dictation.state !== "unsupported" && !loopRunning && (
@@ -179,7 +240,7 @@ export default function Composer() {
             <button
               onClick={submit}
               disabled={!canSend}
-              className="shrink-0 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-accent-hover disabled:opacity-40"
+              className="shrink-0 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-hover disabled:opacity-40"
             >
               Send
             </button>

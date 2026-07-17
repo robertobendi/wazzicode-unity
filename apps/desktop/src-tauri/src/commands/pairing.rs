@@ -2,8 +2,8 @@
 //!
 //! `pairing_*` drives the hidden-PTY `claude setup-token` flow (state streamed
 //! on `pairing:update`). `auth_*` tracks whether this machine is connected —
-//! we don't manage tokens, so "connected" is just the persisted `paired_ok`
-//! flag plus a live `claude` probe against the CLI's own credentials.
+//! setup-token output is stored in the OS credential store and supplied only
+//! to Claude child processes; `paired_ok` is the cheap persisted gate.
 
 use crate::error::AppResult;
 use crate::pairing::PairingState;
@@ -67,7 +67,7 @@ pub struct AuthVerify {
 }
 
 /// Live "is this machine authenticated" check — a cheap `claude -p "…OK"` probe
-/// against the CLI's own credentials (no token injected). On success, persist
+/// against the app-managed OAuth token or the CLI's own login. On success, persist
 /// `paired_ok=true` so the gate skips pairing next launch. Runs the subprocess
 /// on a blocking thread with a hard timeout.
 #[tauri::command]
@@ -76,10 +76,11 @@ pub async fn auth_verify(state: State<'_, AppState>) -> AppResult<AuthVerify> {
         .await
         .map_err(|e| crate::error::AppError::Other(format!("verify task failed: {e}")))?;
 
-    if res.is_ok() {
+    {
+        let ok = res.is_ok();
         let mut s = state.settings.write().await;
-        if !s.paired_ok {
-            s.paired_ok = true;
+        if s.paired_ok != ok {
+            s.paired_ok = ok;
             crate::store::settings::save(&state.config_dir, &s)?;
         }
     }
@@ -96,11 +97,11 @@ pub async fn auth_verify(state: State<'_, AppState>) -> AppResult<AuthVerify> {
     })
 }
 
-/// Forget the connection (clears `paired_ok`). Used by "Re-pair account"; the
-/// CLI's own credentials are left untouched (use `claude logout` to switch
-/// accounts). The re-pair screen then re-probes and re-pairs as needed.
+/// Forget the app-managed OAuth token and connection flag. CLI-managed `/login`
+/// credentials are left untouched.
 #[tauri::command]
 pub async fn auth_clear(state: State<'_, AppState>) -> AppResult<()> {
+    crate::claudeauth::clear_oauth_token()?;
     let mut s = state.settings.write().await;
     s.paired_ok = false;
     crate::store::settings::save(&state.config_dir, &s)?;

@@ -13,8 +13,9 @@ pub async fn update_settings(
     settings: Settings,
     state: State<'_, AppState>,
 ) -> AppResult<Settings> {
+    let mut current = state.settings.write().await;
     save(&state.config_dir, &settings)?;
-    *state.settings.write().await = settings.clone();
+    *current = settings.clone();
     Ok(settings)
 }
 

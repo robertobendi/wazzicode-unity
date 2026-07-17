@@ -1,12 +1,17 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "@/stores/useChatStore";
 import { useLoopStore } from "@/stores/useLoopStore";
 import { useAttachmentsStore } from "@/stores/useAttachmentsStore";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useResourceDnd } from "@/hooks/useResourceDnd";
+import { useCliInstallActive } from "@/hooks/useOnboarding";
 import AttachmentChip from "@/components/chat/AttachmentChip";
 import { DEFAULT_LOOP_OPTIONS } from "@/types/loop";
 import { BACKENDS } from "@/types/settings";
+import type { AgentRunOptions } from "@/types/agent";
+import { runOptionsFromSettings } from "@/lib/agentOptions";
+import { runOptionsSummary } from "@/lib/modelCatalog";
+import AgentRunControls from "@/components/agent/AgentRunControls";
 
 /**
  * Auto-mode entry point: describe a goal, optionally attach reference images,
@@ -18,13 +23,12 @@ export default function GoalCard() {
   const start = useLoopStore((s) => s.start);
   const starting = useLoopStore((s) => s.starting);
   const error = useLoopStore((s) => s.error);
+  const cliInstalling = useCliInstallActive();
 
   const attachments = useAttachmentsStore((s) => s.items);
   const removeAttachment = useAttachmentsStore((s) => s.remove);
   const clearAttachments = useAttachmentsStore((s) => s.clear);
-  const agentLabel = useSettingsStore(
-    (s) => BACKENDS[s.settings?.agentBackend ?? "claude"].label,
-  );
+  const settings = useSettingsStore((s) => s.settings);
 
   const [goal, setGoal] = useState("");
   const [maxIterations, setMaxIterations] = useState(
@@ -33,20 +37,38 @@ export default function GoalCard() {
   const [maxCostUsd, setMaxCostUsd] = useState(DEFAULT_LOOP_OPTIONS.maxCostUsd);
   const [qaEnabled, setQaEnabled] = useState(true);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [runOptions, setRunOptions] = useState<AgentRunOptions>(() =>
+    settings ? runOptionsFromSettings(settings) : DEFAULT_LOOP_OPTIONS.agent,
+  );
+
+  useEffect(() => {
+    if (settings) setRunOptions(runOptionsFromSettings(settings));
+  }, [
+    settings?.agentBackend,
+    settings?.model,
+    settings?.codexModel,
+    settings?.effort,
+    settings?.codexEffort,
+  ]);
+
+  const backend = BACKENDS[runOptions.backend];
+  const agentLabel = backend.label;
 
   const regionRef = useRef<HTMLDivElement>(null);
   const dragActive = useResourceDnd(project, regionRef);
 
   const images = attachments.filter((a) => a.kind === "image");
-  const canStart = goal.trim().length > 0 && !starting && !!project;
+  const canStart =
+    goal.trim().length > 0 && !starting && !cliInstalling && !!project;
 
   function onStart() {
     if (!canStart || !project) return;
     void start(project, goal.trim(), {
       maxIterations,
-      maxCostUsd,
+      maxCostUsd: backend.reportsCost ? maxCostUsd : 0,
       qaEvery: qaEnabled ? 1 : 0,
       referenceImages: images.map((a) => a.path),
+      agent: runOptions,
     });
     clearAttachments();
   }
@@ -54,7 +76,7 @@ export default function GoalCard() {
   return (
     <div
       ref={regionRef}
-      className="relative mx-auto flex w-full max-w-2xl flex-col gap-5"
+      className="glass-card relative mx-auto flex w-full max-w-2xl flex-col gap-5 rounded-3xl border p-6"
     >
       <div>
         <h2 className="text-lg font-semibold text-fg">Auto mode</h2>
@@ -70,7 +92,7 @@ export default function GoalCard() {
         onChange={(e) => setGoal(e.target.value)}
         rows={5}
         placeholder="What should we build? e.g. “A main menu with Play and Quit buttons that loads the first level.”"
-        className="selectable w-full resize-none rounded-xl border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-fg placeholder:text-fg-dim transition-colors duration-150 focus:border-ink-600 focus:outline-none"
+        className="selectable w-full resize-none rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-fg placeholder:text-fg-dim transition-colors duration-150 focus:border-accent/40 focus:bg-black/35 focus:outline-none"
       />
 
       {images.length > 0 && (
@@ -88,16 +110,37 @@ export default function GoalCard() {
         </div>
       )}
 
-      <div className="rounded-xl border border-ink-700 bg-ink-900">
+      <div className="rounded-xl border border-white/10 bg-black/20">
         <button
           onClick={() => setAdvancedOpen((v) => !v)}
+          aria-expanded={advancedOpen}
+          aria-controls="auto-advanced-controls"
           className="flex w-full items-center justify-between px-4 py-2.5 text-sm text-fg-muted transition-colors duration-150 hover:text-fg"
         >
-          Advanced
+          <span className="min-w-0 text-left">
+            <span className="block">Advanced</span>
+            <span className="block truncate text-[11px] text-fg-dim">
+              {runOptionsSummary(runOptions)}
+            </span>
+          </span>
           <span className="text-fg-dim">{advancedOpen ? "−" : "+"}</span>
         </button>
         {advancedOpen && (
-          <div className="flex flex-col gap-4 border-t border-ink-700 px-4 py-4">
+          <div
+            id="auto-advanced-controls"
+            className="flex flex-col gap-4 border-t border-ink-700 px-4 py-4"
+          >
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-dim">
+                {agentLabel} for this task
+              </p>
+              <AgentRunControls
+                value={runOptions}
+                onChange={setRunOptions}
+                disabled={starting}
+              />
+            </div>
+            <div className="border-t border-white/5" />
             <NumberRow
               label="Max steps"
               hint="Stops after this many iterations."
@@ -107,15 +150,17 @@ export default function GoalCard() {
               step={1}
               onChange={setMaxIterations}
             />
-            <NumberRow
-              label="Budget ($)"
-              hint="Stops when spend reaches this."
-              value={maxCostUsd}
-              min={0.5}
-              max={100}
-              step={0.5}
-              onChange={setMaxCostUsd}
-            />
+            {backend.reportsCost && (
+              <NumberRow
+                label="Budget ($)"
+                hint="Stops when spend reaches this."
+                value={maxCostUsd}
+                min={0.5}
+                max={100}
+                step={0.5}
+                onChange={setMaxCostUsd}
+              />
+            )}
             <label className="flex items-center justify-between">
               <span className="text-sm text-fg">
                 Review the result before finishing

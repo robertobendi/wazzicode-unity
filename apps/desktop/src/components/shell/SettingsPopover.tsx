@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api";
+import AgentRunControls from "@/components/agent/AgentRunControls";
+import { useCliSetup, useOnboardingProgress } from "@/hooks/useOnboarding";
+import { runOptionsFromSettings } from "@/lib/agentOptions";
 import { useSettingsStore } from "@/stores/useSettingsStore";
+import { usePairingStore } from "@/stores/usePairingStore";
+import { useChatStore } from "@/stores/useChatStore";
+import { useLoopStore } from "@/stores/useLoopStore";
+import { isLoopActive } from "@/types/loop";
 import { useUiStore } from "@/stores/useUiStore";
+import type { AgentRunOptions } from "@/types/agent";
 import { BACKENDS, type AgentBackend } from "@/types/settings";
 import BackendPicker from "./BackendPicker";
 
@@ -15,28 +23,27 @@ import BackendPicker from "./BackendPicker";
  */
 export default function SettingsPopover() {
   const settings = useSettingsStore((s) => s.settings);
+  const saveError = useSettingsStore((s) => s.error);
   const update = useSettingsStore((s) => s.update);
   const setOpen = useUiStore((s) => s.setSettingsOpen);
   const setRepairing = useUiStore((s) => s.setRepairing);
   const ref = useRef<HTMLDivElement>(null);
+  const chatRunning = useChatStore((s) => s.running);
+  const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
+  const taskActive = chatRunning || loopRunning;
 
   const backend: AgentBackend = settings?.agentBackend ?? "claude";
-  const [cliFound, setCliFound] = useState<boolean | null>(null);
+  const cli = useCliSetup(backend);
+  const progress = useOnboardingProgress("install_cli");
   const [codexSignedIn, setCodexSignedIn] = useState<boolean | null>(null);
+  const defaults: AgentRunOptions = settings
+    ? runOptionsFromSettings(settings, backend)
+    : { backend, model: null, effort: null };
 
-  // Live per-backend health: is the CLI there, and (Codex) is it signed in?
-  // Re-probed whenever the selected backend changes.
   useEffect(() => {
     let alive = true;
-    setCliFound(null);
     setCodexSignedIn(null);
-
-    void api
-      .onboardingCheckCli(backend)
-      .then((s) => alive && setCliFound(s.found))
-      .catch(() => alive && setCliFound(null));
-
-    if (backend === "codex") {
+    if (backend === "codex" && cli.status?.found && !cli.error) {
       void api
         .codexAuthStatus()
         .then((s) => alive && setCodexSignedIn(s.loggedIn))
@@ -46,13 +53,26 @@ export default function SettingsPopover() {
     return () => {
       alive = false;
     };
-  }, [backend]);
+  }, [backend, cli.error, cli.status?.found, cli.status?.version]);
+
+  function updateDefaults(next: AgentRunOptions) {
+    void update(
+      backend === "codex"
+        ? { codexModel: next.model, codexEffort: next.effort }
+        : { model: next.model, effort: next.effort },
+    );
+  }
+
+  async function installCli() {
+    if (taskActive) return;
+    progress.reset();
+    await cli.install();
+  }
 
   async function repair() {
-    // Clear only OUR connection flag (the CLI keeps its own credentials); the
-    // re-pair screen re-probes and re-pairs if needed.
-    await api.authClear();
-    await update({ pairedOk: false });
+    if (taskActive) return;
+    // Keep the working token until the replacement is verified and promoted.
+    await usePairingStore.getState().cancel();
     setOpen(false);
     setRepairing(true);
   }
@@ -60,6 +80,7 @@ export default function SettingsPopover() {
   // Codex sign-in lives on its own full-screen surface (App routes `repairing`
   // by backend), so the popover just hands off.
   function signInToCodex() {
+    if (taskActive) return;
     setOpen(false);
     setRepairing(true);
   }
@@ -87,7 +108,7 @@ export default function SettingsPopover() {
   return (
     <div
       ref={ref}
-      className="absolute right-3 top-12 z-30 w-72 animate-appear rounded-xl border border-white/10 bg-ink-850 p-4 shadow-xl shadow-black/30"
+      className="glass-card absolute right-3 top-14 z-30 max-h-[calc(100vh-5rem)] w-80 animate-appear overflow-y-auto rounded-2xl border p-4"
     >
       <div className="text-xs font-medium uppercase tracking-wide text-fg-dim">
         Agent
@@ -97,32 +118,81 @@ export default function SettingsPopover() {
         <BackendPicker
           value={backend}
           onChange={(b) => void update({ agentBackend: b })}
+          disabled={cli.installing || taskActive}
         />
       </div>
       <p className="mt-2 text-xs leading-relaxed text-fg-dim">{meta.blurb}</p>
-
-      <label className="mt-3 block">
-        <span className="text-sm text-fg-muted">Model</span>
-        <input
-          type="text"
-          value={(backend === "codex" ? settings.codexModel : settings.model) ?? ""}
-          placeholder={backend === "codex" ? "Default (e.g. gpt-5-codex)" : "Default (e.g. claude-sonnet-4-5)"}
-          spellCheck={false}
-          onChange={(e) => {
-            const next = e.target.value.trim() || null;
-            void update(
-              backend === "codex" ? { codexModel: next } : { model: next },
-            );
-          }}
-          className="selectable mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-dim focus:border-ink-600 focus:outline-none"
-        />
-      </label>
-
-      {cliFound === false && (
-        <p className="mt-3 rounded-lg border border-warning/30 bg-warning/5 px-2.5 py-2 text-xs text-fg-muted">
-          The <span className="font-mono text-fg">{meta.cli}</span> command-line
-          helper isn&apos;t installed. Run setup again to install it.
+      {taskActive && (
+        <p className="mt-2 rounded-lg border border-warning/20 bg-warning/5 px-2.5 py-2 text-xs leading-relaxed text-fg-muted">
+          Stop the current task before changing agents, installing a CLI, or reconnecting an account.
         </p>
+      )}
+
+      {saveError && (
+        <div
+          role="alert"
+          className="mt-3 rounded-lg border border-danger/30 bg-danger/5 p-3"
+        >
+          <p className="text-xs leading-relaxed text-danger">
+            Settings could not be saved. The visible changes are temporary.
+          </p>
+          <pre className="selectable mt-1 whitespace-pre-wrap break-words font-sans text-[11px] text-fg-muted">
+            {saveError}
+          </pre>
+          <button
+            onClick={() => void update({})}
+            className="mt-2 rounded-md border border-danger/30 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:border-danger/60"
+          >
+            Retry save
+          </button>
+        </div>
+      )}
+
+      <div className="mt-4 border-t border-white/5 pt-3">
+        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-dim">
+          New task defaults
+        </div>
+        <AgentRunControls
+          value={defaults}
+          onChange={updateDefaults}
+          disabled={cli.installing}
+          refreshKey={cli.status?.version}
+        />
+      </div>
+
+      {!cli.checking && (!cli.status?.found || cli.error) && (
+        <div className="mt-4 rounded-lg border border-warning/30 bg-warning/5 p-3">
+          <p className="text-xs leading-relaxed text-fg-muted">
+            The <span className="font-mono text-fg">{meta.cli}</span> helper is
+            not ready.
+          </p>
+          {cli.error && (
+            <pre className="selectable mt-2 whitespace-pre-wrap break-words font-sans text-[11px] leading-relaxed text-warning">
+              {cli.error}
+            </pre>
+          )}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => void installCli()}
+              disabled={cli.installing || taskActive}
+              className="rounded-md bg-accent px-2.5 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            >
+              {cli.installing ? "Installing…" : "Install CLI"}
+            </button>
+            <button
+              onClick={() => void cli.check()}
+              disabled={cli.installing}
+              className="rounded-md border border-ink-700 px-2.5 py-2 text-xs font-medium text-fg-muted transition-colors hover:border-ink-600 hover:text-fg disabled:opacity-50"
+            >
+              Check again
+            </button>
+          </div>
+          {progress.lines.length > 0 && (
+            <pre className="selectable mt-3 max-h-28 overflow-auto whitespace-pre-wrap rounded-md bg-ink-950 p-2 text-[10px] leading-relaxed text-fg-dim">
+              {progress.lines.join("\n")}
+            </pre>
+          )}
+        </div>
       )}
 
       <div className="mt-4 flex items-center justify-between gap-3">
@@ -145,14 +215,20 @@ export default function SettingsPopover() {
         {backend === "codex" ? (
           <button
             onClick={signInToCodex}
-            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600"
+            disabled={
+              !cli.status?.found || !!cli.error || cli.installing || taskActive
+            }
+            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600 disabled:opacity-50"
           >
             {codexSignedIn ? "Re-sign in" : "Sign in"}
           </button>
         ) : (
           <button
             onClick={() => void repair()}
-            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600"
+            disabled={
+              !cli.status?.found || !!cli.error || cli.installing || taskActive
+            }
+            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600 disabled:opacity-50"
           >
             Re-pair
           </button>
@@ -196,7 +272,8 @@ export default function SettingsPopover() {
               void update({ onboarded: false });
               setOpen(false);
             }}
-            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600"
+            disabled={cli.installing || taskActive}
+            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Redo
           </button>
@@ -219,6 +296,8 @@ function Toggle({
 }) {
   return (
     <button
+      role="switch"
+      aria-checked={checked}
       onClick={() => onChange(!checked)}
       className="mt-3 flex w-full items-start justify-between gap-3 text-left"
     >

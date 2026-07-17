@@ -21,10 +21,15 @@ pub async fn loop_start(
     if goal.trim().is_empty() {
         return Err(AppError::Other("Describe what to build first.".into()));
     }
+    options.agent.validate()?;
     let project_path = PathBuf::from(&project);
     if state.sessions.has_run_for(&project_path) {
         return Err(AppError::Other("busy: a chat is running".into()));
     }
+    let permit = state
+        .executions
+        .try_acquire(&project_path)
+        .ok_or_else(|| AppError::Other("busy: another task is running".into()))?;
     let mcp_config = crate::mcpconfig::ensure_mcp_config(&app, &state.config_dir, &project_path)?;
     let mcp_entry = crate::mcpconfig::mcp_entry(&app, &project_path);
     let settings = state.settings.read().await.clone();
@@ -38,6 +43,7 @@ pub async fn loop_start(
             settings,
             mcp_config,
             mcp_entry,
+            permit,
         )
         .await
 }

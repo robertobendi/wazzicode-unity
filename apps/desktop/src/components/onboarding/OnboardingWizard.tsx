@@ -33,12 +33,14 @@ const STEP = {
 export default function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
   const setSettings = useSettingsStore((s) => s.setSettings);
   const updateSettings = useSettingsStore((s) => s.update);
+  const settingsError = useSettingsStore((s) => s.error);
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [backend, setBackend] = useState<AgentBackend>("claude");
   const [step, setStep] = useState<number>(STEP.welcome);
   const [project, setProject] = useState<ProjectInfo | null>(null);
 
-  // Load status once to seed the starting step (skip completed prerequisites).
+  // Load status once to pre-fill completed prerequisites. The agent choice is
+  // always shown first: an installed default CLI is not a user selection.
   useEffect(() => {
     let alive = true;
     void api
@@ -48,7 +50,6 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
         setStatus(s);
         setBackend(s.agentBackend);
         if (s.projectReady?.ok) setProject(s.projectReady);
-        setStep(startStep(s));
       })
       .catch(() => alive && setStatus(EMPTY_STATUS));
     return () => {
@@ -61,6 +62,14 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
     // Persist immediately — chat/loop runs read this from settings, and the
     // wizard can be abandoned halfway.
     void updateSettings({ agentBackend: next });
+  }
+
+  async function continueFromWelcome() {
+    // Queue one final save and wait for it. Project selection writes the full
+    // canonical Settings object through a separate command, so the two writes
+    // must never overlap and lose the selected backend.
+    await updateSettings({ agentBackend: backend });
+    if (!useSettingsStore.getState().error) setStep(STEP.project);
   }
 
   async function pickProject(info: ProjectInfo) {
@@ -89,7 +98,12 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
   // CLI *is* the satisfied state, and CodexAuthScreen probes that itself.
   if (step === STEP.connect) {
     if (backend === "codex") {
-      return <CodexAuthScreen onDone={() => setStep(STEP.ready)} />;
+      return (
+        <CodexAuthScreen
+          onDone={() => setStep(STEP.ready)}
+          onChooseAgent={() => setStep(STEP.welcome)}
+        />
+      );
     }
     return (
       <PairingScreen
@@ -97,6 +111,8 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
           void updateSettings({ pairedOk: true });
           setStep(STEP.ready);
         }}
+        onChooseAgent={() => setStep(STEP.welcome)}
+        forcePair={!status?.pairedOk}
       />
     );
   }
@@ -110,10 +126,12 @@ export default function OnboardingWizard({ onComplete }: { onComplete: () => voi
 
         {step === STEP.welcome && (
           <WelcomeStep
+            key={backend}
             backend={backend}
             onBackendChange={pickBackend}
             initial={cliFor(status, backend)}
-            onContinue={() => setStep(STEP.project)}
+            settingsError={settingsError}
+            onContinue={() => void continueFromWelcome()}
           />
         )}
 
@@ -151,17 +169,10 @@ function cliFor(s: OnboardingStatus, backend: AgentBackend) {
   return backend === "codex" ? s.codexCli : s.claudeCli;
 }
 
-/** Earliest step whose prerequisite isn't already satisfied. */
-function startStep(s: OnboardingStatus): number {
-  if (!cliFor(s, s.agentBackend).found) return STEP.welcome;
-  if (!s.projectReady?.ok) return STEP.project;
-  return STEP.setup;
-}
-
 const EMPTY_STATUS: OnboardingStatus = {
   agentBackend: "claude",
-  claudeCli: { found: false, path: null, version: null },
-  codexCli: { found: false, path: null, version: null },
+  claudeCli: { found: false, path: null, version: null, error: null },
+  codexCli: { found: false, path: null, version: null, error: null },
   nodeSidecar: { bundled: false },
   currentProject: null,
   projectReady: null,

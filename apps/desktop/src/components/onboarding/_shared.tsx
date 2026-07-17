@@ -2,6 +2,7 @@
 // PairingScreen (numbered progress dots, one card per step, design tokens).
 
 import type { ReactNode } from "react";
+import Logo from "@/components/shell/Logo";
 
 export const STEP_LABELS = ["Agent", "Project", "Set up", "Connect", "Ready"];
 
@@ -16,10 +17,10 @@ export function Stepper({ current }: { current: number }) {
             <span
               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-medium transition-colors ${
                 done
-                  ? "bg-accent/20 text-accent"
+                  ? "border border-accent/15 bg-accent/10 text-accent"
                   : active
-                    ? "bg-accent text-white"
-                    : "bg-ink-800 text-fg-dim"
+                    ? "border border-accent/30 bg-accent text-white shadow-sm shadow-accent/10"
+                    : "border border-white/5 bg-white/[0.035] text-fg-dim"
               }`}
             >
               {done ? "✓" : i + 1}
@@ -46,9 +47,11 @@ export function StepHeading({
 }) {
   return (
     <div>
-      <div className="mb-4 h-1.5 w-10 rounded-full bg-accent/70" />
+      <div className="identity-mark">
+        <Logo size={26} />
+      </div>
       <h1 className="text-2xl font-semibold tracking-tight text-fg">{title}</h1>
-      {children && <p className="mt-2 text-sm text-fg-muted">{children}</p>}
+      {children && <p className="mt-2 text-sm leading-relaxed text-fg-muted">{children}</p>}
     </div>
   );
 }
@@ -68,7 +71,7 @@ export function PrimaryButton({
     <button
       onClick={onClick}
       disabled={disabled || busy}
-      className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
+      className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
     >
       {busy ? (
         <>
@@ -91,7 +94,7 @@ export function SecondaryButton({
   return (
     <button
       onClick={onClick}
-      className="rounded-lg bg-ink-700 px-4 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-ink-600"
+      className="rounded-xl border border-white/10 bg-white/[0.045] px-4 py-2.5 text-sm font-medium text-fg transition-colors hover:bg-white/[0.08]"
     >
       {children}
     </button>

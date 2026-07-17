@@ -31,6 +31,10 @@ pub struct RevertResult {
 #[tauri::command]
 pub async fn revert_last(project: String, state: State<'_, AppState>) -> AppResult<RevertResult> {
     let project_path = PathBuf::from(&project);
+    let _permit = state
+        .executions
+        .try_acquire(&project_path)
+        .ok_or_else(|| AppError::Other("busy: another task is using this project".into()))?;
 
     // Guard: never rewind the tree out from under a live edit.
     if state.sessions.has_run_for(&project_path) || state.loops.is_running_for(&project_path).await

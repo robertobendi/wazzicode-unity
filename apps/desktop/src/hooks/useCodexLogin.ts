@@ -17,6 +17,7 @@ const IDLE: CodexLoginUpdate = { phase: "starting", url: null, error: null };
 export function useCodexLogin() {
   const [update, setUpdate] = useState<CodexLoginUpdate | null>(null);
   const [starting, setStarting] = useState(false);
+  const [listenerReady, setListenerReady] = useState(false);
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
@@ -27,7 +28,14 @@ export function useCodexLogin() {
       setUpdate(e.payload);
     }).then((u) => {
       if (cancelled) u();
-      else unlisten = u;
+      else {
+        unlisten = u;
+        setListenerReady(true);
+      }
+    }).catch((error) => {
+      if (!cancelled) {
+        setUpdate({ phase: "failed", url: null, error: String(error) });
+      }
     });
 
     return () => {
@@ -37,6 +45,14 @@ export function useCodexLogin() {
   }, []);
 
   const start = useCallback(async () => {
+    if (!listenerReady) {
+      setUpdate({
+        phase: "failed",
+        url: null,
+        error: "The sign-in listener is not ready. Try again.",
+      });
+      return;
+    }
     setStarting(true);
     setUpdate(IDLE);
     try {
@@ -45,7 +61,7 @@ export function useCodexLogin() {
       setStarting(false);
       setUpdate({ phase: "failed", url: null, error: String(e) });
     }
-  }, []);
+  }, [listenerReady]);
 
   const cancel = useCallback(async () => {
     setStarting(false);
@@ -54,8 +70,10 @@ export function useCodexLogin() {
       await api.codexLoginCancel();
     } catch {
       // Best-effort — nothing to do if there's no login in flight.
+    } finally {
+      setUpdate(null);
     }
   }, []);
 
-  return { update, starting, start, cancel };
+  return { update, starting, listenerReady, start, cancel };
 }

@@ -4,9 +4,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AgentBackend, Settings } from "@/types/settings";
+import type {
+  AgentBackend,
+  AgentModelOption,
+  AgentRunOptions,
+} from "@/types/agent";
+import type { Settings } from "@/types/settings";
 import type { ProjectInfo } from "@/types/project";
-import type { StagedResource } from "@/types/chat";
+import type { ChatTerminalEvent, StagedResource } from "@/types/chat";
 import type { AuthStatus, AuthVerify, PairingState } from "@/types/pairing";
 import type { CodexAuthStatus } from "@/types/codex";
 import type { LoopOptions, LoopState } from "@/types/loop";
@@ -33,9 +38,19 @@ export const api = {
     invoke<Settings>("set_current_project", { path }),
 
   // Chat: returns the runId to subscribe to (agent:stream/done/error:<runId>).
-  chatSend: (project: string, prompt: string, resumeSessionId?: string | null) =>
-    invoke<string>("chat_send", { project, prompt, resumeSessionId }),
+  chatSend: (
+    project: string,
+    prompt: string,
+    resumeSessionId: string | null,
+    options: AgentRunOptions,
+  ) => invoke<string>("chat_send", { project, prompt, resumeSessionId, options }),
   chatCancel: (runId: string) => invoke<void>("chat_cancel", { runId }),
+  chatSubscribe: (runId: string) =>
+    invoke<ChatTerminalEvent | null>("chat_subscribe", { runId }),
+
+  // Models and supported reasoning levels reported by the selected CLI.
+  agentModelCatalog: (backend: AgentBackend) =>
+    invoke<AgentModelOption[]>("agent_model_catalog", { backend }),
 
   // Revert: roll the project back to the last studio checkpoint. Availability
   // arrives on the `checkpoint:ready` event; this undoes the last AI turn.
@@ -87,7 +102,7 @@ export const api = {
   // Codex sign-in. Credentials stay with the Codex CLI (~/.codex) — nothing
   // here returns a token. Browser sign-in streams progress on `codex:login`.
   // ChatGPT-subscription only: there is no API-key command, because that bills
-  // API credits rather than the user's plan (Rust also scrubs OPENAI_API_KEY).
+  // API credits rather than the user's plan (Rust also isolates child auth).
   codexAuthStatus: () => invoke<CodexAuthStatus>("codex_auth_status"),
   codexLoginStart: () => invoke<void>("codex_login_start"),
   codexLoginCancel: () => invoke<void>("codex_login_cancel"),

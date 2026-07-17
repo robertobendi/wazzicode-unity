@@ -14,7 +14,7 @@ export default function ConnectionBanner() {
   if (!show) return null;
 
   return (
-    <div className="animate-appear border-b border-warning/20 bg-warning/10 px-4 py-2 text-center text-xs text-warning">
+    <div className="mx-3 mt-2 animate-appear rounded-xl border border-warning/20 bg-warning/10 px-4 py-2 text-center text-xs text-warning backdrop-blur-xl">
       Unity connection hiccup — the AI will keep trying.
     </div>
   );

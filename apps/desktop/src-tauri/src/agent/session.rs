@@ -16,7 +16,8 @@
 use crate::agent::spawn::{friendly_spawn_error, spawn_streaming, ChildHandle, ExitInfo};
 use crate::agent::Backend;
 use crate::error::{AppError, AppResult};
-use std::collections::HashMap;
+use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -25,12 +26,43 @@ use tauri::{AppHandle, Emitter};
 struct RunHandle {
     handle: ChildHandle,
     project: PathBuf,
+    _permit: crate::execution::ProjectPermit,
 }
 
 /// Tracks active runs. Cheap to clone (shared `Arc` map). Held in `AppState`.
 #[derive(Clone, Default)]
 pub struct SessionManager {
     runs: Arc<Mutex<HashMap<String, RunHandle>>>,
+    terminal: Arc<Mutex<TerminalMailbox>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
+pub enum TerminalEvent {
+    Done(serde_json::Value),
+    Error(serde_json::Value),
+}
+
+#[derive(Default)]
+struct TerminalMailbox {
+    completed: HashMap<String, TerminalEvent>,
+    subscribed: HashSet<String>,
+}
+
+impl TerminalMailbox {
+    fn subscribe(&mut self, run_id: &str) -> Option<TerminalEvent> {
+        if let Some(event) = self.completed.remove(run_id) {
+            return Some(event);
+        }
+        self.subscribed.insert(run_id.to_string());
+        None
+    }
+
+    fn publish(&mut self, run_id: &str, event: TerminalEvent) {
+        if !self.subscribed.remove(run_id) {
+            self.completed.insert(run_id.to_string(), event);
+        }
+    }
 }
 
 impl SessionManager {
@@ -43,6 +75,7 @@ impl SessionManager {
         project: PathBuf,
         prompt: String,
         args: Vec<String>,
+        permit: crate::execution::ProjectPermit,
     ) -> AppResult<String> {
         // One active run per project.
         if self.has_run_for(&project) {
@@ -52,17 +85,27 @@ impl SessionManager {
         let run_id = nanoid::nanoid!();
         let (handle, join) =
             spawn_streaming(app.clone(), backend, run_id.clone(), &project, args, prompt)?;
-        self.runs
-            .lock()
-            .unwrap()
-            .insert(run_id.clone(), RunHandle { handle, project });
+        self.runs.lock().unwrap().insert(
+            run_id.clone(),
+            RunHandle {
+                handle,
+                project,
+                _permit: permit,
+            },
+        );
 
         let runs_map = self.runs.clone();
+        let terminal = self.terminal.clone();
         let run_id_task = run_id.clone();
         tokio::spawn(async move {
             let info = join.await.unwrap_or_default();
             runs_map.lock().unwrap().remove(&run_id_task);
-            emit_terminal(&app, backend, &run_id_task, &info);
+            let event = terminal_event(backend, &info);
+            terminal
+                .lock()
+                .unwrap()
+                .publish(&run_id_task, event.clone());
+            emit_terminal(&app, &run_id_task, &event);
         });
 
         Ok(run_id)
@@ -91,34 +134,80 @@ impl SessionManager {
             .values()
             .any(|h| h.project == project)
     }
+
+    /// Mark the webview listeners ready and replay a terminal event if this run
+    /// completed before the frontend received its id.
+    pub fn subscribe(&self, run_id: &str) -> Option<TerminalEvent> {
+        self.terminal.lock().unwrap().subscribe(run_id)
+    }
+}
+
+fn terminal_event(backend: Backend, info: &ExitInfo) -> TerminalEvent {
+    if info.cancelled {
+        TerminalEvent::Error(
+            serde_json::json!({ "friendly": "Stopped.", "raw": "Run cancelled by user." }),
+        )
+    } else if info.result_seen {
+        TerminalEvent::Done(serde_json::json!({
+            "sessionId": info.session_id,
+            "costUsd": info.cost_usd,
+            "tokens": info.tokens,
+            "isError": info.is_error,
+            "resultText": info.result_text,
+            "numTurns": info.num_turns,
+        }))
+    } else {
+        TerminalEvent::Error(serde_json::json!({
+            "friendly": friendly_spawn_error(backend, &info.stderr_tail, info.exit_code),
+            "raw": format!("{}\n(exit code: {:?})", info.stderr_tail, info.exit_code),
+        }))
+    }
 }
 
 /// Emit the terminal `agent:done`/`agent:error` event for a finished run.
-fn emit_terminal(app: &AppHandle, backend: Backend, run_id: &str, info: &ExitInfo) {
-    if info.cancelled {
-        let _ = app.emit(
-            &format!("agent:error:{run_id}"),
-            serde_json::json!({ "friendly": "Stopped.", "raw": "Run cancelled by user." }),
-        );
-    } else if info.result_seen {
-        let _ = app.emit(
-            &format!("agent:done:{run_id}"),
-            serde_json::json!({
-                "sessionId": info.session_id,
-                "costUsd": info.cost_usd,
-                "tokens": info.tokens,
-                "isError": info.is_error,
-                "resultText": info.result_text,
-                "numTurns": info.num_turns,
-            }),
-        );
-    } else {
-        let _ = app.emit(
-            &format!("agent:error:{run_id}"),
-            serde_json::json!({
-                "friendly": friendly_spawn_error(backend, &info.stderr_tail, info.exit_code),
-                "raw": format!("{}\n(exit code: {:?})", info.stderr_tail, info.exit_code),
-            }),
-        );
+fn emit_terminal(app: &AppHandle, run_id: &str, event: &TerminalEvent) {
+    match event {
+        TerminalEvent::Done(payload) => {
+            let _ = app.emit(&format!("agent:done:{run_id}"), payload);
+        }
+        TerminalEvent::Error(payload) => {
+            let _ = app.emit(&format!("agent:error:{run_id}"), payload);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event() -> TerminalEvent {
+        TerminalEvent::Done(serde_json::json!({"sessionId": "s1"}))
+    }
+
+    #[test]
+    fn caches_a_terminal_event_until_late_listeners_subscribe() {
+        let mut mailbox = TerminalMailbox::default();
+        mailbox.publish("run-1", event());
+        assert!(matches!(
+            mailbox.subscribe("run-1"),
+            Some(TerminalEvent::Done(_))
+        ));
+        assert!(mailbox.completed.is_empty());
+    }
+
+    #[test]
+    fn an_early_subscription_uses_the_live_event_without_caching() {
+        let mut mailbox = TerminalMailbox::default();
+        assert!(mailbox.subscribe("run-1").is_none());
+        mailbox.publish("run-1", event());
+        assert!(mailbox.completed.is_empty());
+        assert!(mailbox.subscribed.is_empty());
+    }
+
+    #[test]
+    fn terminal_event_shape_matches_the_webview_union() {
+        let value = serde_json::to_value(event()).unwrap();
+        assert_eq!(value["kind"], "done");
+        assert_eq!(value["payload"]["sessionId"], "s1");
     }
 }

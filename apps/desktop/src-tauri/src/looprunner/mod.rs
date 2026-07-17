@@ -30,7 +30,7 @@
 pub mod reflect;
 
 use crate::agent::flags::{build_args, FlagInput};
-use crate::agent::{spawn_streaming, Backend, ChildHandle, ExitInfo};
+use crate::agent::{spawn_streaming, AgentRunOptions, Backend, ChildHandle, ExitInfo};
 use crate::error::{AppError, AppResult};
 use crate::mcpconfig::McpEntry;
 use crate::store::settings::Settings;
@@ -55,6 +55,8 @@ pub struct LoopOptions {
     pub qa_every: u32,
     #[serde(default)]
     pub reference_images: Vec<String>,
+    #[serde(default)]
+    pub agent: AgentRunOptions,
 }
 
 /// Overall loop status.
@@ -155,6 +157,7 @@ impl LoopManager {
         settings: Settings,
         mcp_config: PathBuf,
         mcp_entry: McpEntry,
+        permit: crate::execution::ProjectPermit,
     ) -> AppResult<String> {
         let mut guard = self.active.lock().await;
         if let Some(existing) = guard.as_ref() {
@@ -200,6 +203,7 @@ impl LoopManager {
             mcp_entry,
             goal,
             options,
+            _permit: permit,
         };
         let task = tokio::spawn(async move { driver.run().await });
 
@@ -264,6 +268,7 @@ struct Driver {
     mcp_entry: McpEntry,
     goal: String,
     options: LoopOptions,
+    _permit: crate::execution::ProjectPermit,
 }
 
 impl Driver {
@@ -275,11 +280,13 @@ impl Driver {
         let max_cost = if self.backend().reports_cost() {
             self.options.max_cost_usd
         } else {
-            self.warn_once(
-                "Budget cap: Codex doesn't report per-turn cost, so the $ cap is \
-                 inactive — this loop is bounded by the iteration cap instead.",
-            )
-            .await;
+            if self.options.max_cost_usd > 0.0 {
+                self.warn_once(
+                    "Budget cap: Codex doesn't report per-turn cost, so the $ cap is \
+                     inactive — this loop is bounded by the iteration cap instead.",
+                )
+                .await;
+            }
             f64::INFINITY
         };
         let max_iter = self.options.max_iterations;
@@ -316,6 +323,13 @@ impl Driver {
                 self.finish(LoopStatus::Stopped).await;
                 return;
             }
+            let info = match info {
+                Ok(info) => info,
+                Err(error) => {
+                    self.fail_turn(&error).await;
+                    return;
+                }
+            };
 
             total_cost = reflect::add_cost(total_cost, info.cost_usd);
             if let Some(sid) = info.session_id.clone() {
@@ -375,6 +389,13 @@ impl Driver {
                     if self.stopped() {
                         return self.finish(LoopStatus::Stopped).await;
                     }
+                    let qa_info = match qa_info {
+                        Ok(info) => info,
+                        Err(error) => {
+                            self.fail_turn(&error).await;
+                            return;
+                        }
+                    };
                     total_cost = reflect::add_cost(total_cost, qa_info.cost_usd);
                     let qa = reflect::parse_qa(qa_info.result_text.as_deref().unwrap_or(""));
                     let qa_result = qa.as_ref().map(|q| QaResult {
@@ -423,7 +444,7 @@ impl Driver {
     /// at `loop_start`, so flipping the picker mid-loop can't swap the CLI
     /// underneath a resumed session.
     fn backend(&self) -> Backend {
-        self.settings.agent_backend
+        self.options.agent.backend
     }
 
     /// Build the argv for one turn: the shared chat flags + resume (builder only)
@@ -437,12 +458,18 @@ impl Driver {
                 mcp_entry: &self.mcp_entry,
                 resume_session_id: resume,
                 max_turns: Some(max_turns),
+                run_options: Some(&self.options.agent),
             },
         )
     }
 
     /// Spawn one turn, register its child for cancellation, await the result.
-    async fn run_turn(&self, run_id: String, args: Vec<String>, prompt: String) -> ExitInfo {
+    async fn run_turn(
+        &self,
+        run_id: String,
+        args: Vec<String>,
+        prompt: String,
+    ) -> Result<ExitInfo, String> {
         match spawn_streaming(
             self.app.clone(),
             self.backend(),
@@ -453,18 +480,27 @@ impl Driver {
         ) {
             Ok((handle, join)) => {
                 *self.shared.child.lock().await = Some(handle);
-                let info = join.await.unwrap_or_default();
+                let joined = join.await;
                 *self.shared.child.lock().await = None;
-                info
+                let info = joined.map_err(|error| format!("agent stream task failed: {error}"))?;
+                if let Some(error) = turn_failure(self.backend(), &info) {
+                    Err(error)
+                } else {
+                    Ok(info)
+                }
             }
-            Err(e) => {
-                // A spawn failure yields a default ExitInfo (no result) → the
-                // reflector reads it as an Unknown verdict → strike. Two in a
-                // row block the loop, so a missing CLI can't spin forever.
-                log::warn!("loop turn spawn failed: {e}");
-                ExitInfo::default()
-            }
+            Err(error) => Err(error.to_string()),
         }
+    }
+
+    async fn fail_turn(&self, error: &str) {
+        self.warn_once(&format!(
+            "{} task failed: {}",
+            self.backend().label(),
+            first_line(error)
+        ))
+        .await;
+        self.finish(LoopStatus::Failed).await;
     }
 
     /// Capture the game view into `iter-<i>.png`. Tolerant: `None` on any error.
@@ -542,6 +578,29 @@ impl Driver {
         }
         persist_and_emit(&self.app, &self.shared).await;
     }
+}
+
+fn turn_failure(backend: Backend, info: &ExitInfo) -> Option<String> {
+    if info.cancelled {
+        return Some("The task was cancelled.".into());
+    }
+    if info.is_error {
+        return info
+            .result_text
+            .as_deref()
+            .filter(|text| !text.trim().is_empty())
+            .or_else(|| (!info.stderr_tail.trim().is_empty()).then_some(info.stderr_tail.as_str()))
+            .map(str::to_string)
+            .or_else(|| Some(format!("{} returned an error.", backend.label())));
+    }
+    if !info.result_seen {
+        return Some(crate::agent::spawn::friendly_spawn_error(
+            backend,
+            &info.stderr_tail,
+            info.exit_code,
+        ));
+    }
+    None
 }
 
 /// Persist the state to `state.json` and broadcast it on `loop:update`.
@@ -685,5 +744,36 @@ mod tests {
     fn summary_trims_to_one_line_and_length() {
         let s = trim_summary("line one\nline two that is quite long", 12);
         assert_eq!(s, "line one lin");
+    }
+
+    #[test]
+    fn legacy_loop_options_default_to_automatic_claude_controls() {
+        let options: LoopOptions = serde_json::from_value(serde_json::json!({
+            "maxIterations": 10,
+            "maxCostUsd": 5.0,
+            "qaEvery": 1,
+            "referenceImages": []
+        }))
+        .unwrap();
+        assert_eq!(options.agent, AgentRunOptions::default());
+    }
+
+    #[test]
+    fn failed_agent_turns_do_not_become_fake_unknown_iterations() {
+        let missing = ExitInfo {
+            stderr_tail: "not logged in".into(),
+            exit_code: Some(1),
+            ..ExitInfo::default()
+        };
+        assert!(turn_failure(Backend::Codex, &missing)
+            .unwrap()
+            .contains("Sign in"));
+
+        let valid = ExitInfo {
+            result_seen: true,
+            result_text: Some("done".into()),
+            ..ExitInfo::default()
+        };
+        assert!(turn_failure(Backend::Claude, &valid).is_none());
     }
 }

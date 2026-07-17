@@ -2,40 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
- * Design tokens — the whole app's palette in one place.
- *
- * Values are space-separated RGB channels (not hex) so Tailwind can apply
- * opacity modifiers: `bg-accent/10` compiles to `rgb(var(--accent) / 0.1)`.
- * See tailwind.config.js, which references every var below.
- *
- * Direction: one warm-coral accent used sparingly, on a calm slate-neutral
- * dark (never pure black), with muted green/amber/red for status only.
- */
 :root {
   color-scheme: dark;
 
-  /* Neutral darks (surfaces), lightest-numbered = deepest. */
-  --ink-950: 10 11 13; /* app background */
-  --ink-900: 16 18 22; /* bars, header/footer */
-  --ink-850: 22 25 32; /* inputs, quiet chips */
-  --ink-800: 28 32 39; /* raised surfaces, hover */
-  --ink-700: 39 44 53; /* borders, buttons */
-  --ink-600: 51 58 69; /* strong borders, button hover */
+  --ink-950: 3 5 6;
+  --ink-900: 9 12 13;
+  --ink-850: 15 19 20;
+  --ink-800: 23 28 29;
+  --ink-700: 37 44 45;
+  --ink-600: 55 65 66;
 
-  /* Foreground text ramp. */
-  --fg: 232 234 238; /* primary */
-  --fg-muted: 170 176 186; /* secondary */
-  --fg-dim: 100 108 120; /* captions, disabled */
+  --fg: 238 244 242;
+  --fg-muted: 159 172 169;
+  --fg-dim: 116 129 126;
 
-  /* Single accent — warm coral (Claude-adjacent). Used sparingly. */
-  --accent: 217 119 87;
-  --accent-hover: 224 138 110;
+  --accent: 157 226 211;
+  --accent-hover: 185 239 226;
 
-  /* Status — muted so they read calm, not alarming. */
-  --success: 52 211 153;
-  --warning: 234 179 92;
-  --danger: 233 122 122;
+  --success: 113 211 170;
+  --warning: 226 184 113;
+  --danger: 231 129 129;
+
+  --frost: 207 229 225;
+  --glacier: 128 171 179;
 }
 
 html,
@@ -46,37 +35,298 @@ body,
 
 body {
   margin: 0;
-  background: rgb(var(--ink-950));
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 14% 12%, rgb(var(--accent) / 0.07), transparent 31%),
+    radial-gradient(circle at 86% 82%, rgb(var(--glacier) / 0.08), transparent 34%),
+    rgb(var(--ink-950));
   color: rgb(var(--fg));
   font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    "Avenir Next", "Segoe UI Variable Text", "SF Pro Text", "Helvetica Neue",
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  /* The webview is chrome, not a document — no rubber-band scroll or text drag. */
   overscroll-behavior: none;
   user-select: none;
 }
 
-/* Let text inside chat/debug surfaces be selected & copied. */
+body::before {
+  position: fixed;
+  z-index: 0;
+  inset: -45%;
+  content: "";
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 36% 42%, rgb(var(--accent) / 0.09), transparent 19%),
+    radial-gradient(circle at 64% 58%, rgb(var(--glacier) / 0.08), transparent 21%);
+  filter: blur(70px);
+  will-change: transform;
+  animation: ambient-drift 24s ease-in-out infinite alternate;
+}
+
+body::after {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  opacity: 0.018;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.8'/%3E%3C/svg%3E");
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+#root > .bg-ink-950 {
+  background-color: transparent;
+}
+
+h1,
+h2,
+h3 {
+  font-family:
+    "Avenir Next", "Segoe UI Variable Display", "SF Pro Display",
+    "Helvetica Neue", sans-serif;
+  letter-spacing: -0.025em;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:not(:disabled) {
+  transition:
+    color 180ms ease,
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+button:not(:disabled):active {
+  transform: translateY(0) scale(0.985);
+}
+
 .selectable {
   user-select: text;
 }
 
-/* Calm focus ring for keyboard users; no harsh default outline. */
+.app-shell {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.012), transparent 18%),
+    transparent;
+  animation: shell-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.glass-bar,
+.glass-panel,
+.glass-card {
+  border-color: rgb(255 255 255 / 0.09);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.052), rgb(255 255 255 / 0.014)),
+    rgb(var(--ink-900) / 0.64);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.055),
+    0 18px 48px rgb(0 0 0 / 0.22);
+  -webkit-backdrop-filter: blur(24px) saturate(1.15);
+  backdrop-filter: blur(24px) saturate(1.15);
+}
+
+.glass-panel {
+  background:
+    linear-gradient(160deg, rgb(var(--frost) / 0.035), transparent 38%),
+    rgb(var(--ink-900) / 0.58);
+}
+
+#root > .items-center.justify-center > .max-w-md,
+#root > .items-center.justify-center > .max-w-lg {
+  position: relative;
+  max-height: calc(100vh - 4rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: clamp(1.75rem, 4vw, 2.5rem);
+  border: 1px solid rgb(255 255 255 / 0.09);
+  border-radius: 1.75rem;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.062), rgb(255 255 255 / 0.012) 42%),
+    rgb(var(--ink-900) / 0.62);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    0 30px 90px rgb(0 0 0 / 0.38),
+    0 0 0 1px rgb(0 0 0 / 0.22);
+  -webkit-backdrop-filter: blur(30px) saturate(1.18);
+  backdrop-filter: blur(30px) saturate(1.18);
+}
+
+#root > .items-center.justify-center > .max-w-md::before,
+#root > .items-center.justify-center > .max-w-lg::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgb(var(--accent) / 0.48), transparent);
+}
+
+.identity-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 0.045);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 10px 32px rgb(var(--accent) / 0.08);
+}
+
+.identity-mark::after {
+  position: absolute;
+  inset: -12px;
+  z-index: -1;
+  content: "";
+  border-radius: 50%;
+  background: rgb(var(--accent) / 0.08);
+  filter: blur(16px);
+  animation: mark-breathe 6s ease-in-out infinite;
+}
+
+.empty-state-card {
+  position: relative;
+  width: min(100%, 30rem);
+  padding: 2.25rem 2rem 2rem;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.075);
+  border-radius: 1.75rem;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 0.035), transparent 55%),
+    rgb(var(--ink-900) / 0.34);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.empty-state-card::after {
+  position: absolute;
+  right: -15%;
+  bottom: -55%;
+  width: 60%;
+  aspect-ratio: 1;
+  content: "";
+  pointer-events: none;
+  border-radius: 50%;
+  background: rgb(var(--glacier) / 0.07);
+  filter: blur(26px);
+}
+
+.bg-accent.text-white {
+  color: rgb(var(--ink-950));
+  background-image: linear-gradient(135deg, rgb(var(--accent-hover)), rgb(var(--accent)));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.45),
+    0 8px 26px rgb(var(--accent) / 0.12);
+}
+
+.bg-accent.text-white:hover {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.55),
+    0 11px 30px rgb(var(--accent) / 0.18);
+}
+
+.bg-accent.text-white .animate-spin {
+  border-color: rgb(var(--ink-950) / 0.3);
+  border-top-color: rgb(var(--ink-950));
+}
+
+textarea,
+input,
+select {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.025);
+}
+
 :focus-visible {
-  outline: 2px solid rgb(var(--accent) / 0.6);
+  outline: 2px solid rgb(var(--accent) / 0.58);
   outline-offset: 2px;
 }
 
-/* Slim, unobtrusive scrollbars that match the dark chrome. */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 ::-webkit-scrollbar-thumb {
-  background: rgb(var(--ink-700));
-  border-radius: 8px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgb(var(--ink-600) / 0.7);
+  background-clip: padding-box;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--ink-600));
+  background: rgb(var(--fg-dim) / 0.8);
+  background-clip: padding-box;
+}
+
+@keyframes ambient-drift {
+  0% {
+    transform: translate3d(-3%, -2%, 0) rotate(-3deg) scale(1);
+  }
+  100% {
+    transform: translate3d(4%, 3%, 0) rotate(4deg) scale(1.08);
+  }
+}
+
+@keyframes shell-in {
+  from {
+    opacity: 0;
+    transform: scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes mark-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

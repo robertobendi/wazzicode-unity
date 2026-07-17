@@ -1,8 +1,10 @@
 pub mod agent;
 pub mod bridge;
+pub mod claudeauth;
 pub mod codexauth;
 pub mod commands;
 pub mod error;
+pub mod execution;
 pub mod gitutil;
 pub mod looprunner;
 pub mod mcpconfig;
@@ -78,10 +80,12 @@ pub fn run() {
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::settings::ping,
+            commands::agent_options::agent_model_catalog,
             commands::project::validate_unity_project,
             commands::project::set_current_project,
             commands::chat::chat_send,
             commands::chat::chat_cancel,
+            commands::chat::chat_subscribe,
             commands::revert::revert_last,
             commands::sessions::save_session,
             commands::sessions::list_sessions,

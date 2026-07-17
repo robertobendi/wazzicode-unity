@@ -6,8 +6,15 @@ import {
   type StreamDraft,
 } from "@/lib/streamMapper";
 import { friendlyError } from "@/lib/errorMessages";
-import { agentLabel } from "@/lib/agentLabel";
+import {
+  compatibleResumeSessionId,
+  inferSessionRunOptions,
+  resolveChatRunOptions,
+} from "@/lib/agentOptions";
 import { assemblePrompt } from "@/lib/promptAssembly";
+import { useSettingsStore } from "@/stores/useSettingsStore";
+import type { AgentRunOptions } from "@/types/agent";
+import { BACKENDS } from "@/types/settings";
 import type {
   Attachment,
   ChatMessage,
@@ -15,6 +22,7 @@ import type {
   DoneEvent,
   ErrorEvent,
 } from "@/types/chat";
+import type { SessionPayload } from "@/types/session";
 
 function newId(): string {
   const c = globalThis.crypto;
@@ -23,7 +31,14 @@ function newId(): string {
 }
 
 function emptySession(): ChatSession {
-  return { sessionId: null, activeRunId: null, totalCostUsd: 0, totalTokens: 0 };
+  return {
+    sessionId: null,
+    activeRunId: null,
+    totalCostUsd: 0,
+    totalTokens: 0,
+    backend: null,
+    runOptions: null,
+  };
 }
 
 interface ChatState {
@@ -32,6 +47,7 @@ interface ChatState {
   session: ChatSession;
   running: boolean;
   activeRunId: string | null;
+  cancelRequested: boolean;
 
   /** Assistant message currently being streamed + its running draft. */
   assistantId: string | null;
@@ -39,17 +55,17 @@ interface ChatState {
 
   /** Point the store at a project; resets the conversation if it changed. */
   setProject: (project: string | null) => void;
-  send: (prompt: string, attachments?: Attachment[]) => Promise<void>;
+  send: (
+    prompt: string,
+    attachments?: Attachment[],
+    options?: AgentRunOptions,
+  ) => Promise<void>;
   cancel: () => Promise<void>;
   reset: () => void;
   /** Append a quiet, system-style notice line (e.g. after a revert). */
   appendNotice: (text: string) => void;
   /** Replace the conversation with a loaded past session (enables --resume). */
-  loadSession: (payload: {
-    messages: ChatMessage[];
-    sessionId: string | null;
-    totalCostUsd: number;
-  }) => void;
+  loadSession: (payload: SessionPayload) => void;
 
   // Called by useAgentStream — not part of the public UI surface.
   ingest: (runId: string, raw: unknown) => void;
@@ -63,6 +79,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   session: emptySession(),
   running: false,
   activeRunId: null,
+  cancelRequested: false,
   assistantId: null,
   draft: null,
 
@@ -74,6 +91,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       session: emptySession(),
       running: false,
       activeRunId: null,
+      cancelRequested: false,
       assistantId: null,
       draft: null,
     });
@@ -85,6 +103,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       session: emptySession(),
       running: false,
       activeRunId: null,
+      cancelRequested: false,
       assistantId: null,
       draft: null,
     }),
@@ -105,24 +124,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ],
     })),
 
-  loadSession: ({ messages, sessionId, totalCostUsd }) =>
+  loadSession: (payload) => {
+    const messages = payload.messages ?? [];
+    const runOptions = inferSessionRunOptions(payload);
     set({
       messages,
       session: {
-        sessionId,
+        sessionId: payload.sessionId,
         activeRunId: null,
-        totalCostUsd,
+        totalCostUsd: payload.totalCostUsd ?? 0,
         // Not persisted (the session file predates it) — re-derive from the
         // messages so a resumed Codex chat still shows its running total.
         totalTokens: messages.reduce((n, m) => n + (m.tokens ?? 0), 0),
+        backend: runOptions.backend,
+        runOptions,
       },
       running: false,
       activeRunId: null,
+      cancelRequested: false,
       assistantId: null,
       draft: null,
-    }),
+    });
+  },
 
-  send: async (prompt, attachments = []) => {
+  send: async (prompt, attachments = [], options) => {
     const state = get();
     const text = prompt.trim();
     if ((!text && attachments.length === 0) || state.running || !state.project) {
@@ -132,6 +157,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // The bubble shows the user's verbatim text + chips; the prompt sent to
     // Claude appends per-attachment instructions (promptAssembly).
     const finalPrompt = assemblePrompt(text, attachments);
+    const runOptions = resolveChatRunOptions({
+      sessionRunOptions: state.session.runOptions,
+      sessionBackend: state.session.backend,
+      requested: options,
+      settings: useSettingsStore.getState().settings,
+    });
+    const resumeSessionId = compatibleResumeSessionId(
+      state.session.sessionId,
+      state.session.backend,
+      runOptions,
+    );
+    const runAgentLabel = BACKENDS[runOptions.backend].label;
 
     const userMsg: ChatMessage = {
       id: newId(),
@@ -156,34 +193,59 @@ export const useChatStore = create<ChatState>((set, get) => ({
       assistantId: assistantMsg.id,
       draft: initialDraft(),
       running: true,
+      cancelRequested: false,
+      session: {
+        ...state.session,
+        sessionId: resumeSessionId,
+        backend: runOptions.backend,
+        runOptions,
+      },
     });
 
     try {
       const runId = await api.chatSend(
         state.project,
         finalPrompt,
-        state.session.sessionId,
+        resumeSessionId,
+        runOptions,
       );
       set((s) => ({
         activeRunId: runId,
         session: { ...s.session, activeRunId: runId },
       }));
+      if (get().cancelRequested) {
+        try {
+          await api.chatCancel(runId);
+        } catch {
+          // The reader task still emits an error/done event.
+        }
+      }
     } catch (e) {
       const raw = String(e);
       let friendly: string;
       if (raw.includes("auto mode")) {
         friendly = "Auto mode is running — stop it to chat.";
       } else if (raw.startsWith("busy")) {
-        friendly = `${agentLabel()} is still working on the last message.`;
+        friendly = `${runAgentLabel} is still working on the last message.`;
       } else {
-        friendly = friendlyError(raw, `Couldn't start ${agentLabel()}.`);
+        friendly = friendlyError(
+          raw,
+          `Couldn't start ${runAgentLabel}.`,
+          runOptions.backend,
+        );
       }
       get().fail("", { friendly, raw });
+      // A brand-new conversation is only frozen after the backend accepts the
+      // run. If startup failed, restore the prior empty session so the user can
+      // change model/effort and retry without creating another chat.
+      set({ session: state.session });
     }
   },
 
   cancel: async () => {
-    const runId = get().activeRunId;
+    const { running, activeRunId: runId } = get();
+    if (!running) return;
+    set({ cancelRequested: true });
     if (!runId) return;
     try {
       await api.chatCancel(runId);
@@ -219,7 +281,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               tokens: done.tokens ?? undefined,
               error:
                 done.isError && !m.text
-                  ? `${agentLabel()} ran into a problem.`
+                  ? `${BACKENDS[state.session.backend ?? "claude"].label} ran into a problem.`
                   : m.error,
             }
           : m,
@@ -228,9 +290,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages,
         running: false,
         activeRunId: null,
+        cancelRequested: false,
         assistantId: null,
         draft: null,
         session: {
+          ...state.session,
           sessionId: done.sessionId ?? state.session.sessionId,
           activeRunId: null,
           totalCostUsd: state.session.totalCostUsd + (done.costUsd ?? 0),
@@ -243,7 +307,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => {
       // Accept the pre-run failure case (runId "") or a matching active run.
       if (runId !== "" && runId !== state.activeRunId) return {};
-      const message = friendlyError(err.raw, err.friendly);
+      const message = friendlyError(
+        err.raw,
+        err.friendly,
+        state.session.backend ?? "claude",
+      );
       const messages = state.messages.map((m) =>
         m.id === state.assistantId
           ? { ...m, streaming: false, error: message, errorRaw: err.raw }
@@ -253,6 +321,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages,
         running: false,
         activeRunId: null,
+        cancelRequested: false,
         assistantId: null,
         draft: null,
         session: { ...state.session, activeRunId: null },

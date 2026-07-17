@@ -44,7 +44,7 @@ export default function SessionRail() {
   }
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-white/5 bg-ink-900">
+    <aside className="glass-panel m-3 mr-0 flex w-60 shrink-0 flex-col overflow-hidden rounded-2xl border">
       <div className="flex items-center justify-between px-3 py-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-fg-dim">
           Chats

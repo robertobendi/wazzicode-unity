@@ -12,6 +12,18 @@ const IDLE: PairingState = {
   pairingId: null,
 };
 
+const PHASE_RANK: Record<PairingState["phase"], number> = {
+  idle: 0,
+  starting: 1,
+  awaiting_admin: 2,
+  submitting: 3,
+  verifying: 4,
+  paired: 5,
+  failed: 5,
+};
+
+let snapshotRevision = 0;
+
 interface PairingStore {
   state: PairingState;
   /** Optimistic local flag between clicking Start and the first backend event. */
@@ -35,12 +47,17 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
   starting: false,
   submitting: false,
 
-  set: (state) => set({ state, starting: false, submitting: false }),
+  set: (state) => {
+    snapshotRevision += 1;
+    set({ state, starting: false, submitting: false });
+  },
 
   start: async () => {
+    snapshotRevision += 1;
     set({ starting: true, state: IDLE });
     try {
       await api.pairingStart();
+      await get().refresh();
     } catch (e) {
       set({
         starting: false,
@@ -61,6 +78,7 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
   },
 
   cancel: async () => {
+    snapshotRevision += 1;
     set({ starting: false, submitting: false, state: IDLE });
     try {
       await api.pairingCancel();
@@ -70,9 +88,19 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
   },
 
   refresh: async () => {
+    const revision = ++snapshotRevision;
     try {
       const s = await api.pairingState();
-      if (s) set({ state: s });
+      if (s && revision === snapshotRevision) {
+        set((current) => ({
+          state:
+            current.state.pairingId === s.pairingId &&
+            PHASE_RANK[current.state.phase] > PHASE_RANK[s.phase]
+              ? current.state
+              : s,
+          starting: false,
+        }));
+      }
     } catch {
       // Ignore — the screen stays on its current (default idle) state.
     }

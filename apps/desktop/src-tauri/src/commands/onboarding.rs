@@ -31,6 +31,7 @@ pub struct CliStatus {
     pub found: bool,
     pub path: Option<String>,
     pub version: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,10 +129,22 @@ pub async fn onboarding_check_cli(backend: Backend) -> AppResult<CliStatus> {
 /// and returns the resulting status; errors with a copy-able manual command on
 /// failure. Requires network. Long timeout — installers can be slow.
 #[tauri::command]
-pub async fn onboarding_install_cli(app: AppHandle, backend: Backend) -> AppResult<CliStatus> {
-    tokio::task::spawn_blocking(move || install_cli_blocking(&app, backend))
-        .await
-        .map_err(|e| AppError::Other(format!("install task failed: {e}")))?
+pub async fn onboarding_install_cli(
+    app: AppHandle,
+    backend: Backend,
+    state: State<'_, AppState>,
+) -> AppResult<CliStatus> {
+    let permit = state.executions.try_acquire_cli_install().ok_or_else(|| {
+        AppError::Other(
+            "busy: wait for the current task or CLI install to finish before installing".into(),
+        )
+    })?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        install_cli_blocking(&app, backend)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("install task failed: {e}")))?
 }
 
 /// Prepare a Unity project for the app: init → install package (if needed) →
@@ -144,6 +157,10 @@ pub async fn onboarding_setup_project(
     state: State<'_, AppState>,
 ) -> AppResult<SetupResult> {
     let project_path = PathBuf::from(&project);
+    let permit = state
+        .executions
+        .try_acquire(&project_path)
+        .ok_or_else(|| AppError::Other("busy: another task is using this project".into()))?;
     let config_dir = state.config_dir.clone();
     // Resolve the uvibe invocation + package source on the main thread (needs the
     // Tauri path resolver), then do the blocking sub-spawns off-runtime.
@@ -151,6 +168,7 @@ pub async fn onboarding_setup_project(
     let pkg_source = crate::mcpconfig::unity_package_source(&app);
 
     tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         setup_blocking(
             app,
             project_path,
@@ -173,78 +191,213 @@ fn check_cli_blocking(backend: Backend) -> CliStatus {
             found: false,
             path: None,
             version: None,
+            error: None,
         },
         Some(p) => {
-            let version = proc::command(bin)
-                .ok()
-                .and_then(|mut cmd| {
-                    cmd.arg("--version");
-                    proc::output_with_timeout(cmd, Duration::from_secs(10)).ok()
-                })
-                .filter(|o| o.status.success())
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .filter(|s| !s.is_empty());
-            CliStatus {
-                found: true,
-                path: Some(p.to_string_lossy().into_owned()),
-                version,
+            let path = p.to_string_lossy().into_owned();
+            let mut cmd = match proc::command(bin) {
+                Ok(cmd) => cmd,
+                Err(e) => return cli_probe_failed(backend, path, e.to_string()),
+            };
+            cmd.arg("--version");
+            match proc::output_with_timeout(cmd, Duration::from_secs(10)) {
+                Ok(out) if out.status.success() => {
+                    let version =
+                        first_nonempty(&out.stdout).or_else(|| first_nonempty(&out.stderr));
+                    match version {
+                        Some(version) => match check_cli_capabilities(backend) {
+                            Ok(()) => CliStatus {
+                                found: true,
+                                path: Some(path),
+                                version: Some(version),
+                                error: None,
+                            },
+                            Err(detail) => cli_probe_failed(backend, path, detail),
+                        },
+                        None => cli_probe_failed(
+                            backend,
+                            path,
+                            format!("`{bin} --version` returned no version"),
+                        ),
+                    }
+                }
+                Ok(out) => {
+                    let detail = first_nonempty(&out.stderr)
+                        .or_else(|| first_nonempty(&out.stdout))
+                        .map(|line| format!("`{bin} --version` failed: {line}"))
+                        .unwrap_or_else(|| format!("`{bin} --version` failed"));
+                    cli_probe_failed(backend, path, detail)
+                }
+                Err(e) => cli_probe_failed(backend, path, e.to_string()),
             }
         }
     }
 }
 
+fn check_cli_capabilities(backend: Backend) -> Result<(), String> {
+    let (primary_args, secondary_args): (&[&str], Option<&[&str]>) = match backend {
+        Backend::Claude => (&["--help"], None),
+        Backend::Codex => (&["exec", "--help"], Some(&["debug", "models", "--help"])),
+    };
+    let primary = cli_help(backend.bin(), primary_args)?;
+    let secondary = secondary_args
+        .map(|args| cli_help(backend.bin(), args))
+        .transpose()?
+        .unwrap_or_default();
+    if capabilities_supported(backend, &primary, &secondary) {
+        Ok(())
+    } else {
+        Err(format!(
+            "this version is missing features Unity Vibe Studio needs; update the {} CLI",
+            backend.label()
+        ))
+    }
+}
+
+fn cli_help(bin: &str, args: &[&str]) -> Result<String, String> {
+    let mut cmd = proc::command(bin).map_err(|error| error.to_string())?;
+    cmd.args(args);
+    let out = proc::output_with_timeout(cmd, Duration::from_secs(10))
+        .map_err(|error| error.to_string())?;
+    if !out.status.success() {
+        return Err(format!("`{bin} {}` failed", args.join(" ")));
+    }
+    Ok(format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    ))
+}
+
+fn capabilities_supported(backend: Backend, primary: &str, secondary: &str) -> bool {
+    match backend {
+        Backend::Claude => ["--effort", "--settings", "--setting-sources", "setup-token"]
+            .iter()
+            .all(|feature| primary.contains(feature)),
+        Backend::Codex => {
+            ["--ignore-user-config", "--json", "resume"]
+                .iter()
+                .all(|feature| primary.contains(feature))
+                && secondary.contains("--bundled")
+        }
+    }
+}
+
+fn first_nonempty(bytes: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_string)
+}
+
+fn cli_probe_failed(backend: Backend, path: String, detail: String) -> CliStatus {
+    CliStatus {
+        found: false,
+        path: Some(path),
+        version: None,
+        error: Some(format!(
+            "Found the {} CLI, but it isn't runnable: {detail}. Reinstall it with:\n  {}",
+            backend.label(),
+            manual_install_command(backend)
+        )),
+    }
+}
+
 fn install_cli_blocking(app: &AppHandle, backend: Backend) -> AppResult<CliStatus> {
     let label = backend.label();
-    let (program, args) = install_plan(backend);
-    let mut cmd = proc::command(program)?;
-    cmd.args(&args);
+    let plan = install_plan(backend);
+    let mut cmd = proc::command(plan.program)?;
+    cmd.args(&plan.args);
+    for (name, value) in plan.env {
+        cmd.env(name, value);
+    }
     emit_line(
         app,
         "install_cli",
-        &format!("Installing the {label} CLI ({program})…"),
+        &format!("Installing the {label} CLI ({})…", plan.program),
     );
     // Some installers exit nonzero yet still install; re-check regardless.
-    let _ = stream_process(app, "install_cli", cmd, Duration::from_secs(600))?;
+    let install = stream_process(app, "install_cli", cmd, proc::INSTALL_TIMEOUT);
 
     let status = check_cli_blocking(backend);
     if status.found {
         emit_line(app, "install_cli", &format!("{label} CLI is ready."));
         return Ok(status);
     }
+    let stream_detail = match install {
+        Ok((true, _)) => None,
+        Ok((false, output)) => last_line(&output),
+        Err(error) => Some(error.to_string()),
+    };
+    let detail = status
+        .error
+        .as_deref()
+        .map(str::to_string)
+        .or(stream_detail)
+        .map(|line| format!("\n\n{line}"))
+        .unwrap_or_default();
     Err(AppError::Other(format!(
-        "Couldn't install the {label} CLI automatically. Run this in a terminal, then click Continue:\n  {}",
-        manual_install_command(backend)
+        "Couldn't install the {label} CLI automatically. Run this in a terminal, then check again:\n  {}{detail}",
+        manual_install_command(backend),
     )))
 }
 
 /// The installer invocation per backend + OS. Pure (branches on target_os) so
 /// it's unit-testable on the host.
-///
-/// Codex ships on npm rather than behind a shell installer, so it needs a Node
-/// toolchain on PATH — the app's bundled Node sidecar is deliberately *not* on
-/// PATH (it's an implementation detail of the MCP server), so we call the user's
-/// `npm`. If they don't have one, the manual hint below covers Homebrew.
-fn install_plan(backend: Backend) -> (&'static str, Vec<&'static str>) {
+struct InstallPlan {
+    program: &'static str,
+    args: Vec<&'static str>,
+    env: Vec<(&'static str, &'static str)>,
+}
+
+fn install_plan(backend: Backend) -> InstallPlan {
     match backend {
-        Backend::Codex => ("npm", vec!["install", "-g", "@openai/codex"]),
+        Backend::Codex => {
+            #[cfg(target_os = "windows")]
+            {
+                InstallPlan {
+                    program: "powershell",
+                    args: vec![
+                        "-NoProfile",
+                        "-Command",
+                        "irm https://chatgpt.com/codex/install.ps1 | iex",
+                    ],
+                    env: vec![("CODEX_NON_INTERACTIVE", "1")],
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                InstallPlan {
+                    program: "sh",
+                    args: vec![
+                        "-c",
+                        "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
+                    ],
+                    env: vec![("CODEX_NON_INTERACTIVE", "1")],
+                }
+            }
+        }
         Backend::Claude => {
             #[cfg(target_os = "windows")]
             {
-                (
-                    "powershell",
-                    vec![
+                InstallPlan {
+                    program: "powershell",
+                    args: vec![
                         "-NoProfile",
                         "-Command",
                         "irm https://claude.ai/install.ps1 | iex",
                     ],
-                )
+                    env: Vec::new(),
+                }
             }
             #[cfg(not(target_os = "windows"))]
             {
-                (
-                    "bash",
-                    vec!["-c", "curl -fsSL https://claude.ai/install.sh | bash"],
-                )
+                InstallPlan {
+                    program: "bash",
+                    args: vec!["-c", "curl -fsSL https://claude.ai/install.sh | bash"],
+                    env: Vec::new(),
+                }
             }
         }
     }
@@ -252,7 +405,16 @@ fn install_plan(backend: Backend) -> (&'static str, Vec<&'static str>) {
 
 fn manual_install_command(backend: Backend) -> &'static str {
     match backend {
-        Backend::Codex => "npm install -g @openai/codex    (or: brew install codex)",
+        Backend::Codex => {
+            #[cfg(target_os = "windows")]
+            {
+                "$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex"
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh"
+            }
+        }
         Backend::Claude => {
             #[cfg(target_os = "windows")]
             {
@@ -595,6 +757,7 @@ fn stream_process(
 ) -> AppResult<(bool, String)> {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    configure_process_tree(&mut cmd);
     let mut child = cmd
         .spawn()
         .map_err(|e| AppError::Other(format!("could not start {step}: {e}")))?;
@@ -616,8 +779,7 @@ fn stream_process(
             Ok(Some(s)) => break s,
             Ok(None) => {
                 if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    terminate_process_tree(&mut child);
                     let _ = out_handle.join();
                     let _ = err_handle.join();
                     return Err(AppError::Other(format!("{step} timed out and was stopped")));
@@ -625,8 +787,9 @@ fn stream_process(
                 std::thread::sleep(Duration::from_millis(50));
             }
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                terminate_process_tree(&mut child);
+                let _ = out_handle.join();
+                let _ = err_handle.join();
                 return Err(AppError::Other(format!("waiting on {step} failed: {e}")));
             }
         }
@@ -641,6 +804,60 @@ fn stream_process(
         tail.push_str(&err_tail);
     }
     Ok((status.success(), tail))
+}
+
+fn configure_process_tree(cmd: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = cmd;
+    }
+}
+
+/// Stop the installer and every process it launched. Shell installers are
+/// pipelines, so killing only the shell can leave curl or an install script
+/// alive with the progress pipes held open.
+fn terminate_process_tree(child: &mut std::process::Child) {
+    let pid = child.id();
+
+    #[cfg(unix)]
+    {
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGTERM);
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            match child.try_wait() {
+                // The group leader can exit while a descendant that ignored
+                // SIGTERM remains. Still send SIGKILL to the group below.
+                Ok(Some(_)) => break,
+                Ok(None) => std::thread::sleep(Duration::from_millis(25)),
+                Err(_) => break,
+            }
+        }
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let mut taskkill = Command::new("taskkill");
+        taskkill.args(["/T", "/F", "/PID", &pid.to_string()]);
+        taskkill
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        proc::no_window(&mut taskkill);
+        let _ = taskkill.status();
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// A closure that drains a child pipe line-by-line, emitting each line and
@@ -733,24 +950,97 @@ mod tests {
 
     #[test]
     fn install_plan_matches_host_os() {
-        let (program, args) = install_plan(Backend::Claude);
+        let plan = install_plan(Backend::Claude);
         #[cfg(target_os = "windows")]
         {
-            assert_eq!(program, "powershell");
-            assert!(args.iter().any(|a| a.contains("install.ps1")));
+            assert_eq!(plan.program, "powershell");
+            assert!(plan.args.iter().any(|a| a.contains("install.ps1")));
         }
         #[cfg(not(target_os = "windows"))]
         {
-            assert_eq!(program, "bash");
-            assert!(args.iter().any(|a| a.contains("install.sh")));
+            assert_eq!(plan.program, "bash");
+            assert!(plan.args.iter().any(|a| a.contains("install.sh")));
         }
+        assert!(plan.env.is_empty());
     }
 
     #[test]
-    fn codex_installs_from_npm_on_every_os() {
-        let (program, args) = install_plan(Backend::Codex);
-        assert_eq!(program, "npm");
-        assert!(args.contains(&"@openai/codex"));
-        assert!(manual_install_command(Backend::Codex).contains("@openai/codex"));
+    fn codex_uses_official_native_noninteractive_installer() {
+        let plan = install_plan(Backend::Codex);
+        assert!(plan
+            .args
+            .iter()
+            .any(|arg| arg.contains("chatgpt.com/codex/install.")));
+        assert_eq!(plan.env, vec![("CODEX_NON_INTERACTIVE", "1")]);
+        assert!(manual_install_command(Backend::Codex).contains("CODEX_NON_INTERACTIVE=1"));
+        assert!(!plan.args.iter().any(|arg| arg.contains("npm")));
+    }
+
+    #[test]
+    fn failed_version_probe_is_not_ready_and_is_actionable() {
+        let status = cli_probe_failed(
+            Backend::Claude,
+            "/usr/local/bin/claude".into(),
+            "version probe failed".into(),
+        );
+
+        assert!(!status.found);
+        assert_eq!(status.path.as_deref(), Some("/usr/local/bin/claude"));
+        let error = status.error.expect("actionable error");
+        assert!(error.contains("version probe failed"));
+        assert!(error.contains("install.sh"));
+    }
+
+    #[test]
+    fn readiness_requires_the_features_used_by_task_execution() {
+        assert!(capabilities_supported(
+            Backend::Claude,
+            "--effort --settings --setting-sources setup-token",
+            ""
+        ));
+        assert!(!capabilities_supported(
+            Backend::Claude,
+            "--settings setup-token",
+            ""
+        ));
+        assert!(capabilities_supported(
+            Backend::Codex,
+            "resume --json --ignore-user-config",
+            "--bundled"
+        ));
+        assert!(!capabilities_supported(
+            Backend::Codex,
+            "resume --json",
+            "--bundled"
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timeout_cleanup_stops_installer_descendants() {
+        let marker =
+            std::env::temp_dir().join(format!("unity-vibe-installer-tree-{}", nanoid::nanoid!(10)));
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args([
+            "-c",
+            "(trap '' TERM; sleep 1; touch \"$1\") & wait",
+            "tree-test",
+        ])
+        .arg(&marker)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+        configure_process_tree(&mut cmd);
+        let mut child = cmd.spawn().expect("spawn process tree");
+
+        std::thread::sleep(Duration::from_millis(100));
+        terminate_process_tree(&mut child);
+        std::thread::sleep(Duration::from_millis(1100));
+
+        assert!(
+            !marker.exists(),
+            "installer descendant survived process-tree cleanup"
+        );
+        let _ = std::fs::remove_file(marker);
     }
 }

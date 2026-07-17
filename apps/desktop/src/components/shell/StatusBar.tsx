@@ -17,7 +17,7 @@ export default function StatusBar() {
       : status.friendly;
 
   return (
-    <footer className="flex h-8 shrink-0 items-center justify-between border-t border-white/5 bg-ink-900 px-4 text-xs text-fg-dim">
+    <footer className="glass-bar mx-3 mb-2 flex h-8 shrink-0 items-center justify-between rounded-xl border px-4 text-xs text-fg-dim">
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${dotColor(status.state)}`} />
         <span className="text-fg-muted">{label}</span>

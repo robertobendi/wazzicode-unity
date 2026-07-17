@@ -97,19 +97,22 @@ pub fn spawn_streaming(
         .stderr(Stdio::piped())
         .current_dir(project)
         .args(&args);
-    // No token management: the spawn inherits the parent environment and
-    // authenticates with the CLI's OWN stored credentials (`~/.claude`,
-    // `~/.codex`), established once via the pairing / sign-in flow.
-    //
-    // One exception, and it's about money: Codex will authenticate with
-    // `OPENAI_API_KEY` if it finds one in the environment, which bills **API
-    // credits** instead of the user's ChatGPT subscription. A dev who happens to
-    // export that key in their shell would silently spend from the wrong wallet.
-    // Strip it, so a Codex run can only ever use the subscription it signed in
-    // with. (This app deliberately offers no API-key sign-in at all.)
-    if backend == Backend::Codex {
-        crate::codexauth::scrub_api_key(&mut std_cmd);
-    }
+    // Use each CLI's own stored login rather than provider keys inherited from
+    // the app's launch environment. A stray key could silently switch the
+    // account and billing path for a non-interactive run.
+    let credential_guard = match backend {
+        Backend::Claude => {
+            let guard = crate::claudeauth::configure_child(&mut std_cmd)?;
+            if args.iter().any(|arg| arg == "--effort") {
+                crate::claudeauth::prefer_cli_effort(&mut std_cmd);
+            }
+            Some(guard)
+        }
+        Backend::Codex => {
+            crate::codexauth::isolate_child_environment(&mut std_cmd);
+            None
+        }
+    };
     // Own process group so cancellation can kill the whole tree (the agent + its
     // MCP server child) with a single group signal.
     #[cfg(unix)]
@@ -123,6 +126,7 @@ pub fn spawn_streaming(
     let mut child = cmd
         .spawn()
         .map_err(|e| AppError::Other(format!("could not start {}: {e}", backend.label())))?;
+    drop(credential_guard);
 
     let pid = child.id();
     let child_stdin = child.stdin.take();
@@ -147,6 +151,14 @@ pub fn spawn_streaming(
 
     let join = tokio::spawn(async move {
         let mut captured = Captured::default();
+        // Drain stderr concurrently. Reading it only after stdout reaches EOF
+        // can deadlock when a CLI fills the stderr pipe while stdout stays open.
+        let stderr_task = tokio::spawn(async move {
+            match stderr {
+                Some(err) => read_tail(err).await,
+                None => String::new(),
+            }
+        });
 
         if let Some(out) = stdout {
             let mut lines = BufReader::new(out).lines();
@@ -170,10 +182,7 @@ pub fn spawn_streaming(
             }
         }
 
-        let stderr_tail = match stderr {
-            Some(err) => read_tail(err).await,
-            None => String::new(),
-        };
+        let stderr_tail = stderr_task.await.unwrap_or_default();
         let status = child.lock().await.wait().await;
         let exit_code = status.ok().and_then(|s| s.code());
 

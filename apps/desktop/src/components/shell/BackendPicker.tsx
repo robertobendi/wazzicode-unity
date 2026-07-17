@@ -10,12 +10,42 @@ export default function BackendPicker({
   value,
   onChange,
   showBlurb = false,
+  disabled = false,
 }: {
   value: AgentBackend;
   onChange: (backend: AgentBackend) => void;
   /** Include each backend's one-line description (roomier surfaces only). */
   showBlurb?: boolean;
+  disabled?: boolean;
 }) {
+  function onKeyDown(
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    current: AgentBackend,
+  ) {
+    const index = ORDER.indexOf(current);
+    let next = index;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      next = (index + 1) % ORDER.length;
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      next = (index - 1 + ORDER.length) % ORDER.length;
+    } else if (event.key === "Home") {
+      next = 0;
+    } else if (event.key === "End") {
+      next = ORDER.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    const backend = ORDER[next];
+    const group = event.currentTarget.parentElement;
+    onChange(backend);
+    requestAnimationFrame(() => {
+      group
+        ?.querySelector<HTMLButtonElement>(`[data-backend="${backend}"]`)
+        ?.focus();
+    });
+  }
+
   return (
     <div
       role="radiogroup"
@@ -32,8 +62,12 @@ export default function BackendPicker({
               key={backend}
               role="radio"
               aria-checked={selected}
+              data-backend={backend}
+              tabIndex={selected ? 0 : -1}
+              disabled={disabled}
               onClick={() => onChange(backend)}
-              className={`rounded-xl border px-4 py-3 text-left transition-colors duration-150 ${
+              onKeyDown={(event) => onKeyDown(event, backend)}
+              className={`rounded-xl border px-4 py-3 text-left transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
                 selected
                   ? "border-accent bg-accent/5"
                   : "border-ink-700 bg-ink-900 hover:border-ink-600"
@@ -63,8 +97,12 @@ export default function BackendPicker({
             key={backend}
             role="radio"
             aria-checked={selected}
+            data-backend={backend}
+            tabIndex={selected ? 0 : -1}
+            disabled={disabled}
             onClick={() => onChange(backend)}
-            className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors duration-150 ${
+            onKeyDown={(event) => onKeyDown(event, backend)}
+            className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
               selected
                 ? "bg-accent text-white"
                 : "text-fg-muted hover:bg-ink-800 hover:text-fg"

@@ -2,6 +2,7 @@
 // src-tauri/src/commands/sessions.rs (serde camelCase).
 
 import type { ChatMessage } from "./chat";
+import type { AgentBackend, AgentRunOptions } from "./agent";
 
 /** One row in the session rail — enough to list without loading the chat. */
 export interface SessionIndexEntry {
@@ -22,4 +23,8 @@ export interface SessionPayload {
   updatedAt: number;
   totalCostUsd: number;
   messages: ChatMessage[];
+  /** Added after multi-agent support. Optional so old files still load. */
+  agentBackend?: AgentBackend;
+  /** Exact task controls used by the CLI. Optional on legacy files. */
+  runOptions?: AgentRunOptions;
 }

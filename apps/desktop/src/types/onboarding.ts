@@ -8,6 +8,8 @@ export interface CliStatus {
   found: boolean;
   path: string | null;
   version: string | null;
+  /** Probe/install detail when the command exists but is not usable. */
+  error: string | null;
 }
 
 export interface NodeSidecar {

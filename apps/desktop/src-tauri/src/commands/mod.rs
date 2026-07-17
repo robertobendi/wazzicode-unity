@@ -1,3 +1,4 @@
+pub mod agent_options;
 pub mod chat;
 pub mod codex_auth;
 pub mod loops;

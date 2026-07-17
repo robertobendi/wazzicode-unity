@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useChatStore } from "@/stores/useChatStore";
+import Logo from "@/components/shell/Logo";
 import MessageBubble from "./MessageBubble";
 
 const EXAMPLES = [
@@ -20,24 +21,32 @@ export default function MessageList() {
 
   if (messages.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
-        <h2 className="text-lg font-medium text-fg">
-          Ask for any change to your game
-        </h2>
-        <p className="mt-2 max-w-sm text-sm text-fg-muted">
-          Describe it in plain language — I&rsquo;ll make it happen in Unity for
-          you. Try one of these to start:
-        </p>
-        <div className="mt-5 flex flex-col items-stretch gap-2">
-          {EXAMPLES.map((ex) => (
-            <button
-              key={ex}
-              onClick={() => void send(ex)}
-              className="rounded-xl border border-white/5 bg-ink-900 px-4 py-2.5 text-sm text-fg-muted transition-colors duration-150 hover:border-white/10 hover:bg-ink-850 hover:text-fg"
-            >
-              {ex}
-            </button>
-          ))}
+      <div className="flex flex-1 flex-col items-center justify-center px-8 py-8 text-center">
+        <div className="empty-state-card animate-appear">
+          <div className="identity-mark mx-auto">
+            <Logo size={27} />
+          </div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-accent/70">
+            Studio ready
+          </div>
+          <h2 className="mt-3 text-xl font-semibold text-fg">
+            What should we make?
+          </h2>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-fg-muted">
+            Describe a change in plain language. Vibe Studio will handle the
+            Unity work and keep you in the loop.
+          </p>
+          <div className="mt-6 flex flex-col items-stretch gap-2">
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                onClick={() => void send(ex)}
+                className="rounded-xl border border-white/[0.08] bg-white/[0.025] px-4 py-2.5 text-sm text-fg-muted transition-colors duration-150 hover:border-accent/20 hover:bg-white/[0.05] hover:text-fg"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     );

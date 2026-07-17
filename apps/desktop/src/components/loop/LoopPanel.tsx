@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useLoopStore } from "@/stores/useLoopStore";
-import { useSettingsStore } from "@/stores/useSettingsStore";
 import { isLoopActive, type LoopStatus } from "@/types/loop";
 import { BACKENDS } from "@/types/settings";
+import { runOptionsSummary } from "@/lib/modelCatalog";
 import IterationTimeline from "./IterationTimeline";
 import GoalCard from "./GoalCard";
 
@@ -33,6 +33,7 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
   const nowDoing = useLoopStore((s) => s.nowDoing);
   const stop = useLoopStore((s) => s.stop);
   const active = isLoopActive(state.status);
+  const backend = BACKENDS[state.options.agent.backend];
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -45,17 +46,30 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
                 Goal
               </p>
               <p className="mt-0.5 text-sm text-fg">{state.goal}</p>
+              <p className="mt-1 text-xs text-fg-dim">
+                {backend.label} · {runOptionsSummary(state.options.agent)}
+              </p>
             </div>
             <div className="shrink-0 text-right">
               <p className="text-xs uppercase tracking-wide text-fg-dim">
-                Spent
+                {backend.reportsCost ? "Spent" : "Progress"}
               </p>
               <p className="mt-0.5 font-mono text-sm text-fg">
-                ${state.totalCostUsd.toFixed(2)}
-                <span className="text-fg-dim">
-                  {" "}
-                  / ${state.options.maxCostUsd.toFixed(0)}
-                </span>
+                {backend.reportsCost ? (
+                  <>
+                    ${state.totalCostUsd.toFixed(2)}
+                    <span className="text-fg-dim">
+                      {" "}/ ${state.options.maxCostUsd.toFixed(0)}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    {state.iterations.length}
+                    <span className="text-fg-dim">
+                      {" "}/ {state.options.maxIterations} steps
+                    </span>
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -70,7 +84,7 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
           {active ? (
             <NowDoing label={nowDoing} status={state.status} />
           ) : (
-            <StatusBanner status={state.status} />
+            <StatusBanner status={state.status} agentLabel={backend.label} />
           )}
 
           {state.warnings.map((w) => (
@@ -87,7 +101,7 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
       </div>
 
       {/* Sticky action bar */}
-      <div className="border-t border-white/5 bg-ink-900 px-6 py-3">
+      <div className="glass-bar mx-3 mb-3 rounded-2xl border px-6 py-3">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <span className="text-xs text-fg-dim">
             Step {state.iterations.length}
@@ -124,7 +138,7 @@ function NowDoing({
   status: LoopStatus;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-850 px-4 py-3">
+    <div className="glass-card flex items-center gap-3 rounded-xl border px-4 py-3">
       <span className="relative flex h-2.5 w-2.5 shrink-0">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent/60" />
         <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-accent" />
@@ -138,10 +152,13 @@ function NowDoing({
   );
 }
 
-function StatusBanner({ status }: { status: LoopStatus }) {
-  const agentLabel = useSettingsStore(
-    (s) => BACKENDS[s.settings?.agentBackend ?? "claude"].label,
-  );
+function StatusBanner({
+  status,
+  agentLabel,
+}: {
+  status: LoopStatus;
+  agentLabel: string;
+}) {
   const map: Record<
     LoopStatus,
     { text: string; cls: string } | undefined
@@ -164,7 +181,7 @@ function StatusBanner({ status }: { status: LoopStatus }) {
       cls: "bg-warning/10 text-warning",
     },
     failed: {
-      text: "Something went wrong.",
+      text: `${agentLabel} couldn't start or finish this task. See the detail below.`,
       cls: "bg-danger/10 text-danger",
     },
     running: undefined,

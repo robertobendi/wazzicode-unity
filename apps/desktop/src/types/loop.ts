@@ -1,6 +1,8 @@
 // Auto-mode (loop) domain types. Mirror the Rust structs in
 // src-tauri/src/looprunner/mod.rs (serde camelCase / snake_case enums).
 
+import type { AgentRunOptions } from "./agent";
+
 export type LoopStatus =
   | "running"
   | "stopping"
@@ -19,6 +21,7 @@ export interface LoopOptions {
   /** 0 disables the QA critic; >0 runs QA whenever the builder says "done". */
   qaEvery: number;
   referenceImages: string[];
+  agent: AgentRunOptions;
 }
 
 export interface QaResult {
@@ -59,4 +62,5 @@ export const DEFAULT_LOOP_OPTIONS: LoopOptions = {
   maxCostUsd: 5.0,
   qaEvery: 1,
   referenceImages: [],
+  agent: { backend: "claude", model: null, effort: null },
 };

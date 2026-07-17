@@ -69,7 +69,7 @@ export default function DebugDrawer() {
   }
 
   return (
-    <div className="shrink-0 border-t border-white/5 bg-ink-900">
+    <div className="glass-panel mx-3 mb-2 shrink-0 overflow-hidden rounded-2xl border">
       <div className="flex h-8 items-center justify-between px-3 text-xs text-fg-dim">
         <button
           onClick={toggleDebug}

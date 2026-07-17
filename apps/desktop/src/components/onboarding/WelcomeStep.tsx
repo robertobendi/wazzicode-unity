@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
-import { api } from "@/api";
-import { useOnboardingProgress } from "@/hooks/useOnboarding";
+import { useCliSetup, useOnboardingProgress } from "@/hooks/useOnboarding";
 import BackendPicker from "@/components/shell/BackendPicker";
 import { BACKENDS, type AgentBackend } from "@/types/settings";
 import type { CliStatus } from "@/types/onboarding";
@@ -16,68 +14,54 @@ export default function WelcomeStep({
   backend,
   onBackendChange,
   initial,
+  settingsError,
   onContinue,
 }: {
   backend: AgentBackend;
   onBackendChange: (backend: AgentBackend) => void;
   /** Status from `onboarding_status` for the CURRENT backend, if we have one. */
   initial: CliStatus | null;
+  settingsError: string | null;
   onContinue: () => void;
 }) {
-  const [status, setStatus] = useState<CliStatus | null>(initial);
-  const [checking, setChecking] = useState(!initial);
-  const [installing, setInstalling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { status, checking, installing, error, check, install } = useCliSetup(
+    backend,
+    initial,
+  );
   const { lines, reset } = useOnboardingProgress("install_cli");
 
   const meta = BACKENDS[backend];
 
-  // Adopt the seeded status for whichever backend is selected; re-probe only
-  // when we don't already know (a switch hands us the other CLI's status).
-  useEffect(() => {
-    setStatus(initial);
-    setError(null);
-    if (initial) {
-      setChecking(false);
-      return;
-    }
-    let alive = true;
-    setChecking(true);
-    void api
-      .onboardingCheckCli(backend)
-      .then((s) => alive && setStatus(s))
-      .catch(
-        () => alive && setStatus({ found: false, path: null, version: null }),
-      )
-      .finally(() => alive && setChecking(false));
-    return () => {
-      alive = false;
-    };
-  }, [backend, initial]);
-
-  async function install() {
-    setError(null);
+  async function runInstall() {
     reset();
-    setInstalling(true);
-    try {
-      const s = await api.onboardingInstallCli(backend);
-      setStatus(s);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setInstalling(false);
-    }
+    await install();
   }
 
   return (
     <div>
+      <div role="status" aria-live="polite" className="sr-only">
+        {checking
+          ? `Checking the ${meta.label} CLI.`
+          : installing
+            ? `Installing the ${meta.label} CLI.`
+            : status?.found && !error
+              ? `${meta.label} CLI is ready.`
+              : error
+                ? `${meta.label} CLI needs attention.`
+                : `${meta.label} CLI is not installed.`}
+      </div>
       <StepHeading title="Welcome to Unity Vibe Studio">
         Make Unity changes just by chatting — no terminal needed. First, pick the
         AI agent you want to drive it.
       </StepHeading>
 
       <div className="mt-6">
-        <BackendPicker value={backend} onChange={onBackendChange} showBlurb />
+        <BackendPicker
+          value={backend}
+          onChange={onBackendChange}
+          showBlurb
+          disabled={installing}
+        />
       </div>
 
       {checking && (
@@ -86,7 +70,7 @@ export default function WelcomeStep({
         </div>
       )}
 
-      {!checking && status?.found && (
+      {!checking && status?.found && !error && (
         <div className="mt-6">
           <div className="rounded-xl border border-success/30 bg-success/5 p-4">
             <div className="text-sm font-medium text-fg">
@@ -102,7 +86,7 @@ export default function WelcomeStep({
         </div>
       )}
 
-      {!checking && status && !status.found && (
+      {!checking && !error && status && !status.found && (
         <div className="mt-6">
           <p className="text-sm text-fg-muted">
             The <span className="font-mono text-fg">{meta.cli}</span> helper
@@ -110,16 +94,56 @@ export default function WelcomeStep({
             internet connection and takes a minute.
           </p>
           <div className="mt-5">
-            <PrimaryButton onClick={() => void install()} busy={installing}>
+            <PrimaryButton onClick={() => void runInstall()} busy={installing}>
               Install {meta.label} CLI
             </PrimaryButton>
+            <button
+              onClick={() => void check()}
+              disabled={installing}
+              className="mt-3 w-full rounded-lg border border-ink-700 px-4 py-2 text-sm font-medium text-fg-muted transition-colors hover:border-ink-600 hover:text-fg disabled:opacity-50"
+            >
+              Check again
+            </button>
           </div>
           <ProgressLog lines={lines} />
-          {error && (
-            <div className="mt-4 rounded-lg border border-danger/30 bg-danger/5 p-3">
-              <div className="text-xs text-fg-muted">{error}</div>
-            </div>
-          )}
+        </div>
+      )}
+
+      {!checking && error && (
+        <div className="mt-6 rounded-xl border border-danger/30 bg-danger/5 p-4">
+          <p className="text-sm font-medium text-fg">
+            We couldn&apos;t verify the {meta.label} CLI
+          </p>
+          <pre className="selectable mt-2 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-fg-muted">
+            {error}
+          </pre>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => void check()}
+              disabled={installing}
+              className="rounded-lg border border-ink-700 px-3 py-2 text-sm font-medium text-fg transition-colors hover:border-ink-600 disabled:opacity-50"
+            >
+              Check again
+            </button>
+            <button
+              onClick={() => void runInstall()}
+              disabled={installing}
+              className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            >
+              {installing ? "Installing…" : "Repair install"}
+            </button>
+          </div>
+          <ProgressLog lines={lines} />
+        </div>
+      )}
+
+      {settingsError && (
+        <div
+          role="alert"
+          className="selectable mt-4 rounded-lg border border-danger/30 bg-danger/5 p-3 text-xs leading-relaxed text-danger"
+        >
+          Your AI agent choice could not be saved. Check the app&apos;s settings
+          access, then try Continue again. {settingsError}
         </div>
       )}
     </div>

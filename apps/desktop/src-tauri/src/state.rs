@@ -1,6 +1,7 @@
 use crate::agent::SessionManager;
 use crate::bridge::StatusTask;
 use crate::codexauth::CodexLoginManager;
+use crate::execution::ProjectExecutions;
 use crate::gitutil::Checkpoint;
 use crate::looprunner::LoopManager;
 use crate::pairing::PairingManager;
@@ -18,6 +19,8 @@ pub struct AppState {
     pub config_dir: PathBuf,
     /// Headless agent runs (one active per project). Cheap to clone.
     pub sessions: SessionManager,
+    /// Atomic chat/Auto editing exclusion, keyed by canonical project path.
+    pub executions: ProjectExecutions,
     /// The single running bridge status poller, if any.
     pub status_task: Mutex<Option<StatusTask>>,
     /// The hidden-PTY company-account pairing driver for Claude (one at a time).
@@ -37,6 +40,7 @@ impl AppState {
             settings: RwLock::new(settings),
             config_dir,
             sessions: SessionManager::default(),
+            executions: ProjectExecutions::default(),
             status_task: Mutex::new(None),
             pairing: PairingManager::default(),
             codex_login: CodexLoginManager::default(),

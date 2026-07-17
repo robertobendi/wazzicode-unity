@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Bump when the on-disk shape changes in a way that needs migration.
-/// v2 added `agentBackend` + `codexModel`; older files deserialize cleanly
-/// (every field has a serde default) and land on the Claude backend.
-const CURRENT_SCHEMA_VERSION: u32 = 2;
+/// v2 added backend/model selection; v3 adds per-backend reasoning defaults.
+/// Older files deserialize cleanly because every added field has a default.
+const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 /// Persistent user settings. Lives at `<config_dir>/settings.json`.
 ///
@@ -39,6 +39,13 @@ pub struct Settings {
     /// (or `gpt-5-codex` to Claude), which would fail the run outright.
     #[serde(default)]
     pub codex_model: Option<String>,
+    /// Preferred Claude reasoning effort, or None to let the CLI decide.
+    #[serde(default)]
+    pub effort: Option<String>,
+    /// Preferred Codex reasoning effort. Kept separate because Codex support is
+    /// model-specific and can differ from Claude's accepted values.
+    #[serde(default)]
+    pub codex_effort: Option<String>,
     /// Show the raw stream / debug drawer in the UI.
     #[serde(default)]
     pub debug_drawer: bool,
@@ -67,6 +74,14 @@ impl Settings {
         };
         raw.filter(|m| !m.trim().is_empty())
     }
+
+    pub fn effort_for(&self, backend: Backend) -> Option<&str> {
+        let raw = match backend {
+            Backend::Claude => self.effort.as_deref(),
+            Backend::Codex => self.codex_effort.as_deref(),
+        };
+        raw.map(str::trim).filter(|v| !v.is_empty())
+    }
 }
 
 impl Default for Settings {
@@ -79,6 +94,8 @@ impl Default for Settings {
             power_mode: false,
             model: None,
             codex_model: None,
+            effort: None,
+            codex_effort: None,
             debug_drawer: false,
             paired_ok: false,
             onboarded: false,
@@ -97,7 +114,13 @@ pub fn load(config_dir: &Path) -> AppResult<Settings> {
     }
     let bytes = std::fs::read(&path)?;
     match serde_json::from_slice::<Settings>(&bytes) {
-        Ok(s) => Ok(s),
+        Ok(mut s) => {
+            if s.schema_version < CURRENT_SCHEMA_VERSION {
+                s.schema_version = CURRENT_SCHEMA_VERSION;
+                save(config_dir, &s)?;
+            }
+            Ok(s)
+        }
         Err(_) => {
             // Corrupt file — back it up and reset to defaults so a bad edit
             // never bricks startup.
@@ -142,6 +165,8 @@ mod tests {
         let s: Settings = serde_json::from_str(v1).expect("v1 settings must still deserialize");
         assert_eq!(s.agent_backend, Backend::Claude);
         assert_eq!(s.codex_model, None);
+        assert_eq!(s.effort, None);
+        assert_eq!(s.codex_effort, None);
         assert!(s.power_mode);
         assert_eq!(s.model.as_deref(), Some("claude-opus-4-8"));
     }
@@ -156,5 +181,16 @@ mod tests {
         assert_eq!(s.model_for(Backend::Claude), Some("claude-opus-4-8"));
         // A whitespace-only override must not become `--model "  "`.
         assert_eq!(s.model_for(Backend::Codex), None);
+    }
+
+    #[test]
+    fn effort_for_is_per_backend_and_ignores_blanks() {
+        let s = Settings {
+            effort: Some("high".into()),
+            codex_effort: Some(" ".into()),
+            ..Settings::default()
+        };
+        assert_eq!(s.effort_for(Backend::Claude), Some("high"));
+        assert_eq!(s.effort_for(Backend::Codex), None);
     }
 }

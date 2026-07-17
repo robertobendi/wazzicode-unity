@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! codex exec [resume <SESSION_ID>] \
-//!            --json --skip-git-repo-check \
+//!            --ignore-user-config --json --skip-git-repo-check \
 //!            -c sandbox_mode='workspace-write' \
 //!            -c mcp_servers.unity_vibe_os.command='…' … \
 //!            [--model M] -
@@ -39,9 +39,11 @@
 //!    sequences at all. See [`toml_string`].
 //!
 //! We use `-c` overrides rather than `codex mcp add` so the user's global
-//! `~/.codex/config.toml` is never touched, and rather than pointing `CODEX_HOME`
-//! at an app-managed dir because that would also relocate `auth.json` and lose
-//! the user's login.
+//! `~/.codex/config.toml` is never touched. `--ignore-user-config` prevents a
+//! custom provider in that file from redirecting the user's stored OAuth
+//! credential; the CLI still reads auth from `CODEX_HOME`. We do not point
+//! `CODEX_HOME` at an app-managed dir because that would relocate `auth.json`
+//! and lose the user's login.
 
 use crate::agent::flags::FlagInput;
 use crate::mcpconfig::McpEntry;
@@ -73,9 +75,16 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
         args.push(sid.to_string());
     }
 
+    args.push("--ignore-user-config".into());
     args.push("--json".into());
     // Unity projects aren't necessarily git repos; Codex otherwise refuses to run.
     args.push("--skip-git-repo-check".into());
+
+    // A user may previously have logged the CLI in with an API key. Force the
+    // ChatGPT mechanism for every run so the app's "never API credits" promise
+    // is enforced even when auth.json predates this app session.
+    args.push("-c".into());
+    args.push("forced_login_method='chatgpt'".into());
 
     // Codex's default sandbox is read-only, which would make the agent useless
     // here — it has to be able to write C# under the project. `workspace-write`
@@ -100,9 +109,18 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
         args.push(kv);
     }
 
-    if let Some(model) = settings.model_for(crate::agent::Backend::Codex) {
+    if let Some(model) =
+        crate::agent::flags::effective_model(settings, input, crate::agent::Backend::Codex)
+    {
         args.push("--model".into());
         args.push(model.to_string());
+    }
+
+    if let Some(effort) =
+        crate::agent::flags::effective_effort(settings, input, crate::agent::Backend::Codex)
+    {
+        args.push("-c".into());
+        args.push(format!("model_reasoning_effort={}", toml_string(effort)));
     }
 
     // Prompt arrives on stdin.
@@ -252,6 +270,7 @@ mod tests {
                 mcp_entry: &entry(),
                 resume_session_id: resume,
                 max_turns: Some(60),
+                run_options: None,
             },
         )
     }
@@ -310,7 +329,13 @@ mod tests {
         // and is ignored — which would silently turn off JSONL on every resumed
         // turn (i.e. every chat turn after the first). They must come after.
         let resume_at = args.iter().position(|a| a == "resume").unwrap();
-        for flag in ["--json", "--skip-git-repo-check", "--model", "-c"] {
+        for flag in [
+            "--ignore-user-config",
+            "--json",
+            "--skip-git-repo-check",
+            "--model",
+            "-c",
+        ] {
             if let Some(at) = args.iter().position(|a| a == flag) {
                 assert!(at > resume_at, "{flag} must follow `resume`");
             }
@@ -320,6 +345,30 @@ mod tests {
         // emit it, and instead carry the sandbox in a `-c` override.
         assert!(!args.iter().any(|a| a == "--sandbox" || a == "-s"));
         assert!(args.iter().any(|a| a == "sandbox_mode='workspace-write'"));
+    }
+
+    #[test]
+    fn user_config_is_ignored_for_fresh_and_resumed_runs() {
+        for resume in [None, Some("thread-abc")] {
+            let args = args_for(false, None, resume);
+            assert_eq!(
+                args.iter()
+                    .filter(|arg| arg.as_str() == "--ignore-user-config")
+                    .count(),
+                1
+            );
+            assert!(args
+                .iter()
+                .any(|arg| arg == "forced_login_method='chatgpt'"));
+            if resume.is_some() {
+                let resume_at = args.iter().position(|arg| arg == "resume").unwrap();
+                let ignore_at = args
+                    .iter()
+                    .position(|arg| arg == "--ignore-user-config")
+                    .unwrap();
+                assert!(ignore_at > resume_at);
+            }
+        }
     }
 
     #[test]
@@ -355,9 +404,38 @@ mod tests {
                 mcp_entry: &entry(),
                 resume_session_id: None,
                 max_turns: None,
+                run_options: None,
             },
         );
         assert!(!args.iter().any(|a| a == "--model"));
+    }
+
+    #[test]
+    fn task_effort_is_a_toml_override_after_resume() {
+        let settings = settings(false, None);
+        let run = crate::agent::AgentRunOptions {
+            backend: Backend::Codex,
+            model: Some("gpt-5.6-sol".into()),
+            effort: Some("xhigh".into()),
+        };
+        let args = build_args(
+            &settings,
+            &FlagInput {
+                mcp_config_path: std::path::Path::new("/unused.json"),
+                mcp_entry: &entry(),
+                resume_session_id: Some("thread-abc"),
+                max_turns: None,
+                run_options: Some(&run),
+            },
+        );
+        let effort = args
+            .iter()
+            .position(|a| a == "model_reasoning_effort='xhigh'")
+            .unwrap();
+        let resume = args.iter().position(|a| a == "resume").unwrap();
+        assert!(effort > resume);
+        assert_eq!(args[effort - 1], "-c");
+        assert_eq!(args.last().map(String::as_str), Some("-"));
     }
 
     #[test]

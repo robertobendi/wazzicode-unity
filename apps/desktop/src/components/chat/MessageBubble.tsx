@@ -20,7 +20,7 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
     return (
       <div className="flex flex-col items-end gap-1.5">
         {message.text && (
-          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent/12 px-4 py-2.5 text-sm text-fg">
+          <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md border border-accent/15 bg-accent/10 px-4 py-2.5 text-sm text-fg shadow-sm shadow-black/20 backdrop-blur-sm">
             {message.text}
           </div>
         )}

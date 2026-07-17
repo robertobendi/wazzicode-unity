@@ -1,8 +1,13 @@
 // Mirrors the Rust `Settings` struct in
 // src-tauri/src/store/settings.rs (serde camelCase). Keep the two in sync.
 
-/** Which coding agent drives runs. Mirrors Rust's `agent::Backend`. */
-export type AgentBackend = "claude" | "codex";
+import type { AgentBackend } from "./agent";
+
+export type {
+  AgentBackend,
+  AgentModelOption,
+  AgentRunOptions,
+} from "./agent";
 
 export interface Settings {
   schemaVersion: number;
@@ -17,6 +22,11 @@ export interface Settings {
   /** Preferred Codex model id, or null to let the CLI decide. Separate from
    *  `model` so switching backends can't hand a Claude model id to Codex. */
   codexModel: string | null;
+  /** Preferred Claude reasoning effort, or null to let the CLI decide. */
+  effort: string | null;
+  /** Preferred Codex reasoning effort, kept separate because its supported
+   *  values are model-specific. */
+  codexEffort: string | null;
   /** Show the raw stream / debug drawer in the UI. */
   debugDrawer: boolean;
   /** Set true after the first successful Claude pair/verify (skips the gate). */

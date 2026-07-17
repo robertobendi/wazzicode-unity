@@ -14,7 +14,7 @@ export interface PairingState {
   phase: PairingPhase;
   /** OAuth URL to forward to the admin (present at awaiting_admin). */
   oauthUrl: string | null;
-  /** Always "cli_managed" on success — kept for compat; the UI stays quiet. */
+  /** "app_managed_oauth" on success; the credential never reaches the UI. */
   mode: string | null;
   /** Friendly failure message (at failed). */
   error: string | null;

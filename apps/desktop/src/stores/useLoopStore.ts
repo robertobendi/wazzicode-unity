@@ -52,7 +52,7 @@ export const useLoopStore = create<LoopStoreState>((set, get) => ({
       const raw = String(e);
       const friendly = raw.startsWith("busy")
         ? "Something is already running for this project."
-        : friendlyError(raw, "Couldn't start Auto mode.");
+        : friendlyError(raw, "Couldn't start Auto mode.", options.agent.backend);
       set({ error: friendly });
     } finally {
       set({ starting: false });

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, openExternal } from "@/api";
 import { usePairing } from "@/hooks/usePairing";
+import { useCliSetup, useOnboardingProgress } from "@/hooks/useOnboarding";
 import { usePairingStore } from "@/stores/usePairingStore";
 import type { PairingPhase } from "@/types/pairing";
+import { BACKENDS } from "@/types/settings";
 
-type Check = "checking" | "connected" | "needed";
+type Check = "checking" | "connected" | "needed" | "missing_cli" | "error";
 
 /**
  * Full-screen company-account pairing flow. Check-first: on mount it probes
@@ -16,24 +18,71 @@ type Check = "checking" | "connected" | "needed";
  * Success is reported via `onDone`; the caller persists `pairedOk` (this screen
  * doesn't, so the caller controls the gate timing).
  */
-export default function PairingScreen({ onDone }: { onDone: () => void }) {
-  usePairing(); // subscribe to pairing:update while this screen is mounted
+export default function PairingScreen({
+  onDone,
+  onChooseAgent,
+  forcePair = false,
+}: {
+  onDone: () => void;
+  onChooseAgent?: () => void;
+  forcePair?: boolean;
+}) {
+  const pairingListenerReady = usePairing();
   const { state, starting, submitting, start, submitCode, cancel } =
     usePairingStore();
   const phase = state.phase;
+  const cli = useCliSetup("claude");
+  const progress = useOnboardingProgress("install_cli");
 
   // Check-first: is this machine already authenticated with the CLI?
   const [check, setCheck] = useState<Check>("checking");
+  const [checkError, setCheckError] = useState<string | null>(null);
   useEffect(() => {
+    if (cli.checking) {
+      setCheck("checking");
+      return;
+    }
+    if (cli.error) {
+      setCheckError(cli.error);
+      setCheck("error");
+      return;
+    }
+    if (!cli.status?.found) {
+      setCheck("missing_cli");
+      return;
+    }
+    if (forcePair) {
+      setCheckError(null);
+      setCheck("needed");
+      return;
+    }
+
     let alive = true;
+    setCheck("checking");
+    setCheckError(null);
     void api
       .authVerify()
       .then((r) => alive && setCheck(r.ok ? "connected" : "needed"))
-      .catch(() => alive && setCheck("needed"));
+      .catch((e) => {
+        if (!alive) return;
+        setCheckError(String(e));
+        setCheck("error");
+      });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [
+    cli.checking,
+    cli.error,
+    cli.status?.found,
+    cli.status?.version,
+    forcePair,
+  ]);
+
+  async function installCli() {
+    progress.reset();
+    await cli.install();
+  }
 
   // Auto-continue shortly after we confirm (either the check or a fresh pair).
   const done = check === "connected" || phase === "paired";
@@ -51,6 +100,40 @@ export default function PairingScreen({ onDone }: { onDone: () => void }) {
           Checking your connection…
         </h2>
       </CenteredCard>
+    );
+  }
+
+  if (check === "missing_cli" || check === "error") {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-ink-950 px-8">
+        <div className="w-full max-w-lg animate-appear">
+          <div className="mb-4 h-1.5 w-10 rounded-full bg-accent/70" />
+          <h1 className="text-2xl font-semibold tracking-tight text-fg">
+            Install {BACKENDS.claude.label}
+          </h1>
+          <p className="mt-2 text-sm text-fg-muted">
+            The Claude command-line helper needs to be ready before we can
+            connect your account.
+          </p>
+          <CliRecovery
+            installing={cli.installing}
+            checking={cli.checking}
+            error={checkError}
+            lines={progress.lines}
+            onInstall={() => void installCli()}
+            onCheck={() => void cli.check()}
+          />
+          {onChooseAgent && (
+            <button
+              onClick={onChooseAgent}
+              disabled={cli.installing}
+              className="mt-5 rounded-lg border border-ink-700 px-3 py-2 text-sm font-medium text-fg-muted transition-colors hover:border-ink-600 hover:text-fg disabled:opacity-50"
+            >
+              Choose a different AI agent
+            </button>
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -76,9 +159,9 @@ export default function PairingScreen({ onDone }: { onDone: () => void }) {
       <div className="w-full max-w-lg animate-appear">
         <Stepper current={step} />
 
-        {step === 1 && (
+        {step === 1 && phase !== "failed" && (
           <ConnectStep
-            starting={starting || phase === "starting"}
+            starting={starting || phase === "starting" || !pairingListenerReady}
             onStart={() => void start()}
           />
         )}
@@ -99,9 +182,66 @@ export default function PairingScreen({ onDone }: { onDone: () => void }) {
             error={state.error}
             rawTail={state.rawTail}
             onRetry={() => void start()}
+            retryDisabled={!pairingListenerReady}
           />
         )}
+
+        {onChooseAgent &&
+          !starting &&
+          (phase === "idle" || phase === "failed") && (
+            <button
+              onClick={onChooseAgent}
+              className="mt-5 rounded-lg border border-ink-700 px-3 py-2 text-sm font-medium text-fg-muted transition-colors hover:border-ink-600 hover:text-fg"
+            >
+              Choose a different AI agent
+            </button>
+          )}
       </div>
+    </div>
+  );
+}
+
+function CliRecovery({
+  installing,
+  checking,
+  error,
+  lines,
+  onInstall,
+  onCheck,
+}: {
+  installing: boolean;
+  checking: boolean;
+  error: string | null;
+  lines: string[];
+  onInstall: () => void;
+  onCheck: () => void;
+}) {
+  return (
+    <div className="mt-6 rounded-xl border border-ink-700 bg-ink-900/60 p-4">
+      {error && (
+        <pre className="selectable mb-3 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-danger">
+          {error}
+        </pre>
+      )}
+      <button
+        onClick={onInstall}
+        disabled={installing || checking}
+        className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+      >
+        {installing ? "Installing…" : "Install Claude Code CLI"}
+      </button>
+      <button
+        onClick={onCheck}
+        disabled={installing || checking}
+        className="mt-2 w-full rounded-lg border border-ink-700 px-4 py-2 text-sm font-medium text-fg-muted transition-colors hover:border-ink-600 hover:text-fg disabled:opacity-50"
+      >
+        {checking ? "Checking…" : "Check again"}
+      </button>
+      {lines.length > 0 && (
+        <pre className="selectable mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-ink-950 p-3 text-[11px] leading-relaxed text-fg-dim">
+          {lines.join("\n")}
+        </pre>
+      )}
     </div>
   );
 }
@@ -312,10 +452,12 @@ function FailedStep({
   error,
   rawTail,
   onRetry,
+  retryDisabled,
 }: {
   error: string | null;
   rawTail: string | null;
   onRetry: () => void;
+  retryDisabled: boolean;
 }) {
   const [showDetails, setShowDetails] = useState(false);
   return (
@@ -332,7 +474,8 @@ function FailedStep({
 
       <button
         onClick={onRetry}
-        className="mt-5 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+        disabled={retryDisabled}
+        className="mt-5 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
       >
         Start over
       </button>

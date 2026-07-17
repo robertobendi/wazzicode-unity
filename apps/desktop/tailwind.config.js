@@ -32,18 +32,16 @@ export default {
       },
       fontFamily: {
         sans: [
-          "-apple-system",
-          "BlinkMacSystemFont",
-          "Segoe UI",
-          "Inter",
-          "system-ui",
+          "Avenir Next",
+          "Segoe UI Variable Text",
+          "SF Pro Text",
+          "Helvetica Neue",
           "sans-serif",
         ],
       },
       keyframes: {
-        // Subtle fade+rise for newly-appearing elements. Nothing bouncy.
         appear: {
-          "0%": { opacity: "0", transform: "translateY(4px)" },
+          "0%": { opacity: "0", transform: "translateY(8px) scale(0.995)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
         // Streaming caret on the in-flight assistant message.
@@ -59,7 +57,7 @@ export default {
         },
       },
       animation: {
-        appear: "appear 150ms ease-out",
+        appear: "appear 420ms cubic-bezier(0.16, 1, 0.3, 1)",
         caret: "caret 1.1s ease-in-out infinite",
         "dot-pulse": "dot-pulse 1.4s ease-in-out infinite",
       },

@@ -28,6 +28,9 @@ dirs = "5"
 dunce = "1"
 log = "0.4"
 nanoid = "0.4"
+# Store the app-managed Claude OAuth token in the native OS credential store.
+# v3.6.3 is the latest release compatible with this crate's Rust 1.77 MSRV.
+keyring = { version = "=3.6.3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 # --- Used by later phases; declared now so the skeleton pins them and the
 # --- build stays green as those phases land.

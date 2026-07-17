@@ -60,7 +60,7 @@ export default function RevertControl() {
             className="fixed inset-0 z-40"
             onClick={() => setConfirming(false)}
           />
-          <div className="absolute right-0 top-full z-50 mt-2 w-72 animate-appear rounded-xl border border-white/10 bg-ink-850 p-3.5 shadow-xl shadow-black/40">
+          <div className="glass-card absolute right-0 top-full z-50 mt-2 w-72 animate-appear rounded-2xl border p-3.5">
             <p className="text-sm leading-relaxed text-fg">
               Take the project back to just before the last AI change? Files the
               AI created will be removed.

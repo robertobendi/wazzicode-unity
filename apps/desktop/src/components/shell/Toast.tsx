@@ -13,7 +13,7 @@ export default function ToastHost() {
         <button
           key={t.id}
           onClick={() => dismiss(t.id)}
-          className="pointer-events-auto animate-appear rounded-xl border border-white/10 bg-ink-800 px-4 py-2.5 text-sm text-fg shadow-lg shadow-black/30"
+          className="glass-card pointer-events-auto animate-appear rounded-2xl border px-4 py-2.5 text-sm text-fg"
         >
           {t.message}
         </button>

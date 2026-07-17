@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, openExternal } from "@/api";
 import { useCodexLogin } from "@/hooks/useCodexLogin";
+import { useCliSetup, useOnboardingProgress } from "@/hooks/useOnboarding";
 import { BACKENDS } from "@/types/settings";
 
-type Check = "checking" | "signed_in" | "needed" | "missing_cli";
+type Check = "checking" | "signed_in" | "needed" | "missing_cli" | "error";
 
 /**
  * Full-screen Codex sign-in. Check-first, like PairingScreen: on mount it asks
@@ -13,30 +14,82 @@ type Check = "checking" | "signed_in" | "needed" | "missing_cli";
  *
  * There is deliberately NO API-key option: an API key bills OpenAI **API
  * credits**, which is a different wallet from the ChatGPT subscription this
- * product runs on. The Rust side additionally scrubs `OPENAI_API_KEY` from every
- * Codex child, so a stray env var can't quietly spend from it either.
+ * product runs on. The Rust side removes inherited one-shot credentials and
+ * forces ChatGPT auth for every Codex child, so a stray API login cannot spend
+ * from a different wallet either.
  *
  * Credentials never touch this app; they live in the CLI's own ~/.codex.
  * Success is reported via `onDone` (the caller decides what happens next).
  */
-export default function CodexAuthScreen({ onDone }: { onDone: () => void }) {
-  const { update, starting, start, cancel } = useCodexLogin();
+export default function CodexAuthScreen({
+  onDone,
+  onChooseAgent,
+  forceSignIn = false,
+}: {
+  onDone: () => void;
+  onChooseAgent?: () => void;
+  /** Settings-driven re-auth should offer the flow even when a login exists. */
+  forceSignIn?: boolean;
+}) {
+  const { update, starting, listenerReady, start, cancel } = useCodexLogin();
+  const cli = useCliSetup("codex");
+  const progress = useOnboardingProgress("install_cli");
   const [check, setCheck] = useState<Check>("checking");
+  const [checkError, setCheckError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (cli.checking) {
+      setCheck("checking");
+      return;
+    }
+    if (cli.error) {
+      setCheck("error");
+      setCheckError(cli.error);
+      return;
+    }
+    if (!cli.status?.found) {
+      setCheck("missing_cli");
+      return;
+    }
+    if (forceSignIn) {
+      setCheckError(null);
+      setCheck("needed");
+      return;
+    }
+
     let alive = true;
+    setCheck("checking");
+    setCheckError(null);
     void api
       .codexAuthStatus()
       .then((s) => {
         if (!alive) return;
         if (!s.installed) setCheck("missing_cli");
-        else setCheck(s.loggedIn ? "signed_in" : "needed");
+        else {
+          setCheckError(s.loggedIn ? null : s.detail);
+          setCheck(s.loggedIn ? "signed_in" : "needed");
+        }
       })
-      .catch(() => alive && setCheck("needed"));
+      .catch((e) => {
+        if (!alive) return;
+        setCheckError(String(e));
+        setCheck("error");
+      });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [
+    cli.checking,
+    cli.error,
+    cli.status?.found,
+    cli.status?.version,
+    forceSignIn,
+  ]);
+
+  async function installCli() {
+    progress.reset();
+    await cli.install();
+  }
 
   const phase = update?.phase ?? null;
   const done = check === "signed_in" || phase === "success";
@@ -86,13 +139,30 @@ export default function CodexAuthScreen({ onDone }: { onDone: () => void }) {
           Sign in to {BACKENDS.codex.label}
         </h1>
         <p className="mt-2 text-sm text-fg-muted">
-          {check === "missing_cli"
-            ? `The ${BACKENDS.codex.cli} command-line helper isn't installed yet. Install it first, then sign in here.`
+          {check === "missing_cli" || check === "error"
+            ? `The ${BACKENDS.codex.cli} command-line helper needs attention before you can sign in.`
             : "Sign in with your ChatGPT account so the agent can work in your project. This uses your ChatGPT plan — never API credits. Your credentials stay with the Codex CLI."}
         </p>
 
-        {check !== "missing_cli" && (
+        {(check === "missing_cli" || check === "error") && (
+          <CliRecovery
+            label={BACKENDS.codex.label}
+            installing={cli.installing}
+            checking={cli.checking}
+            error={checkError}
+            lines={progress.lines}
+            onInstall={() => void installCli()}
+            onCheck={() => void cli.check()}
+          />
+        )}
+
+        {check === "needed" && (
           <>
+            {checkError && (
+              <div className="mt-4 rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs leading-relaxed text-fg-muted">
+                {checkError}
+              </div>
+            )}
             {waiting ? (
               <WaitingPanel
                 url={update?.url ?? null}
@@ -101,9 +171,10 @@ export default function CodexAuthScreen({ onDone }: { onDone: () => void }) {
             ) : (
               <button
                 onClick={() => void start()}
+                disabled={!listenerReady}
                 className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
               >
-                Sign in with ChatGPT
+                {listenerReady ? "Sign in with ChatGPT" : "Preparing sign-in…"}
               </button>
             )}
 
@@ -117,7 +188,63 @@ export default function CodexAuthScreen({ onDone }: { onDone: () => void }) {
             )}
           </>
         )}
+
+        {onChooseAgent && !waiting && (
+          <button
+            onClick={onChooseAgent}
+            className="mt-5 rounded-lg border border-ink-700 px-3 py-2 text-sm font-medium text-fg-muted transition-colors hover:border-ink-600 hover:text-fg"
+          >
+            Choose a different AI agent
+          </button>
+        )}
       </div>
+    </div>
+  );
+}
+
+function CliRecovery({
+  label,
+  installing,
+  checking,
+  error,
+  lines,
+  onInstall,
+  onCheck,
+}: {
+  label: string;
+  installing: boolean;
+  checking: boolean;
+  error: string | null;
+  lines: string[];
+  onInstall: () => void;
+  onCheck: () => void;
+}) {
+  return (
+    <div className="mt-6 rounded-xl border border-ink-700 bg-ink-900/60 p-4">
+      {error && (
+        <pre className="selectable mb-3 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-danger">
+          {error}
+        </pre>
+      )}
+      <button
+        onClick={onInstall}
+        disabled={installing || checking}
+        className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+      >
+        {installing ? "Installing…" : `Install ${label} CLI`}
+      </button>
+      <button
+        onClick={onCheck}
+        disabled={installing || checking}
+        className="mt-2 w-full rounded-lg border border-ink-700 px-4 py-2 text-sm font-medium text-fg-muted transition-colors hover:border-ink-600 hover:text-fg disabled:opacity-50"
+      >
+        {checking ? "Checking…" : "Check again"}
+      </button>
+      {lines.length > 0 && (
+        <pre className="selectable mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-ink-950 p-3 text-[11px] leading-relaxed text-fg-dim">
+          {lines.join("\n")}
+        </pre>
+      )}
     </div>
   );
 }

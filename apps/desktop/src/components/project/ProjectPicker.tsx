@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, pickFolder } from "@/api";
 import { useSettingsStore } from "@/stores/useSettingsStore";
+import Logo from "@/components/shell/Logo";
 import type { ProjectInfo } from "@/types/project";
 
 /**
@@ -52,7 +53,9 @@ export default function ProjectPicker() {
   return (
     <div className="flex h-full w-full items-center justify-center bg-ink-950 px-8">
       <div className="w-full max-w-md animate-appear">
-        <div className="mb-4 h-1.5 w-10 rounded-full bg-accent/70" />
+        <div className="identity-mark">
+          <Logo size={26} />
+        </div>
         <h1 className="text-2xl font-semibold tracking-tight text-fg">
           Welcome to Unity Vibe Studio
         </h1>

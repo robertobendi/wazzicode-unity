@@ -1,10 +1,11 @@
 //! Build the argument vector for a headless agent run.
 //!
 //! [`build_args`] dispatches on the selected [`Backend`]: the Claude builder
-//! lives here (verified against Claude Code CLI 2.1.198), the Codex one in
+//! lives here (verified against Claude Code CLI 2.1.209), the Codex one in
 //! [`crate::agent::codex`]. Neither passes the prompt as an argument — it's
 //! written to the child's stdin (see `spawn.rs`).
 
+use crate::agent::AgentRunOptions;
 use crate::agent::Backend;
 use crate::mcpconfig::McpEntry;
 use crate::store::settings::Settings;
@@ -25,6 +26,9 @@ pub struct FlagInput<'a> {
     /// Claude enforces it with `--max-turns`; Codex has no equivalent flag and
     /// ignores it (its runs are bounded by the loop's iteration cap instead).
     pub max_turns: Option<u32>,
+    /// Explicit per-task controls. `Some` wins over persisted defaults, even
+    /// when its model/effort is Automatic (`None`).
+    pub run_options: Option<&'a AgentRunOptions>,
 }
 
 /// Tools we hand Claude. `--allowedTools` is variadic (`<tools...>`), so each
@@ -86,9 +90,14 @@ fn build_claude_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     args.push(input.mcp_config_path.to_string_lossy().into_owned());
     args.push("--strict-mcp-config".into());
 
-    if let Some(model) = settings.model_for(Backend::Claude) {
+    if let Some(model) = effective_model(settings, input, Backend::Claude) {
         args.push("--model".into());
         args.push(model.to_string());
+    }
+
+    if let Some(effort) = effective_effort(settings, input, Backend::Claude) {
+        args.push("--effort".into());
+        args.push(effort.to_string());
     }
 
     if let Some(sid) = input.resume_session_id.filter(|s| !s.is_empty()) {
@@ -102,6 +111,28 @@ fn build_claude_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     }
 
     args
+}
+
+pub(crate) fn effective_model<'a>(
+    settings: &'a Settings,
+    input: &'a FlagInput<'a>,
+    backend: Backend,
+) -> Option<&'a str> {
+    match input.run_options {
+        Some(options) => options.model(),
+        None => settings.model_for(backend),
+    }
+}
+
+pub(crate) fn effective_effort<'a>(
+    settings: &'a Settings,
+    input: &'a FlagInput<'a>,
+    backend: Backend,
+) -> Option<&'a str> {
+    match input.run_options {
+        Some(options) => options.effort(),
+        None => settings.effort_for(backend),
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +162,7 @@ mod tests {
                 mcp_entry: &entry(),
                 resume_session_id: resume,
                 max_turns,
+                run_options: None,
             },
         )
     }
@@ -198,6 +230,7 @@ mod tests {
                 mcp_entry: &entry(),
                 resume_session_id: None,
                 max_turns: Some(60),
+                run_options: None,
             },
         );
         assert_eq!(args[0], "exec");
@@ -205,5 +238,87 @@ mod tests {
         // Claude-only flags must never reach Codex.
         assert!(!args.contains(&"--mcp-config".to_string()));
         assert!(!args.contains(&"--max-turns".to_string()));
+    }
+
+    #[test]
+    fn per_task_model_and_effort_override_defaults() {
+        let settings = Settings {
+            model: Some("opus".into()),
+            effort: Some("low".into()),
+            ..Settings::default()
+        };
+        let run = AgentRunOptions {
+            backend: Backend::Claude,
+            model: Some("sonnet".into()),
+            effort: Some("high".into()),
+        };
+        let cfg = PathBuf::from("/tmp/mcp.json");
+        let args = build_args(
+            Backend::Claude,
+            &settings,
+            &FlagInput {
+                mcp_config_path: &cfg,
+                mcp_entry: &entry(),
+                resume_session_id: Some("session-1"),
+                max_turns: None,
+                run_options: Some(&run),
+            },
+        );
+        let model = args.iter().position(|a| a == "--model").unwrap();
+        let effort = args.iter().position(|a| a == "--effort").unwrap();
+        assert_eq!(args[model + 1], "sonnet");
+        assert_eq!(args[effort + 1], "high");
+    }
+
+    #[test]
+    fn every_documented_claude_effort_is_emitted_verbatim() {
+        let cfg = PathBuf::from("/tmp/mcp.json");
+        for effort in ["low", "medium", "high", "xhigh", "max"] {
+            let run = AgentRunOptions {
+                backend: Backend::Claude,
+                model: Some("opus".into()),
+                effort: Some(effort.into()),
+            };
+            let args = build_args(
+                Backend::Claude,
+                &Settings::default(),
+                &FlagInput {
+                    mcp_config_path: &cfg,
+                    mcp_entry: &entry(),
+                    resume_session_id: Some("session-1"),
+                    max_turns: None,
+                    run_options: Some(&run),
+                },
+            );
+            let index = args.iter().position(|arg| arg == "--effort").unwrap();
+            assert_eq!(args[index + 1], effort);
+        }
+    }
+
+    #[test]
+    fn explicit_automatic_ignores_persisted_defaults() {
+        let settings = Settings {
+            model: Some("opus".into()),
+            effort: Some("max".into()),
+            ..Settings::default()
+        };
+        let run = AgentRunOptions {
+            backend: Backend::Claude,
+            model: None,
+            effort: None,
+        };
+        let cfg = PathBuf::from("/tmp/mcp.json");
+        let args = build_args(
+            Backend::Claude,
+            &settings,
+            &FlagInput {
+                mcp_config_path: &cfg,
+                mcp_entry: &entry(),
+                resume_session_id: None,
+                max_turns: None,
+                run_options: Some(&run),
+            },
+        );
+        assert!(!args.iter().any(|a| a == "--model" || a == "--effort"));
     }
 }

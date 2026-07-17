@@ -1,5 +1,7 @@
 // Chat domain types. Shared by the stream mapper, stores, and components.
 
+import type { AgentBackend, AgentRunOptions } from "./agent";
+
 /** Resource kind — classified in Rust (commands/resources.rs), mirrored here. */
 export type ResourceKind = "image" | "model" | "audio" | "text" | "other";
 
@@ -78,6 +80,10 @@ export interface ChatSession {
   /** Running token total, on backends that report tokens instead of a price
    *  (Codex). Stays 0 on Claude. */
   totalTokens: number;
+  /** Backend that owns `sessionId`; null until the first task starts. */
+  backend: AgentBackend | null;
+  /** Frozen model/reasoning controls for this conversation. */
+  runOptions: AgentRunOptions | null;
 }
 
 /** Payload of `agent:done:<runId>`. */
@@ -98,3 +104,7 @@ export interface ErrorEvent {
   friendly: string;
   raw: string;
 }
+
+export type ChatTerminalEvent =
+  | { kind: "done"; payload: DoneEvent }
+  | { kind: "error"; payload: ErrorEvent };

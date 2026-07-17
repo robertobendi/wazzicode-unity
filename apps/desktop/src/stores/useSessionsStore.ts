@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api } from "@/api";
+import { inferSessionRunOptions } from "@/lib/agentOptions";
 import { useChatStore } from "@/stores/useChatStore";
 import type { ChatMessage } from "@/types/chat";
 import type { SessionIndexEntry, SessionPayload } from "@/types/session";
@@ -78,6 +79,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     if (messages.length === 0) return;
 
     const now = Date.now();
+    const runOptions = inferSessionRunOptions({
+      agentBackend: chat.session.backend,
+      runOptions: chat.session.runOptions,
+      messages,
+    });
     const payload: SessionPayload = {
       sessionId,
       title: titleFrom(messages),
@@ -85,6 +91,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       updatedAt: now,
       totalCostUsd: chat.session.totalCostUsd,
       messages,
+      agentBackend: runOptions.backend,
+      runOptions,
     };
     try {
       await api.saveSession(project, payload);
@@ -99,11 +107,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     if (useChatStore.getState().running) return false;
     try {
       const payload = await api.loadSession(project, sessionId);
-      useChatStore.getState().loadSession({
-        messages: payload.messages ?? [],
-        sessionId: payload.sessionId,
-        totalCostUsd: payload.totalCostUsd ?? 0,
-      });
+      useChatStore.getState().loadSession(payload);
       set({ activeSessionId: sessionId });
       return true;
     } catch {

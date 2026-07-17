@@ -44,7 +44,7 @@ fn url_re() -> &'static Regex {
 /// The long-lived OAuth token the CLI prints on success.
 fn token_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"sk-ant-oat01-[A-Za-z0-9_\-]{20,}").expect("token regex"))
+    RE.get_or_init(|| Regex::new(r"sk-ant-oat01-[^\s\x1b]{20,512}").expect("token regex"))
 }
 
 /// The CLI's code prompt. NOTE: `setup-token` lays out prompt words with cursor
@@ -101,6 +101,12 @@ pub fn find_token(transcript: &str) -> Option<String> {
     token_re().find(region).map(|m| m.as_str().to_string())
 }
 
+pub fn redact_tokens(transcript: &str) -> String {
+    token_re()
+        .replace_all(transcript, "[redacted OAuth token]")
+        .into_owned()
+}
+
 /// Whether the CLI has prompted for the code yet (substring match — safe on a
 /// partial line since it's idempotent and only enables the input UI).
 pub fn looks_like_prompt(transcript: &str) -> bool {
@@ -155,9 +161,17 @@ pub fn failure_reason(stripped: &str) -> Option<String> {
 }
 
 /// Cheap "is this machine actually authenticated" probe: ask Claude to reply
-/// `OK` using the CLI's OWN stored credentials (no token injected — we don't
-/// manage tokens). `ok` == the CLI exits 0 AND its JSON result is not an error.
+/// `OK` using the app-managed OAuth token when present, otherwise the CLI's
+/// stored login. `ok` requires a zero exit and a non-error JSON result.
 pub fn verify_probe() -> Result<(), String> {
+    verify_probe_inner(None)
+}
+
+pub fn verify_probe_with_token(token: &str) -> Result<(), String> {
+    verify_probe_inner(Some(token))
+}
+
+fn verify_probe_inner(candidate_token: Option<&str>) -> Result<(), String> {
     let mut cmd = crate::proc::command("claude").map_err(|e| e.to_string())?;
     cmd.args([
         "-p",
@@ -167,6 +181,11 @@ pub fn verify_probe() -> Result<(), String> {
         "--max-turns",
         "1",
     ]);
+    let _credential_guard = match candidate_token {
+        Some(token) => crate::claudeauth::configure_child_with_token(&mut cmd, Some(token)),
+        None => crate::claudeauth::configure_child(&mut cmd),
+    }
+    .map_err(|e| e.to_string())?;
     if let Some(home) = dirs::home_dir() {
         cmd.current_dir(home);
     }
@@ -266,6 +285,14 @@ mod tests {
         );
         // A too-short candidate must not match.
         assert_eq!(find_token("sk-ant-oat01-short\r\n"), None);
+    }
+
+    #[test]
+    fn token_redaction_removes_secrets_from_diagnostics() {
+        let raw = "token sk-ant-oat01-AbCd1234EfGh5678IjKl9012MnOp done";
+        let redacted = redact_tokens(raw);
+        assert!(!redacted.contains("sk-ant"));
+        assert!(redacted.contains("[redacted OAuth token]"));
     }
 
     #[test]

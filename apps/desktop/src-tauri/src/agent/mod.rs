@@ -11,9 +11,11 @@
 pub mod backend;
 pub mod codex;
 pub mod flags;
+pub mod options;
 pub mod session;
 pub mod spawn;
 
 pub use backend::Backend;
+pub use options::{AgentModelOption, AgentRunOptions};
 pub use session::SessionManager;
 pub use spawn::{spawn_streaming, ChildHandle, ExitInfo};

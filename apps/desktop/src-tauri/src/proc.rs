@@ -77,12 +77,17 @@ fn build_augmented_path() -> OsString {
     #[cfg(target_os = "windows")]
     const STATIC_EXTRAS: &[&str] = &[];
 
-    let mut additions: Vec<PathBuf> = STATIC_EXTRAS.iter().map(PathBuf::from).collect();
+    let mut additions = Vec::new();
 
-    // HOME-relative dirs. `~/.local/bin` is the XDG user-install location;
-    // `~/.cargo/bin` catches Rust-installed CLIs the user might shell out to.
+    // The native Claude and Codex installers use `~/.local/bin`, so prefer a
+    // fresh app-installed CLI over an older package-manager copy.
     if let Some(home) = dirs::home_dir() {
         additions.push(home.join(".local").join("bin"));
+    }
+    additions.extend(STATIC_EXTRAS.iter().map(PathBuf::from));
+    // Keep Cargo-installed shims available, but behind the native and system
+    // package-manager locations above.
+    if let Some(home) = dirs::home_dir() {
         additions.push(home.join(".cargo").join("bin"));
     }
 
@@ -92,15 +97,23 @@ fn build_augmented_path() -> OsString {
     #[cfg(target_os = "windows")]
     additions.extend(windows_dynamic_dirs());
 
-    for p in additions {
-        if !parts.contains(&p) && p.is_dir() {
+    prepend_search_dirs(&mut parts, additions);
+
+    std::env::join_paths(parts).unwrap_or(current)
+}
+
+/// Add known install locations even when they do not exist yet. Installers can
+/// create (notably) `~/.local/bin` after this process-wide PATH is cached; the
+/// cached entry then becomes usable immediately without an app restart.
+fn prepend_search_dirs(parts: &mut Vec<PathBuf>, additions: impl IntoIterator<Item = PathBuf>) {
+    let additions = additions.into_iter().collect::<Vec<_>>();
+    for p in additions.into_iter().rev() {
+        if !parts.contains(&p) {
             // Prepend: user-installed CLIs should win over anything the
             // system might shim under `/usr/bin` (e.g. macOS's stub `git`).
             parts.insert(0, p);
         }
     }
-
-    std::env::join_paths(parts).unwrap_or(current)
 }
 
 /// Windows install/shim directories that the GUI-inherited PATH often
@@ -120,6 +133,14 @@ fn windows_dynamic_dirs() -> Vec<PathBuf> {
         // User-scope installs.
         v.push(local.join("Programs").join("GitHub CLI"));
         v.push(local.join("Programs").join("Git").join("cmd"));
+        // Official Codex standalone installer (per-user default).
+        v.push(
+            local
+                .join("Programs")
+                .join("OpenAI")
+                .join("Codex")
+                .join("bin"),
+        );
     }
     if let Some(home) = dirs::home_dir() {
         v.push(home.join("scoop").join("shims"));
@@ -435,6 +456,39 @@ fn missing_message(bin: &str) -> String {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn known_search_dirs_are_kept_before_an_installer_creates_them() {
+        let original = PathBuf::from("/system/bin");
+        let future = PathBuf::from("/definitely/not/created/yet/.local/bin");
+        let mut parts = vec![original.clone()];
+
+        prepend_search_dirs(&mut parts, [future.clone()]);
+
+        assert_eq!(parts, vec![future, original]);
+    }
+
+    #[test]
+    fn known_search_dirs_are_not_duplicated() {
+        let existing = PathBuf::from("/known/bin");
+        let mut parts = vec![existing.clone()];
+
+        prepend_search_dirs(&mut parts, [existing.clone()]);
+
+        assert_eq!(parts, vec![existing]);
+    }
+
+    #[test]
+    fn known_search_dirs_keep_their_declared_priority() {
+        let first = PathBuf::from("/first/bin");
+        let second = PathBuf::from("/second/bin");
+        let original = PathBuf::from("/system/bin");
+        let mut parts = vec![original.clone()];
+
+        prepend_search_dirs(&mut parts, [first.clone(), second.clone()]);
+
+        assert_eq!(parts, vec![first, second, original]);
+    }
 
     #[test]
     fn output_with_timeout_captures_both_streams() {
