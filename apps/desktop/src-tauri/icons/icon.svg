@@ -1,64 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="tile" x1="150" y1="100" x2="850" y2="930" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#15151d" />
-      <stop offset="0.42" stop-color="#09090e" />
-      <stop offset="1" stop-color="#030305" />
-    </linearGradient>
-    <linearGradient id="edge" x1="170" y1="90" x2="850" y2="940" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffffff" stop-opacity="0.72" />
-      <stop offset="0.32" stop-color="#ffffff" stop-opacity="0.16" />
-      <stop offset="0.74" stop-color="#ffffff" stop-opacity="0.08" />
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.34" />
-    </linearGradient>
-    <linearGradient id="left" x1="250" y1="320" x2="500" y2="790" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#a36bff" />
-      <stop offset="1" stop-color="#ff458b" />
-    </linearGradient>
-    <linearGradient id="right" x1="760" y1="330" x2="500" y2="800" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#55c7ff" />
-      <stop offset="1" stop-color="#4263ff" />
-    </linearGradient>
-    <linearGradient id="top" x1="270" y1="410" x2="730" y2="220" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ff4f87" />
-      <stop offset="0.52" stop-color="#ad5cff" />
-      <stop offset="1" stop-color="#ffad4c" />
-    </linearGradient>
-    <radialGradient id="glass" cx="0" cy="0" r="1" gradientTransform="translate(340 260) rotate(47) scale(770)">
-      <stop stop-color="#ffffff" stop-opacity="0.13" />
-      <stop offset="0.38" stop-color="#ffffff" stop-opacity="0.025" />
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0" />
-    </radialGradient>
-    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="74" />
-    </filter>
-    <filter id="cube-shadow" x="-30%" y="-30%" width="160%" height="180%">
-      <feDropShadow dx="0" dy="36" stdDeviation="34" flood-color="#000000" flood-opacity="0.62" />
-    </filter>
-    <clipPath id="tile-clip">
+    <clipPath id="tile">
       <rect x="64" y="64" width="896" height="896" rx="224" />
     </clipPath>
+    <mask id="w-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect width="1024" height="1024" fill="#ffffff" />
+      <polyline points="308,294 417,770 512,519 607,770 716,294" fill="none" stroke="#000000" stroke-width="76" stroke-linecap="square" stroke-linejoin="miter" />
+    </mask>
   </defs>
 
-  <g clip-path="url(#tile-clip)">
-    <rect x="64" y="64" width="896" height="896" fill="url(#tile)" />
-    <g filter="url(#blur)" opacity="0.82">
-      <circle cx="170" cy="210" r="230" fill="#4263ff" />
-      <circle cx="840" cy="190" r="215" fill="#9852ff" />
-      <circle cx="850" cy="830" r="255" fill="#ff458b" />
-      <circle cx="170" cy="850" r="245" fill="#ff9d48" />
-    </g>
-    <rect x="64" y="64" width="896" height="896" fill="#030305" opacity="0.42" />
-    <rect x="64" y="64" width="896" height="896" fill="url(#glass)" />
-    <path d="M80 326C256 126 626 62 943 175V64H64V347Z" fill="#ffffff" opacity="0.035" />
-  </g>
+  <rect x="64" y="64" width="896" height="896" rx="224" fill="#09090b" />
 
-  <g filter="url(#cube-shadow)">
-    <path d="M249 360L512 512V816L249 664Z" fill="url(#left)" />
-    <path d="M512 512L775 360V664L512 816Z" fill="url(#right)" />
-    <path d="M249 360L512 208L775 360L512 512Z" fill="url(#top)" />
-    <polyline points="314,301 420,763 512,519 604,763 710,301" fill="none" stroke="#07070b" stroke-width="66" stroke-linecap="round" stroke-linejoin="round" />
+  <g clip-path="url(#tile)" mask="url(#w-cut)">
+    <path d="M241 356L512 512V825L241 668Z" fill="#9296f0" />
+    <path d="M512 512L783 356V668L512 825Z" fill="#777cdb" />
+    <path d="M241 356L512 199L783 356L512 512Z" fill="#b8baff" />
   </g>
-
-  <rect x="65.5" y="65.5" width="893" height="893" rx="222.5" fill="none" stroke="url(#edge)" stroke-width="3" />
 </svg>
