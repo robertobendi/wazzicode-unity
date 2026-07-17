@@ -95,7 +95,7 @@ export default function SessionRail() {
                       onClick={() => setConfirmId(s.sessionId)}
                       title="Delete this chat"
                       aria-label="Delete this chat"
-                      className="absolute right-1.5 top-1.5 rounded-md p-1 text-fg-dim opacity-0 transition-opacity duration-150 hover:bg-ink-700 hover:text-fg group-hover:opacity-100"
+                      className="absolute right-1 top-1 rounded-md p-1.5 text-fg-dim opacity-0 transition-opacity duration-150 hover:bg-ink-700 hover:text-fg focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                     >
                       <TrashIcon className="h-3.5 w-3.5" />
                     </button>

@@ -2,7 +2,10 @@ import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useUiStore, type AppMode } from "@/stores/useUiStore";
 import { useLoopStore } from "@/stores/useLoopStore";
+import { useStatusStore } from "@/stores/useStatusStore";
 import { isLoopActive } from "@/types/loop";
+import type { BridgeState } from "@/types/status";
+import { formatTokens } from "@/lib/formatTokens";
 import { useCliInstallActive } from "@/hooks/useOnboarding";
 import { GearIcon, PanelIcon, SidebarIcon } from "./icons";
 import Logo from "./Logo";
@@ -15,7 +18,10 @@ export default function TopBar() {
   const update = useSettingsStore((s) => s.update);
   const settingsBackend = useSettingsStore((s) => s.settings?.agentBackend);
   const chatRunning = useChatStore((s) => s.running);
+  const totalCost = useChatStore((s) => s.session.totalCostUsd);
+  const totalTokens = useChatStore((s) => s.session.totalTokens);
   const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
+  const bridge = useStatusStore((s) => s.status);
   const cliInstalling = useCliInstallActive();
   const taskActive = chatRunning || loopRunning;
   const navigationLocked = taskActive || cliInstalling;
@@ -30,10 +36,22 @@ export default function TopBar() {
     setMode,
   } = useUiStore();
   const name = project ? project.split(/[\\/]/).pop() || project : "";
+  const bridgeLabel = bridge.compiling
+    ? "Compiling"
+    : bridge.playMode
+      ? "Playing"
+      : bridge.friendly;
+  const usageLabel =
+    totalCost > 0
+      ? `$${totalCost.toFixed(3)}`
+      : totalTokens > 0
+        ? formatTokens(totalTokens)
+        : null;
+  const statusLabel = `Unity: ${bridgeLabel}${usageLabel ? `. Session usage: ${usageLabel}` : ""}`;
 
   return (
-    <header className="glass-bar relative mx-3 mt-3 flex h-12 shrink-0 items-center justify-between rounded-2xl border px-4">
-      <div className="flex min-w-0 items-center gap-2">
+    <header className="glass-bar relative mx-3 mt-3 grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center rounded-2xl border px-3">
+      <div className="flex min-w-0 items-center gap-2 overflow-hidden">
         {mode === "chat" && (
           <IconButton
             label={sessionRailOpen ? "Hide chats" : "Show chats"}
@@ -44,7 +62,7 @@ export default function TopBar() {
           </IconButton>
         )}
         <Logo />
-        <span className="text-sm font-medium text-fg">{name}</span>
+        <span className="truncate text-sm font-medium text-fg">{name}</span>
         <button
           onClick={() => void update({ currentProject: null })}
           disabled={navigationLocked}
@@ -59,22 +77,46 @@ export default function TopBar() {
         </button>
       </div>
 
-      <div className="absolute left-1/2 -translate-x-1/2">
+      <div className="justify-self-center">
         <ModeToggle mode={mode} setMode={setMode} disabled={navigationLocked} />
       </div>
 
-      <div className="flex items-center gap-1">
-        <RevertControl />
-        <IconButton
-          label={activityOpen ? "Hide activity" : "Show activity"}
-          active={activityOpen}
-          onClick={toggleActivity}
+      <div className="flex min-w-0 items-center justify-end gap-1">
+        <div
+          className="flex min-w-0 items-center gap-1.5 rounded-lg border border-white/[0.07] bg-black/20 px-2 py-1 text-[11px] text-fg-dim"
+          role="status"
+          aria-label={statusLabel}
+          title={statusLabel}
         >
-          <PanelIcon />
-        </IconButton>
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${bridgeDot(bridge.state)}`}
+          />
+          <span className="hidden max-w-24 truncate lg:inline">{bridgeLabel}</span>
+        </div>
+        {usageLabel && (
+          <span className="hidden whitespace-nowrap px-1 text-[11px] tabular-nums text-fg-dim xl:inline">
+            {usageLabel}
+          </span>
+        )}
+        <RevertControl />
+        {mode === "chat" && (
+          <div className="activity-toggle">
+            <IconButton
+              label={activityOpen ? "Hide activity" : "Show activity"}
+              active={activityOpen}
+              onClick={toggleActivity}
+            >
+              <PanelIcon />
+            </IconButton>
+          </div>
+        )}
         <IconButton
+          id="settings-trigger"
           label="Settings"
           active={settingsOpen}
+          expanded={settingsOpen}
+          controls="settings-popover"
           onClick={() => setSettingsOpen(!settingsOpen)}
         >
           <GearIcon />
@@ -84,6 +126,20 @@ export default function TopBar() {
       {settingsOpen && <SettingsPopover key={settingsBackend} />}
     </header>
   );
+}
+
+function bridgeDot(state: BridgeState): string {
+  switch (state) {
+    case "connected":
+      return "bg-success";
+    case "reloading":
+      return "bg-warning animate-dot-pulse";
+    case "identity_mismatch":
+      return "bg-warning";
+    case "disconnected":
+    default:
+      return "bg-danger";
+  }
 }
 
 /** Quiet segmented control switching between manual chat and auto mode. */
@@ -127,20 +183,29 @@ function ModeToggle({
 
 function IconButton({
   children,
+  id,
   label,
   active,
+  expanded,
+  controls,
   onClick,
 }: {
   children: React.ReactNode;
+  id?: string;
   label: string;
   active?: boolean;
+  expanded?: boolean;
+  controls?: string;
   onClick: () => void;
 }) {
   return (
     <button
+      id={id}
       onClick={onClick}
       title={label}
       aria-label={label}
+      aria-expanded={expanded}
+      aria-controls={controls}
       className={`rounded-lg p-1.5 transition-colors duration-150 hover:bg-white/5 ${
         active ? "text-fg" : "text-fg-dim hover:text-fg-muted"
       }`}

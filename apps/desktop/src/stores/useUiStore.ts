@@ -7,7 +7,7 @@ export type AppMode = "chat" | "auto";
 interface UiState {
   /** Active surface: "chat" (manual) or "auto" (loop). */
   mode: AppMode;
-  /** Right-hand activity panel open? Defaults open on first run. */
+  /** Right-hand activity panel open? */
   activityOpen: boolean;
   /** Left session-history rail open? Persisted across launches. */
   sessionRailOpen: boolean;
@@ -47,7 +47,7 @@ function saveRailOpen(open: boolean): void {
 
 export const useUiStore = create<UiState>((set) => ({
   mode: "chat",
-  activityOpen: true,
+  activityOpen: false,
   sessionRailOpen: loadRailOpen(),
   debugOpen: false,
   settingsOpen: false,

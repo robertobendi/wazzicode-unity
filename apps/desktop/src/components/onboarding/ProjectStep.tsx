@@ -64,10 +64,10 @@ export default function ProjectStep({
         </PrimaryButton>
       </div>
 
-      {error && <p className="mt-3 text-xs text-accent">{error}</p>}
+      {error && <p className="mt-3 text-xs text-danger">{error}</p>}
 
       {candidate && (
-        <div className="mt-4 animate-appear rounded-xl border border-white/10 bg-ink-900 p-4">
+        <div className="glass-card mt-4 animate-appear rounded-xl border p-4">
           <div className="text-sm font-medium text-fg">{candidate.name}</div>
           <div className="mt-0.5 truncate text-xs text-fg-dim">{candidate.path}</div>
           <div className="mt-2 text-[11px] text-fg-muted">

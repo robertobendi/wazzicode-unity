@@ -7,33 +7,20 @@ import Logo from "@/components/shell/Logo";
 export const STEP_LABELS = ["Agent", "Project", "Set up", "Connect", "Ready"];
 
 export function Stepper({ current }: { current: number }) {
+  const progress = ((current + 1) / STEP_LABELS.length) * 100;
   return (
-    <div className="mb-8 flex items-center gap-2">
-      {STEP_LABELS.map((label, i) => {
-        const active = i === current;
-        const done = i < current;
-        return (
-          <div key={label} className="flex flex-1 items-center gap-2">
-            <span
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-medium transition-colors ${
-                done
-                  ? "border border-accent/15 bg-accent/10 text-accent"
-                  : active
-                    ? "border border-accent/30 bg-accent text-white shadow-sm shadow-accent/10"
-                    : "border border-white/5 bg-white/[0.035] text-fg-dim"
-              }`}
-            >
-              {done ? "✓" : i + 1}
-            </span>
-            <span className={`hidden text-xs sm:inline ${active ? "text-fg" : "text-fg-dim"}`}>
-              {label}
-            </span>
-            {i < STEP_LABELS.length - 1 && (
-              <span className="ml-1 h-px flex-1 bg-white/5" />
-            )}
-          </div>
-        );
-      })}
+    <div className="mb-8">
+      <div className="mb-3 flex items-center justify-between text-[11px] font-medium uppercase tracking-[0.14em]">
+        <span className="text-fg-dim">Setup</span>
+        <span className="text-fg-muted">
+          {String(current + 1).padStart(2, "0")} / {String(STEP_LABELS.length).padStart(2, "0")}
+          <span className="mx-2 text-fg-dim">·</span>
+          {STEP_LABELS[current]}
+        </span>
+      </div>
+      <div className="setup-progress">
+        <span style={{ width: `${progress}%` }} />
+      </div>
     </div>
   );
 }

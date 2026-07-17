@@ -91,7 +91,9 @@ export default function SettingsPopover() {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      requestAnimationFrame(() => document.getElementById("settings-trigger")?.focus());
     }
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -108,6 +110,9 @@ export default function SettingsPopover() {
   return (
     <div
       ref={ref}
+      id="settings-popover"
+      role="region"
+      aria-label="Settings"
       className="glass-card absolute right-3 top-14 z-30 max-h-[calc(100vh-5rem)] w-80 animate-appear overflow-y-auto rounded-2xl border p-4"
     >
       <div className="text-xs font-medium uppercase tracking-wide text-fg-dim">

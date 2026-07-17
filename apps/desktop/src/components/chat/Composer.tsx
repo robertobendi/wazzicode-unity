@@ -46,6 +46,8 @@ export default function Composer() {
   const [tuningOpen, setTuningOpen] = useState(false);
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
+  const tuningRef = useRef<HTMLDivElement>(null);
+  const tuningTriggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (sessionOptions) {
@@ -61,6 +63,38 @@ export default function Composer() {
     settings?.effort,
     settings?.codexEffort,
   ]);
+
+  useEffect(() => {
+    if (!tuningOpen) return;
+    const frame = requestAnimationFrame(() => {
+      tuningRef.current
+        ?.querySelector<HTMLElement>("select, input, button")
+        ?.focus();
+    });
+    function onMouseDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (
+        tuningRef.current?.contains(target) ||
+        tuningTriggerRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setTuningOpen(false);
+    }
+    function onEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setTuningOpen(false);
+      requestAnimationFrame(() => tuningTriggerRef.current?.focus());
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [tuningOpen]);
 
   const agentLabel = BACKENDS[runOptions.backend].label;
 
@@ -143,7 +177,7 @@ export default function Composer() {
   }
 
   return (
-    <div className="glass-bar mx-3 mb-3 rounded-2xl border px-4 py-3">
+    <div className="glass-bar mx-3 mb-3 shrink-0 rounded-2xl border px-4 py-3">
       <div className="mx-auto max-w-2xl">
         {showQuickActions && (
           <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5">
@@ -151,7 +185,7 @@ export default function Composer() {
               <button
                 key={qa.label}
                 onClick={() => fillPrompt(qa.prompt)}
-                className="shrink-0 whitespace-nowrap rounded-full border border-ink-700 bg-ink-850 px-3 py-1 text-xs text-fg-muted transition-colors duration-150 hover:border-ink-600 hover:text-fg"
+                className="prompt-tile shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-black/25 px-3 py-1.5 text-xs text-fg-muted hover:border-white/20 hover:bg-white/[0.055] hover:text-fg"
               >
                 {qa.label}
               </button>
@@ -171,35 +205,7 @@ export default function Composer() {
           </div>
         )}
 
-        <div className="mb-2">
-          <button
-            type="button"
-            onClick={() => setTuningOpen((open) => !open)}
-            aria-expanded={tuningOpen}
-            className="flex max-w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-xs text-fg-dim transition-colors hover:text-fg-muted"
-          >
-            <span className="font-medium text-fg-muted">{agentLabel}</span>
-            <span className="truncate">{runOptionsSummary(runOptions)}</span>
-            <span aria-hidden>{tuningOpen ? "−" : "+"}</span>
-          </button>
-          {tuningOpen && (
-            <div className="glass-card mt-1.5 rounded-xl border p-3">
-              <AgentRunControls
-                value={runOptions}
-                onChange={setRunOptions}
-                disabled={running || !!sessionOptions}
-              />
-              {sessionOptions && (
-                <p className="mt-2 text-[11px] leading-relaxed text-fg-dim">
-                  These choices stay fixed for this conversation. Start a new
-                  chat to use different ones.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-end gap-2">
+        <div className="command-dock relative rounded-2xl border border-white/10 bg-black/25 p-2 shadow-inner shadow-white/[0.025]">
           <textarea
             ref={ref}
             value={value}
@@ -222,28 +228,67 @@ export default function Composer() {
                     ? "Transcribing…"
                     : `Ask ${agentLabel} to change your game…`
             }
-            className="selectable max-h-40 flex-1 resize-none rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5 text-sm text-fg placeholder:text-fg-dim transition-colors duration-150 focus:border-accent/40 focus:bg-black/35 focus:outline-none disabled:opacity-50"
+            className="selectable max-h-40 min-h-[2.75rem] w-full resize-none bg-transparent px-2.5 py-2 text-sm leading-relaxed text-fg placeholder:text-fg-dim focus:outline-none disabled:opacity-50"
           />
 
-          {dictation.state !== "unsupported" && !loopRunning && (
-            <MicButton dictation={dictation} />
-          )}
+          <div className="mt-1 flex items-center justify-between gap-3 border-t border-white/[0.07] px-1 pt-2">
+            <button
+              ref={tuningTriggerRef}
+              type="button"
+              onClick={() => setTuningOpen((open) => !open)}
+              aria-expanded={tuningOpen}
+              aria-controls="agent-tuning"
+              className="flex min-w-0 max-w-[70%] items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-fg-dim hover:bg-white/5 hover:text-fg-muted"
+            >
+              <span className="shrink-0 font-medium text-fg-muted">{agentLabel}</span>
+              <span className="truncate">{runOptionsSummary(runOptions)}</span>
+              <span className="shrink-0 text-[10px]" aria-hidden>
+                {tuningOpen ? "▲" : "▼"}
+              </span>
+            </button>
 
-          {running ? (
-            <button
-              onClick={() => void cancel()}
-              className="shrink-0 rounded-xl border border-ink-700 bg-ink-800 px-4 py-2.5 text-sm font-medium text-fg transition-colors duration-150 hover:bg-ink-700"
+            <div className="flex shrink-0 items-center gap-2">
+              {dictation.state !== "unsupported" && !loopRunning && (
+                <MicButton dictation={dictation} />
+              )}
+
+              {running ? (
+                <button
+                  onClick={() => void cancel()}
+                  className="shrink-0 rounded-lg border border-white/10 bg-white/[0.055] px-4 py-2 text-sm font-medium text-fg hover:bg-white/[0.09]"
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  onClick={submit}
+                  disabled={!canSend}
+                  className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
+                >
+                  Send
+                </button>
+              )}
+            </div>
+          </div>
+
+          {tuningOpen && (
+            <div
+              ref={tuningRef}
+              id="agent-tuning"
+              className="glass-card absolute inset-x-0 bottom-full z-30 mb-2 rounded-2xl border p-4"
             >
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={submit}
-              disabled={!canSend}
-              className="shrink-0 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-hover disabled:opacity-40"
-            >
-              Send
-            </button>
+              <AgentRunControls
+                value={runOptions}
+                onChange={setRunOptions}
+                disabled={running || !!sessionOptions}
+              />
+              {sessionOptions && (
+                <p className="mt-2 text-[11px] leading-relaxed text-fg-dim">
+                  These choices stay fixed for this conversation. Start a new
+                  chat to use different ones.
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -276,7 +321,7 @@ function MicButton({
       title={title}
       aria-label={title}
       aria-pressed={recording}
-      className={`relative shrink-0 rounded-xl border px-3 py-2.5 transition-colors duration-150 disabled:opacity-60 ${
+      className={`relative shrink-0 rounded-lg border px-2.5 py-2 transition-colors duration-150 disabled:opacity-60 ${
         recording
           ? "border-danger/40 bg-danger/15 text-danger"
           : state === "error"

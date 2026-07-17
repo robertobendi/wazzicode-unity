@@ -67,7 +67,7 @@ export default function BackendPicker({
               disabled={disabled}
               onClick={() => onChange(backend)}
               onKeyDown={(event) => onKeyDown(event, backend)}
-              className={`rounded-xl border px-4 py-3 text-left transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`provider-card rounded-xl border px-4 py-3 text-left transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
                 selected
                   ? "border-accent bg-accent/5"
                   : "border-ink-700 bg-ink-900 hover:border-ink-600"

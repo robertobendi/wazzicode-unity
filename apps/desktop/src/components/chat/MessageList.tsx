@@ -3,25 +3,59 @@ import { useChatStore } from "@/stores/useChatStore";
 import Logo from "@/components/shell/Logo";
 import MessageBubble from "./MessageBubble";
 
-const EXAMPLES = [
-  "Make the coins spin",
-  "Add a pause menu",
-  "Why is my scene dark?",
-];
-
 export default function MessageList() {
   const messages = useChatStore((s) => s.messages);
-  const send = useChatStore((s) => s.send);
+  const project = useChatStore((s) => s.project);
+  const sessionId = useChatStore((s) => s.session.sessionId);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+  const programmaticScrollRef = useRef(false);
+  const previousCountRef = useRef(0);
 
-  // Keep the newest turn in view as text streams in.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    pinnedRef.current = true;
+    programmaticScrollRef.current = false;
+    previousCountRef.current = messages.length;
+    const frame = requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [project, sessionId]);
+
+  // Follow a live response only while the reader is already at the bottom.
+  useEffect(() => {
+    const newTurn = messages.length > previousCountRef.current;
+    previousCountRef.current = messages.length;
+    if (!pinnedRef.current) return;
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const smooth = newTurn && !reducedMotion;
+    programmaticScrollRef.current = true;
+    bottomRef.current?.scrollIntoView({
+      behavior: smooth ? "smooth" : "auto",
+      block: "end",
+    });
+    const release = window.setTimeout(
+      () => {
+        programmaticScrollRef.current = false;
+      },
+      smooth ? 450 : 0,
+    );
+    return () => window.clearTimeout(release);
   }, [messages]);
+
+  function trackScrollPosition() {
+    if (programmaticScrollRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 72;
+  }
 
   if (messages.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center px-8 py-8 text-center">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-8 py-8 text-center">
         <div className="empty-state-card animate-appear">
           <div className="identity-mark mx-auto">
             <Logo size={27} />
@@ -36,24 +70,27 @@ export default function MessageList() {
             Describe a change in plain language. Vibe Studio will handle the
             Unity work and keep you in the loop.
           </p>
-          <div className="mt-6 flex flex-col items-stretch gap-2">
-            {EXAMPLES.map((ex) => (
-              <button
-                key={ex}
-                onClick={() => void send(ex)}
-                className="rounded-xl border border-white/[0.08] bg-white/[0.025] px-4 py-2.5 text-sm text-fg-muted transition-colors duration-150 hover:border-accent/20 hover:bg-white/[0.05] hover:text-fg"
-              >
-                {ex}
-              </button>
-            ))}
-          </div>
+          <div className="mx-auto mt-6 h-px w-20 bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+          <p className="mt-4 text-xs text-fg-dim">
+            Use the command dock below to begin.
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6">
+    <div
+      ref={scrollRef}
+      onScroll={trackScrollPosition}
+      onWheel={() => {
+        programmaticScrollRef.current = false;
+      }}
+      onPointerDown={() => {
+        programmaticScrollRef.current = false;
+      }}
+      className="min-h-0 flex-1 overflow-y-auto px-4 py-6"
+    >
       <div className="mx-auto flex max-w-2xl flex-col gap-5">
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />

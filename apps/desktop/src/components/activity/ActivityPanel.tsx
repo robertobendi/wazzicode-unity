@@ -13,7 +13,7 @@ export default function ActivityPanel() {
   const connected = useStatusStore((s) => s.status.state === "connected");
 
   return (
-    <aside className="glass-panel m-3 ml-0 flex w-80 shrink-0 flex-col overflow-hidden rounded-2xl border">
+    <aside className="activity-panel glass-panel m-3 ml-0 flex w-80 shrink-0 flex-col overflow-hidden rounded-2xl border">
       <LiveScreenshot project={project} connected={connected} />
       <div className="min-h-0 flex-1">
         <ToolTimeline />

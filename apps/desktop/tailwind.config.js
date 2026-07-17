@@ -35,6 +35,7 @@ export default {
           "Avenir Next",
           "Segoe UI Variable Text",
           "SF Pro Text",
+          "Segoe UI",
           "Helvetica Neue",
           "sans-serif",
         ],

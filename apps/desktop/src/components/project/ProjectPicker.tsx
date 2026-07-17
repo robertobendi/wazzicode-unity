@@ -133,8 +133,8 @@ function Tag({ children, ok }: { children: React.ReactNode; ok?: boolean }) {
     ok === undefined
       ? "border-ink-700 text-fg-muted"
       : ok
-        ? "border-emerald-700/50 text-emerald-400"
-        : "border-amber-700/50 text-amber-400";
+        ? "border-success/40 text-success"
+        : "border-warning/40 text-warning";
   return (
     <span className={`rounded-full border px-2 py-0.5 ${tone}`}>{children}</span>
   );

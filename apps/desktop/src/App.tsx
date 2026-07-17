@@ -18,7 +18,6 @@ import ChatView from "@/components/chat/ChatView";
 import SessionRail from "@/components/chat/SessionRail";
 import LoopPanel from "@/components/loop/LoopPanel";
 import ActivityPanel from "@/components/activity/ActivityPanel";
-import StatusBar from "@/components/shell/StatusBar";
 import TopBar from "@/components/shell/TopBar";
 import ConnectionBanner from "@/components/shell/ConnectionBanner";
 import DebugDrawer from "@/components/shell/DebugDrawer";
@@ -137,7 +136,7 @@ export default function App() {
     <div className="app-shell flex h-full w-full flex-col bg-ink-950 text-fg">
       <TopBar />
       <ConnectionBanner />
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {mode === "auto" ? (
           <LoopPanel />
         ) : (
@@ -149,7 +148,6 @@ export default function App() {
         )}
       </div>
       {settings.debugDrawer && <DebugDrawer />}
-      <StatusBar />
       <ToastHost />
     </div>
   );
