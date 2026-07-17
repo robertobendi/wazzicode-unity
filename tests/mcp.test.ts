@@ -20,6 +20,7 @@ describe("mcp-server/registry", () => {
       "unity_capture_selected",
       "unity_check_git_status",
       "unity_clear_console",
+      "unity_configure_play_mode",
       "unity_create_gameobject",
       "unity_create_material",
       "unity_create_prefab_variant",
@@ -40,6 +41,7 @@ describe("mcp-server/registry", () => {
       "unity_find_runtime_objects",
       "unity_generate_project_brain",
       "unity_get_animator_state",
+      "unity_get_build_settings",
       "unity_get_console_logs",
       "unity_get_open_scenes",
       "unity_get_performance_stats",
@@ -57,8 +59,10 @@ describe("mcp-server/registry", () => {
       "unity_orient",
       "unity_paint_tilemap",
       "unity_project_summary",
+      "unity_qa",
       "unity_read_script",
       "unity_reflect",
+      "unity_refresh_assets",
       "unity_remove_component",
       "unity_reparent",
       "unity_run_tests",
@@ -66,10 +70,12 @@ describe("mcp-server/registry", () => {
       "unity_save_scene",
       "unity_script_edit",
       "unity_set_animator_parameter",
+      "unity_set_runtime_field",
       "unity_set_serialized_field",
       "unity_set_transform",
       "unity_simulate_input",
       "unity_slice_sprite",
+      "unity_smoke_test",
       "unity_step_frame",
       "unity_verify",
       "unity_wait_for_compile",
@@ -144,6 +150,10 @@ describe("mcp-server/tool annotations", () => {
   it("treats batch and play-mode tools as mutating (not read-only)", () => {
     expect(toolAnnotations(allTools.find((t) => t.name === "unity_batch")!).readOnlyHint).toBe(false);
     expect(toolAnnotations(allTools.find((t) => t.name === "unity_enter_play_mode")!).readOnlyHint).toBe(false);
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_configure_play_mode")!).readOnlyHint).toBe(false);
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_set_runtime_field")!).readOnlyHint).toBe(false);
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_smoke_test")!).readOnlyHint).toBe(false);
+    expect(toolAnnotations(allTools.find((t) => t.name === "unity_qa")!).readOnlyHint).toBe(false);
   });
 });
 
@@ -295,6 +305,7 @@ describe("mcp-server/mockBridge", () => {
       "selection.inspect",
       "console.getLogs",
       "compile.status",
+      "asset.refresh",
       "screenshot.gameView",
       "screenshot.sceneView",
       "screenshot.selected",
@@ -450,6 +461,345 @@ describe("mcp-server/composition tools", () => {
   });
 });
 
+describe("unity_verify truthful verdicts", () => {
+  type ConsoleEntry = {
+    type: "Log" | "Warning" | "Error" | "Assert" | "Exception";
+    message: string;
+    stackTrace?: string;
+    timestamp: number;
+  };
+
+  interface VerifyFixture {
+    compile?: {
+      isCompiling: boolean;
+      hasErrors: boolean;
+      errorCount: number;
+      warningCount: number;
+      errors: unknown[];
+      settled?: boolean;
+    };
+    beforeTests?: ConsoleEntry[];
+    afterTests?: ConsoleEntry[];
+    tests?: Record<string, unknown>;
+    testError?: { code: string; message: string };
+    refreshError?: { code: string; message: string };
+    consoleErrorPhase?: "before" | "after";
+  }
+
+  function verifyContext(fixture: VerifyFixture = {}) {
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const compile = fixture.compile ?? {
+      isCompiling: false,
+      hasErrors: false,
+      errorCount: 0,
+      warningCount: 0,
+      errors: [],
+      settled: true,
+    };
+    const tests = fixture.tests ?? {
+      runId: "verify-run",
+      state: "completed",
+      mode: "EditMode",
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      results: [{ name: "Passes", fullName: "Example.Passes", status: "Passed" }],
+      settled: true,
+    };
+
+    const bridge: BridgeClient = {
+      source: "unity_bridge",
+      async call<T>(method: BridgeMethod, params: Record<string, unknown> = {}): Promise<BridgeResponse<T>> {
+        calls.push({ method, params });
+        if (method === "asset.refresh" && fixture.refreshError) {
+          return {
+            id: "verify",
+            ok: false,
+            result: null,
+            error: fixture.refreshError,
+            meta: {},
+          };
+        }
+        if (method === "test.run" && fixture.testError) {
+          return {
+            id: "verify",
+            ok: false,
+            result: null,
+            error: fixture.testError,
+            meta: {},
+          };
+        }
+
+        let result: unknown;
+        if (method === "asset.refresh" || method === "compile.await") result = compile;
+        else if (method === "console.getLogs") {
+          const phase = typeof params.sinceTimestamp === "number" ? "after" : "before";
+          if (fixture.consoleErrorPhase === phase) {
+            return {
+              id: "verify",
+              ok: false,
+              result: null,
+              error: { code: "UNITY_NOT_CONNECTED", message: `Console unavailable ${phase} tests.` },
+              meta: {},
+            };
+          }
+          const phaseLogs = phase === "before" ? (fixture.beforeTests ?? []) : (fixture.afterTests ?? []);
+          const level = params.level;
+          const matching = phaseLogs.filter((log) => {
+            if (level === "error") {
+              return log.type === "Error" || log.type === "Assert" || log.type === "Exception";
+            }
+            if (level === "warning_or_error") return log.type !== "Log";
+            return true;
+          });
+          const limit = typeof params.limit === "number" ? params.limit : 200;
+          const logs = matching.slice(-limit);
+          result = { logs, truncated: matching.length > limit, bufferSize: phaseLogs.length };
+        } else if (method === "test.run") result = { runId: "verify-run", state: "running", mode: "EditMode" };
+        else if (method === "test.await") result = tests;
+        else {
+          return {
+            id: "verify",
+            ok: false,
+            result: null,
+            error: { code: "INVALID_ARGUMENT", message: `Unexpected method: ${method}` },
+            meta: {},
+          };
+        }
+        return {
+          id: "verify",
+          ok: true,
+          result: result as T,
+          error: null,
+          meta: { unityVersion: "6000.3.8f1", projectPath: "/project", durationMs: 1 },
+        };
+      },
+      async isConnected() {
+        return true;
+      },
+    };
+
+    return {
+      calls,
+      ctx: { bridge, projectPath: process.cwd(), configMockMode: false },
+      tool: allTools.find((t) => t.name === "unity_verify")!,
+    };
+  }
+
+  it("fails hard when compilation remains active through the verification deadline", async () => {
+    const { ctx, tool, calls } = verifyContext({
+      compile: {
+        isCompiling: true,
+        hasErrors: false,
+        errorCount: 0,
+        warningCount: 0,
+        errors: [],
+        settled: true,
+      },
+    });
+    const env = await tool.run({ compileTimeoutMs: 500 }, ctx);
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe("BRIDGE_TIMEOUT");
+    expect(calls.some((call) => call.method === "test.run")).toBe(false);
+  });
+
+  it("refreshes externally changed assets before waiting for compilation", async () => {
+    const { ctx, tool, calls } = verifyContext();
+    const env = await tool.run({ runTests: false }, ctx);
+    expect(env.ok).toBe(true);
+    expect(calls.slice(0, 2).map((call) => call.method)).toEqual([
+      "asset.refresh",
+      "compile.await",
+    ]);
+  });
+
+  it("does not pass when an older package cannot refresh externally changed assets", async () => {
+    const { ctx, tool } = verifyContext({
+      refreshError: { code: "INVALID_ARGUMENT", message: "Unknown method: asset.refresh" },
+    });
+    const env = await tool.run({ runTests: false }, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const data = env.data as { pass: boolean; refreshVerified: boolean };
+      expect(data.pass).toBe(false);
+      expect(data.refreshVerified).toBe(false);
+      expect(env.warnings.join(" ")).toContain("Update or reinstall");
+    }
+  });
+
+  it.each(["Error", "Assert", "Exception"] as const)("fails on an existing %s console entry", async (type) => {
+    const { ctx, tool } = verifyContext({
+      beforeTests: [{ type, message: `${type} happened`, timestamp: 10 }],
+    });
+    const env = await tool.run({}, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const data = env.data as { pass: boolean; consoleErrorCount: number };
+      expect(data.pass).toBe(false);
+      expect(data.consoleErrorCount).toBe(1);
+    }
+  });
+
+  it("fails when the initial console cannot be read", async () => {
+    const { ctx, tool } = verifyContext({ consoleErrorPhase: "before" });
+    const env = await tool.run({ runTests: false }, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const data = env.data as { pass: boolean; consoleReadable: boolean };
+      expect(data.pass).toBe(false);
+      expect(data.consoleReadable).toBe(false);
+      expect(env.warnings).toContain("Console checks were incomplete; verification cannot pass.");
+    }
+  });
+
+  it("fails when the post-test console cannot be read", async () => {
+    const { ctx, tool } = verifyContext({ consoleErrorPhase: "after" });
+    const env = await tool.run({}, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const data = env.data as { pass: boolean; consoleReadable: boolean };
+      expect(data.pass).toBe(false);
+      expect(data.consoleReadable).toBe(false);
+      expect(env.warnings).toContain("Console checks were incomplete; verification cannot pass.");
+    }
+  });
+
+  it("detects an older error hidden behind fifty newer warnings", async () => {
+    const beforeTests: ConsoleEntry[] = [
+      { type: "Error", message: "hidden failure", timestamp: 1 },
+      ...Array.from({ length: 50 }, (_, index) => ({
+        type: "Warning" as const,
+        message: `warning ${index}`,
+        timestamp: index + 2,
+      })),
+    ];
+    const { ctx, tool, calls } = verifyContext({ beforeTests });
+    const env = await tool.run({ runTests: false }, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const data = env.data as { pass: boolean; problems: ConsoleEntry[] };
+      expect(data.pass).toBe(false);
+      expect(data.problems.some((log) => log.message === "hidden failure")).toBe(true);
+    }
+    expect(
+      calls.filter((call) => call.method === "console.getLogs").map((call) => call.params.level)
+    ).toEqual(["warning_or_error", "error"]);
+  });
+
+  it("marks a truncated error probe incomplete", async () => {
+    const beforeTests: ConsoleEntry[] = Array.from({ length: 51 }, (_, index) => ({
+      type: "Error" as const,
+      message: `error ${index}`,
+      timestamp: index + 1,
+    }));
+    const { ctx, tool } = verifyContext({ beforeTests });
+    const env = await tool.run({ runTests: false }, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const data = env.data as { pass: boolean; consoleReadable: boolean };
+      expect(data.pass).toBe(false);
+      expect(data.consoleReadable).toBe(false);
+      expect(env.warnings).toContain("console error scan was truncated.");
+    }
+  });
+
+  it("checks the console again after tests and fails on a new exception", async () => {
+    const { ctx, tool, calls } = verifyContext({
+      afterTests: [{ type: "Exception", message: "runtime failure", stackTrace: "at Game.Update()", timestamp: Date.now() + 1 }],
+    });
+    const env = await tool.run({}, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const data = env.data as { pass: boolean; problems: ConsoleEntry[] };
+      expect(data.pass).toBe(false);
+      expect(data.problems.some((log) => log.message === "runtime failure")).toBe(true);
+    }
+    const consoleCalls = calls.filter((call) => call.method === "console.getLogs");
+    expect(consoleCalls).toHaveLength(2);
+    expect(typeof consoleCalls[1].params.sinceTimestamp).toBe("number");
+  });
+
+  it("fails when a requested test filter matches no tests", async () => {
+    const { ctx, tool } = verifyContext({
+      tests: {
+        runId: "verify-run",
+        state: "completed",
+        mode: "EditMode",
+        total: 0,
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        results: [],
+        settled: true,
+      },
+    });
+    const env = await tool.run({ testFilter: "Missing.Tests" }, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      expect((env.data as { pass: boolean }).pass).toBe(false);
+      expect(env.warnings).toContain("No tests matched filter 'Missing.Tests'.");
+    }
+  });
+
+  it("fails when a completed run contains an inconclusive test", async () => {
+    const { ctx, tool } = verifyContext({
+      tests: {
+        runId: "verify-run",
+        state: "completed",
+        mode: "EditMode",
+        total: 1,
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        results: [{ name: "Maybe", fullName: "Example.Maybe", status: "Inconclusive" }],
+        settled: true,
+      },
+    });
+    const env = await tool.run({}, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      expect((env.data as { pass: boolean }).pass).toBe(false);
+      expect(env.warnings).toContain("1 test(s) were inconclusive.");
+    }
+  });
+
+  it("warns but does not fail when an unfiltered project has no tests", async () => {
+    const { ctx, tool } = verifyContext({
+      tests: {
+        runId: "verify-run",
+        state: "completed",
+        mode: "EditMode",
+        total: 0,
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        results: [],
+        settled: true,
+      },
+    });
+    const env = await tool.run({}, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      expect((env.data as { pass: boolean }).pass).toBe(true);
+      expect(env.warnings.some((warning) => warning.includes("discovered no tests"))).toBe(true);
+    }
+  });
+
+  it("preserves TEST_FRAMEWORK_MISSING as a non-failing skip", async () => {
+    const { ctx, tool, calls } = verifyContext({
+      testError: { code: "TEST_FRAMEWORK_MISSING", message: "Test Framework is not installed." },
+    });
+    const env = await tool.run({}, ctx);
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      expect((env.data as { pass: boolean }).pass).toBe(true);
+      expect(env.warnings).toContain("Test Framework not installed; skipped tests.");
+    }
+    expect(calls.filter((call) => call.method === "console.getLogs")).toHaveLength(2);
+  });
+});
+
 describe("mcp-server/bridgeClient (real HTTP, against unbound port)", () => {
   it("returns UNITY_NOT_CONNECTED when nothing is listening", async () => {
     // Use a port unlikely to be bound.
@@ -550,6 +900,76 @@ describe("mcp-server/long-poll awaits + legacy fallback", () => {
     expect(calls).toEqual(["compile.await", "compile.await"]);
   });
 
+  it("unity_wait_for_compile ignores settled=true while isCompiling remains authoritative", async () => {
+    const calls: string[] = [];
+    let round = 0;
+    const bridge = fakeBridge(
+      {
+        "compile.await": () => {
+          round++;
+          return round < 2
+            ? { isCompiling: true, hasErrors: false, errorCount: 0, warningCount: 0, errors: [], settled: true }
+            : { isCompiling: false, hasErrors: false, errorCount: 0, warningCount: 0, errors: [], settled: true };
+        },
+      },
+      calls
+    );
+    const tool = allTools.find((t) => t.name === "unity_wait_for_compile")!;
+    const env = await tool.run({ pollMs: 100 }, ctxWith(bridge));
+    expect(env.ok).toBe(true);
+    if (env.ok) expect((env.data as { isCompiling: boolean }).isCompiling).toBe(false);
+    expect(calls).toEqual(["compile.await", "compile.await"]);
+  });
+
+  it("unity_wait_for_compile gives reload recovery the remaining explicit timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const readyAt = Date.now() + 31_000;
+      const calls: string[] = [];
+      const bridge: BridgeClient = {
+        source: "unity_bridge",
+        async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+          calls.push(method);
+          if (Date.now() < readyAt) {
+            return {
+              id: "t",
+              ok: false,
+              result: null,
+              error: { code: "UNITY_RELOADING", message: "domain reload" },
+              meta: {},
+            };
+          }
+          return {
+            id: "t",
+            ok: true,
+            result: {
+              isCompiling: false,
+              hasErrors: false,
+              errorCount: 0,
+              warningCount: 0,
+              errors: [],
+              settled: true,
+            } as T,
+            error: null,
+            meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+          };
+        },
+        async isConnected() {
+          return true;
+        },
+      };
+
+      const tool = allTools.find((candidate) => candidate.name === "unity_wait_for_compile")!;
+      const pending = tool.run({ timeoutMs: 60_000 }, ctxWith(bridge));
+      await vi.advanceTimersByTimeAsync(32_000);
+      const env = await pending;
+      expect(env.ok).toBe(true);
+      expect(calls.length).toBeGreaterThan(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("unity_wait_for_compile fails hard with UNITY_EDITOR_STALLED instead of soft-timing-out against a frozen editor", async () => {
     const calls: string[] = [];
     const bridge = fakeBridge(
@@ -574,11 +994,11 @@ describe("mcp-server/long-poll awaits + legacy fallback", () => {
     }
   });
 
-  it("unity_wait_for_compile keeps the soft timeout warning when the editor is alive (genuinely slow compile)", async () => {
+  it("unity_wait_for_compile returns a hard timeout when the editor is alive but compile stays active", async () => {
     const calls: string[] = [];
     const bridge = fakeBridge(
       {
-        "compile.await": () => ({ isCompiling: true, hasErrors: false, errorCount: 0, warningCount: 0, errors: [], settled: false }),
+        "compile.await": () => ({ isCompiling: true, hasErrors: false, errorCount: 0, warningCount: 0, errors: [], settled: true }),
       },
       calls
     );
@@ -589,9 +1009,12 @@ describe("mcp-server/long-poll awaits + legacy fallback", () => {
       wasFocused: true,
     });
     const tool = allTools.find((t) => t.name === "unity_wait_for_compile")!;
-    const env = await tool.run({ timeoutMs: 600 }, ctxWith(bridge));
-    expect(env.ok).toBe(true);
-    if (env.ok) expect(env.warnings.some((w) => w.includes("Timed out"))).toBe(true);
+    const env = await tool.run({ timeoutMs: 600, pollMs: 100 }, ctxWith(bridge));
+    expect(env.ok).toBe(false);
+    if (!env.ok) {
+      expect(env.error.code).toBe("BRIDGE_TIMEOUT");
+      expect(env.error.details).toMatchObject({ timeoutMs: 600 });
+    }
   });
 
   it("unity_orient warns when 'Keep Unity awake' is off", async () => {
@@ -669,6 +1092,232 @@ describe("mcp-server/long-poll awaits + legacy fallback", () => {
     expect(calls).toEqual(["playmode.enter", "playmode.await"]);
   });
 
+  it("unity_enter_play_mode gives reload recovery the remaining explicit timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const readyAt = Date.now() + 31_000;
+      const calls: string[] = [];
+      const bridge: BridgeClient = {
+        source: "unity_bridge",
+        async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+          calls.push(method);
+          if (method === "playmode.await" && Date.now() < readyAt) {
+            return {
+              id: "t",
+              ok: false,
+              result: null,
+              error: { code: "UNITY_RELOADING", message: "domain reload" },
+              meta: {},
+            };
+          }
+          return {
+            id: "t",
+            ok: true,
+            result: (method === "playmode.enter"
+              ? { isPlaying: false, isPaused: false, isTransitioning: true }
+              : { isPlaying: true, isPaused: false, isTransitioning: false, settled: true }) as T,
+            error: null,
+            meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+          };
+        },
+        async isConnected() {
+          return true;
+        },
+      };
+
+      const tool = allTools.find((candidate) => candidate.name === "unity_enter_play_mode")!;
+      const pending = tool.run({ timeoutMs: 60_000 }, ctxWith(bridge));
+      await vi.advanceTimersByTimeAsync(32_000);
+      const env = await pending;
+      expect(env.ok).toBe(true);
+      expect(calls.filter((method) => method === "playmode.await").length).toBeGreaterThan(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["unity_enter_play_mode", "playmode.enter", false, true],
+    ["unity_exit_play_mode", "playmode.exit", true, false],
+  ] as const)(
+    "%s lets the initial transition recover beyond the method default within its explicit timeout",
+    async (toolName, startMethod, startingIsPlaying, finalIsPlaying) => {
+      vi.useFakeTimers();
+      try {
+        const initialReadyAt = Date.now() + 70_000;
+        const finalReadyAt = Date.now() + 100_000;
+        const calls: string[] = [];
+        const bridge: BridgeClient = {
+          source: "unity_bridge",
+          async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+            calls.push(method);
+            if (
+              (method === startMethod && Date.now() < initialReadyAt) ||
+              (method === "playmode.await" && Date.now() < finalReadyAt)
+            ) {
+              return {
+                id: "t",
+                ok: false,
+                result: null,
+                error: { code: "UNITY_RELOADING", message: "domain reload" },
+                meta: {},
+              };
+            }
+            return {
+              id: "t",
+              ok: true,
+              result: (method === startMethod
+                ? {
+                    isPlaying: startingIsPlaying,
+                    isPaused: false,
+                    isTransitioning: true,
+                  }
+                : {
+                    isPlaying: finalIsPlaying,
+                    isPaused: false,
+                    isTransitioning: false,
+                    settled: true,
+                  }) as T,
+              error: null,
+              meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+            };
+          },
+          async isConnected() {
+            return true;
+          },
+        };
+
+        const tool = allTools.find((candidate) => candidate.name === toolName)!;
+        const pending = tool.run({ timeoutMs: 120_000 }, ctxWith(bridge));
+        await vi.advanceTimersByTimeAsync(101_000);
+        const env = await pending;
+        expect(env.ok).toBe(true);
+        expect(calls.filter((method) => method === startMethod).length).toBeGreaterThan(2);
+        expect(calls.filter((method) => method === "playmode.await").length).toBeGreaterThan(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
+
+  it("unity_enter_play_mode counts initial reload recovery against the overall timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const initialReadyAt = Date.now() + 70_000;
+      const calls: string[] = [];
+      const bridge: BridgeClient = {
+        source: "unity_bridge",
+        async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+          calls.push(method);
+          if (method === "playmode.enter" && Date.now() >= initialReadyAt) {
+            return {
+              id: "t",
+              ok: true,
+              result: {
+                isPlaying: false,
+                isPaused: false,
+                isTransitioning: true,
+              } as T,
+              error: null,
+              meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+            };
+          }
+          return {
+            id: "t",
+            ok: false,
+            result: null,
+            error: { code: "UNITY_RELOADING", message: "domain reload" },
+            meta: {},
+          };
+        },
+        async isConnected() {
+          return true;
+        },
+      };
+
+      const tool = allTools.find((candidate) => candidate.name === "unity_enter_play_mode")!;
+      const pending = tool.run({ timeoutMs: 120_000 }, ctxWith(bridge));
+      await vi.advanceTimersByTimeAsync(121_000);
+      const env = await pending;
+      expect(env.ok).toBe(false);
+      if (!env.ok) {
+        expect(env.error.code).toBe("BRIDGE_TIMEOUT");
+        expect(env.error.details).toMatchObject({ until: "playing", timeoutMs: 120_000 });
+        expect(env.meta.durationMs).toBeGreaterThanOrEqual(120_000);
+        expect(env.meta.durationMs).toBeLessThan(121_000);
+      }
+      expect(calls.filter((method) => method === "playmode.enter").length).toBeGreaterThan(2);
+      expect(calls.filter((method) => method === "playmode.await").length).toBeGreaterThan(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["unity_enter_play_mode", "playmode.enter", false],
+    ["unity_exit_play_mode", "playmode.exit", true],
+  ] as const)("%s rejects a settled await response in the wrong state", async (toolName, startMethod, isPlaying) => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        [startMethod]: () => ({ isPlaying, isPaused: false, isTransitioning: true }),
+        "playmode.await": () => ({
+          isPlaying,
+          isPaused: false,
+          isTransitioning: false,
+          settled: true,
+        }),
+      },
+      calls
+    );
+    const tool = allTools.find((candidate) => candidate.name === toolName)!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe("MALFORMED_BRIDGE_RESPONSE");
+    expect(calls).toEqual([startMethod, "playmode.await"]);
+  });
+
+  it("unity_enter_play_mode returns an error when its transition deadline expires", async () => {
+    const calls: string[] = [];
+    const bridge: BridgeClient = {
+      source: "unity_bridge",
+      async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+        calls.push(method);
+        if (method === "playmode.enter") {
+          return {
+            id: "t",
+            ok: true,
+            result: { isPlaying: false, isPaused: false, isTransitioning: true } as T,
+            error: null,
+            meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+          };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 520));
+        return {
+          id: "t",
+          ok: true,
+          result: {
+            isPlaying: false,
+            isPaused: false,
+            isTransitioning: true,
+            settled: false,
+          } as T,
+          error: null,
+          meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 520 },
+        };
+      },
+      async isConnected() {
+        return true;
+      },
+    };
+
+    const tool = allTools.find((candidate) => candidate.name === "unity_enter_play_mode")!;
+    const env = await tool.run({ timeoutMs: 500 }, ctxWith(bridge));
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe("BRIDGE_TIMEOUT");
+    expect(calls).toEqual(["playmode.enter", "playmode.await"]);
+  });
+
   it("unity_enter_play_mode falls back to status polling against older packages", async () => {
     const calls: string[] = [];
     const bridge = fakeBridge(
@@ -681,6 +1330,85 @@ describe("mcp-server/long-poll awaits + legacy fallback", () => {
     const tool = allTools.find((t) => t.name === "unity_enter_play_mode")!;
     const env = await tool.run({}, ctxWith(bridge));
     expect(env.ok).toBe(true);
+    expect(calls).toEqual(["playmode.enter", "playmode.await", "playmode.status"]);
+  });
+
+  it("unity_enter_play_mode returns a terminal await error instead of stale enter success", async () => {
+    const calls: string[] = [];
+    const bridge: BridgeClient = {
+      source: "unity_bridge",
+      async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+        calls.push(method);
+        if (method === "playmode.enter") {
+          return {
+            id: "t",
+            ok: true,
+            result: { isPlaying: false, isPaused: false, isTransitioning: true } as T,
+            error: null,
+            meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+          };
+        }
+        return {
+          id: "t",
+          ok: false,
+          result: null,
+          error: { code: "PROJECT_IDENTITY_MISMATCH", message: "A different Unity project answered." },
+          meta: {},
+        };
+      },
+      async isConnected() {
+        return true;
+      },
+    };
+
+    const tool = allTools.find((t) => t.name === "unity_enter_play_mode")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe("PROJECT_IDENTITY_MISMATCH");
+    expect(calls).toEqual(["playmode.enter", "playmode.await"]);
+  });
+
+  it("unity_enter_play_mode returns a terminal legacy status error", async () => {
+    const calls: string[] = [];
+    const bridge: BridgeClient = {
+      source: "unity_bridge",
+      async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+        calls.push(method);
+        if (method === "playmode.enter") {
+          return {
+            id: "t",
+            ok: true,
+            result: { isPlaying: false, isPaused: false, isTransitioning: true } as T,
+            error: null,
+            meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+          };
+        }
+        if (method === "playmode.await") {
+          return {
+            id: "t",
+            ok: false,
+            result: null,
+            error: { code: "INVALID_ARGUMENT", message: "Unknown method: playmode.await" },
+            meta: {},
+          };
+        }
+        return {
+          id: "t",
+          ok: false,
+          result: null,
+          error: { code: "UNITY_NOT_CONNECTED", message: "Unity closed during the transition." },
+          meta: {},
+        };
+      },
+      async isConnected() {
+        return true;
+      },
+    };
+
+    const tool = allTools.find((t) => t.name === "unity_enter_play_mode")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe("UNITY_NOT_CONNECTED");
     expect(calls).toEqual(["playmode.enter", "playmode.await", "playmode.status"]);
   });
 
@@ -700,6 +1428,148 @@ describe("mcp-server/long-poll awaits + legacy fallback", () => {
     expect(calls).toEqual(["test.run", "test.await"]);
   });
 
+  it("unity_run_tests rejects an empty runId before requesting status", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "test.run": () => ({ runId: "", state: "running", mode: "EditMode" }),
+      },
+      calls
+    );
+    const tool = allTools.find((candidate) => candidate.name === "unity_run_tests")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(false);
+    if (!env.ok) {
+      expect(env.error.code).toBe("MALFORMED_BRIDGE_RESPONSE");
+      expect(env.error.details).toMatchObject({ method: "test.run", actualRunId: "" });
+    }
+    expect(calls).toEqual(["test.run"]);
+  });
+
+  it("unity_run_tests preserves a failed mock-mode status response", async () => {
+    const calls: string[] = [];
+    const bridge: BridgeClient = {
+      source: "mock",
+      async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+        calls.push(method);
+        if (method === "test.run") {
+          return {
+            id: "t",
+            ok: true,
+            result: { runId: "r1", state: "running", mode: "EditMode" } as T,
+            error: null,
+            meta: { durationMs: 1 },
+          };
+        }
+        return {
+          id: "t",
+          ok: false,
+          result: null,
+          error: { code: "UNITY_NOT_CONNECTED", message: "Mock status failed." },
+          meta: {},
+        };
+      },
+      async isConnected() {
+        return true;
+      },
+    };
+    const tool = allTools.find((candidate) => candidate.name === "unity_run_tests")!;
+    const env = await tool.run({}, { ...ctxWith(bridge), configMockMode: true });
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe("UNITY_NOT_CONNECTED");
+    expect(calls).toEqual(["test.run", "test.status"]);
+  });
+
+  it("unity_run_tests rejects an await status for a different run instead of continuing", async () => {
+    const calls: string[] = [];
+    let awaitRound = 0;
+    const bridge = fakeBridge(
+      {
+        "test.run": () => ({ runId: "r1", state: "running", mode: "EditMode" }),
+        "test.await": () =>
+          ++awaitRound === 1
+            ? { runId: "other-run", state: "running", settled: false }
+            : {
+                runId: "r1",
+                state: "completed",
+                total: 1,
+                passed: 1,
+                failed: 0,
+                skipped: 0,
+                results: [],
+                settled: true,
+              },
+      },
+      calls
+    );
+    const tool = allTools.find((candidate) => candidate.name === "unity_run_tests")!;
+    const env = await tool.run({}, ctxWith(bridge));
+    expect(env.ok).toBe(false);
+    if (!env.ok) {
+      expect(env.error.code).toBe("MALFORMED_BRIDGE_RESPONSE");
+      expect(env.error.details).toMatchObject({
+        method: "test.await",
+        expectedRunId: "r1",
+        actualRunId: "other-run",
+      });
+    }
+    expect(calls).toEqual(["test.run", "test.await"]);
+  });
+
+  it("unity_run_tests gives reload recovery the remaining explicit timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const readyAt = Date.now() + 31_000;
+      const calls: string[] = [];
+      const bridge: BridgeClient = {
+        source: "unity_bridge",
+        async call<T>(method: BridgeMethod): Promise<BridgeResponse<T>> {
+          calls.push(method);
+          if (method === "test.await" && Date.now() < readyAt) {
+            return {
+              id: "t",
+              ok: false,
+              result: null,
+              error: { code: "UNITY_RELOADING", message: "domain reload" },
+              meta: {},
+            };
+          }
+          return {
+            id: "t",
+            ok: true,
+            result: (method === "test.run"
+              ? { runId: "r1", state: "running", mode: "PlayMode" }
+              : {
+                  runId: "r1",
+                  state: "completed",
+                  mode: "PlayMode",
+                  total: 1,
+                  passed: 1,
+                  failed: 0,
+                  skipped: 0,
+                  results: [],
+                  settled: true,
+                }) as T,
+            error: null,
+            meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+          };
+        },
+        async isConnected() {
+          return true;
+        },
+      };
+
+      const tool = allTools.find((candidate) => candidate.name === "unity_run_tests")!;
+      const pending = tool.run({ mode: "PlayMode", timeoutMs: 60_000 }, ctxWith(bridge));
+      await vi.advanceTimersByTimeAsync(32_000);
+      const env = await pending;
+      expect(env.ok).toBe(true);
+      expect(calls.filter((method) => method === "test.await").length).toBeGreaterThan(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("unity_run_tests falls back to test.status polling against older packages", async () => {
     const calls: string[] = [];
     const bridge = fakeBridge(
@@ -712,6 +1582,37 @@ describe("mcp-server/long-poll awaits + legacy fallback", () => {
     const tool = allTools.find((t) => t.name === "unity_run_tests")!;
     const env = await tool.run({ pollMs: 200 }, ctxWith(bridge));
     expect(env.ok).toBe(true);
+    expect(calls).toEqual(["test.run", "test.await", "test.status"]);
+  });
+
+  it("unity_run_tests rejects a legacy status result for a different run", async () => {
+    const calls: string[] = [];
+    const bridge = fakeBridge(
+      {
+        "test.run": () => ({ runId: "r1", state: "running", mode: "EditMode" }),
+        "test.status": () => ({
+          runId: "other-run",
+          state: "completed",
+          total: 1,
+          passed: 1,
+          failed: 0,
+          skipped: 0,
+          results: [],
+        }),
+      },
+      calls
+    );
+    const tool = allTools.find((candidate) => candidate.name === "unity_run_tests")!;
+    const env = await tool.run({ pollMs: 200 }, ctxWith(bridge));
+    expect(env.ok).toBe(false);
+    if (!env.ok) {
+      expect(env.error.code).toBe("MALFORMED_BRIDGE_RESPONSE");
+      expect(env.error.details).toMatchObject({
+        method: "test.status",
+        expectedRunId: "r1",
+        actualRunId: "other-run",
+      });
+    }
     expect(calls).toEqual(["test.run", "test.await", "test.status"]);
   });
 });

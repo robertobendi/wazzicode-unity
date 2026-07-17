@@ -24,6 +24,7 @@ namespace UnityVibeOS
 
         static IntPtr _hwnd;          // cached Windows main window
         static IntPtr _macActivity;   // macOS App-Nap-off activity token
+        const ulong MacUserInitiatedAllowingIdleSystemSleep = 0x00EFFFFFUL;
 
         /// <summary>Turn OS background CPU throttling off (<paramref name="on"/>=true) or back to default.</summary>
         public static void KeepUnthrottled(bool on)
@@ -79,8 +80,7 @@ namespace UnityVibeOS
             {
                 if (_macActivity != IntPtr.Zero) return;
                 IntPtr reason = SendStr(Cls("NSString"), Sel("stringWithUTF8String:"), "UnityVibeOS keep-alive");
-                // 0x00FFFFFF = NSActivityUserInitiated minus idle-sleep: App Nap off, idle sleep still allowed.
-                IntPtr token = SendActivity(pi, Sel("beginActivityWithOptions:reason:"), 0x00FFFFFFUL, reason);
+                IntPtr token = SendActivity(pi, Sel("beginActivityWithOptions:reason:"), MacUserInitiatedAllowingIdleSystemSleep, reason);
                 _macActivity = token != IntPtr.Zero ? Send(token, Sel("retain")) : IntPtr.Zero;
             }
             else if (_macActivity != IntPtr.Zero)

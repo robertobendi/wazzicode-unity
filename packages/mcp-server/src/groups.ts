@@ -15,8 +15,8 @@ export const TOOL_GROUPS: ToolGroupMeta[] = [
   { name: "core", description: "Orientation, scene/selection/console inspection, captures, scene/prefab/asset edits, navigation, batch/verify.", defaultActive: true },
   { name: "scripting", description: "Read and edit C# source: read/find/sha + create/apply_text_edits/script_edit.", defaultActive: true },
   { name: "reflection", description: "Anti-hallucination: unity_reflect (live type system) and unity_docs.", defaultActive: true },
-  { name: "runtime", description: "Play mode, runtime object inspection, input simulation, animator, performance stats.", defaultActive: true },
-  { name: "testing", description: "Run the Unity Test Runner (unity_run_tests).", defaultActive: true },
+  { name: "runtime", description: "Play mode control, runtime inspection/overrides, input simulation, animator, performance stats.", defaultActive: true },
+  { name: "testing", description: "Verification, build readiness, smoke tests, and the Unity Test Runner.", defaultActive: true },
   { name: "codegen", description: "Arbitrary in-Editor C# execution (unity_execute_code). Off by default — activate when you need it.", defaultActive: false },
 ];
 
@@ -37,8 +37,10 @@ const TOOL_GROUP_BY_NAME: Record<string, string> = {
   unity_exit_play_mode: "runtime",
   unity_step_frame: "runtime",
   unity_get_play_mode_status: "runtime",
+  unity_configure_play_mode: "runtime",
   unity_find_runtime_objects: "runtime",
   unity_inspect_runtime_object: "runtime",
+  unity_set_runtime_field: "runtime",
   unity_simulate_input: "runtime",
   unity_get_animator_state: "runtime",
   unity_set_animator_parameter: "runtime",
@@ -46,6 +48,9 @@ const TOOL_GROUP_BY_NAME: Record<string, string> = {
   unity_get_performance_stats: "runtime",
   // testing
   unity_run_tests: "testing",
+  unity_get_build_settings: "testing",
+  unity_smoke_test: "testing",
+  unity_qa: "testing",
   // codegen
   unity_execute_code: "codegen",
 };

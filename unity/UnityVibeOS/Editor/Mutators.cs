@@ -447,7 +447,7 @@ namespace UnityVibeOS
             return null;
         }
 
-        static void SetPropertyValue(SerializedProperty prop, object value)
+        internal static void SetPropertyValue(SerializedProperty prop, object value)
         {
             switch (prop.propertyType)
             {

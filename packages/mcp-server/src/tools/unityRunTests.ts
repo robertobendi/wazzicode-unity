@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ToolDef } from "../registry.js";
 import { BRIDGE_METHODS, bridgeCall, isUnknownMethodError } from "./_helpers.js";
-import { TestRunStatus, ToolEnvelope, isErrorCode } from "@uvibe/core";
+import { TestRunStatus, ToolEnvelope, err, isErrorCode } from "@uvibe/core";
 
 /** Single long-poll round is capped server-side; re-issue until our own deadline. */
 const AWAIT_WINDOW_MS = 25_000;
@@ -40,10 +40,21 @@ export const unityRunTests: ToolDef<typeof InputShape, TestRunStatus> = {
     if (!started.ok) return started; // e.g. TEST_FRAMEWORK_MISSING
 
     const runId = started.data.runId;
+    if (typeof runId !== "string" || runId.trim().length === 0) {
+      return err(
+        "MALFORMED_BRIDGE_RESPONSE",
+        "test.run returned a missing or empty runId.",
+        started.meta,
+        { method: BRIDGE_METHODS.testRun, actualRunId: runId }
+      );
+    }
     if (ctx.configMockMode) {
       // Mock bridge resolves synchronously; one status fetch returns the completed run.
       const s = await bridgeCall<TestRunStatus>(ctx.bridge, BRIDGE_METHODS.testStatus, { runId });
-      return s.ok ? s : started;
+      if (!s.ok) return s;
+      const mismatch = mismatchedRunStatus(s, runId, BRIDGE_METHODS.testStatus);
+      if (mismatch) return mismatch;
+      return s;
     }
     const start = Date.now();
     let last: ToolEnvelope<TestRunStatus> = started;
@@ -52,14 +63,31 @@ export const unityRunTests: ToolDef<typeof InputShape, TestRunStatus> = {
     let useAwait = true;
     while (Date.now() - start < timeoutMs) {
       const remaining = timeoutMs - (Date.now() - start);
-      const status = useAwait
-        ? await bridgeCall<TestRunStatus>(ctx.bridge, BRIDGE_METHODS.testAwait, {
+      let status: ToolEnvelope<TestRunStatus>;
+      if (useAwait) {
+        status = await bridgeCall<TestRunStatus>(
+          ctx.bridge,
+          BRIDGE_METHODS.testAwait,
+          {
             runId,
             timeoutMs: Math.min(remaining, AWAIT_WINDOW_MS),
-          })
-        : await sleep(pollMs).then(() =>
-            bridgeCall<TestRunStatus>(ctx.bridge, BRIDGE_METHODS.testStatus, { runId })
-          );
+          },
+          "normal",
+          { reloadTimeoutMs: remaining }
+        );
+      } else {
+        const delayMs = Math.min(pollMs, Math.max(0, remaining));
+        if (delayMs > 0) await sleep(delayMs);
+        const afterSleepRemaining = timeoutMs - (Date.now() - start);
+        if (afterSleepRemaining <= 0) break;
+        status = await bridgeCall<TestRunStatus>(
+          ctx.bridge,
+          BRIDGE_METHODS.testStatus,
+          { runId },
+          "normal",
+          { reloadTimeoutMs: afterSleepRemaining }
+        );
+      }
       if (!status.ok) {
         if (useAwait && isUnknownMethodError(status)) {
           useAwait = false; // older Unity package
@@ -67,9 +95,18 @@ export const unityRunTests: ToolDef<typeof InputShape, TestRunStatus> = {
         }
         // UNITY_RELOADING is already retried inside bridgeCall; anything else is terminal.
         const code = isErrorCode(status.error.code) ? status.error.code : "INTERNAL_ERROR";
-        if (code === "UNITY_RELOADING") continue;
+        if (code === "UNITY_RELOADING") {
+          if (Date.now() - start >= timeoutMs) break;
+          continue;
+        }
         return status;
       }
+      const mismatch = mismatchedRunStatus(
+        status,
+        runId,
+        useAwait ? BRIDGE_METHODS.testAwait : BRIDGE_METHODS.testStatus
+      );
+      if (mismatch) return mismatch;
       last = status;
       if (status.data.state !== "running") {
         if (status.data.failed && status.data.failed > 0) {
@@ -79,12 +116,38 @@ export const unityRunTests: ToolDef<typeof InputShape, TestRunStatus> = {
       }
       // Awaits that settle while the persisted state still says "running" (write race right at
       // run end) shouldn't busy-loop — give the collector a beat to flush.
-      if (useAwait && status.data.settled !== false) await sleep(200);
+      if (useAwait && status.data.settled !== false) {
+        const remainingAfterCall = timeoutMs - (Date.now() - start);
+        const delayMs = Math.min(200, Math.max(0, remainingAfterCall));
+        if (delayMs > 0) await sleep(delayMs);
+      }
     }
-    if (last.ok) last.warnings.push(`Timed out after ${timeoutMs}ms; tests may still be running.`);
-    return last;
+    return err(
+      "BRIDGE_TIMEOUT",
+      `Timed out after ${timeoutMs}ms waiting for Unity tests to finish.`,
+      { source: ctx.bridge.source, durationMs: Date.now() - start },
+      {
+        timeoutMs,
+        runId,
+        ...(last.ok ? { lastStatus: last.data } : {}),
+      }
+    );
   },
 };
+
+function mismatchedRunStatus(
+  status: ToolEnvelope<TestRunStatus>,
+  expectedRunId: string,
+  method: string
+): ToolEnvelope<TestRunStatus> | undefined {
+  if (!status.ok || status.data.runId === expectedRunId) return undefined;
+  return err(
+    "MALFORMED_BRIDGE_RESPONSE",
+    `${method} returned status for run '${status.data.runId}' while waiting for run '${expectedRunId}'.`,
+    status.meta,
+    { method, expectedRunId, actualRunId: status.data.runId }
+  );
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));

@@ -15,7 +15,7 @@ export const DEFAULT_QUICK_ACTIONS: QuickAction[] = [
   {
     label: "Fix whatever's broken",
     prompt:
-      "Run unity_verify, find any compile errors or failing tests, and fix them.",
+      "Run unity_qa, fix every actionable failure it finds, then rerun the full gate until it passes.",
   },
   {
     label: "Screenshot tour",

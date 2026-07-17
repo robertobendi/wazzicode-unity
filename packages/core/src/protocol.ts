@@ -3,12 +3,14 @@ import { PROTOCOL_VERSION } from "./version.js";
 export const BRIDGE_METHODS = {
   systemHealth: "system.health",
   systemSummary: "system.summary",
+  buildGetSettings: "build.getSettings",
   sceneGetOpenScenes: "scene.getOpenScenes",
   sceneGetHierarchy: "scene.getHierarchy",
   selectionInspect: "selection.inspect",
   consoleGetLogs: "console.getLogs",
   consoleClear: "console.clear",
   compileStatus: "compile.status",
+  assetRefresh: "asset.refresh",
   /** Long-poll: settles when compilation goes idle (falls back to compile.status polling on old bridges). */
   compileAwait: "compile.await",
   screenshotGameView: "screenshot.gameView",
@@ -31,10 +33,12 @@ export const BRIDGE_METHODS = {
   playModeExit: "playmode.exit",
   playModeStep: "playmode.step",
   playModeStatus: "playmode.status",
+  playModeConfigure: "playmode.configure",
   /** Long-poll: settles when play mode reaches params.until ("playing" | "stopped"). */
   playModeAwait: "playmode.await",
   runtimeFindObjects: "runtime.findObjects",
   runtimeInspect: "runtime.inspect",
+  runtimeSetField: "runtime.setField",
 
   // Asset / reference graph (read-only)
   assetFindMissingScripts: "asset.findMissingScripts",

@@ -5,7 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   bridgeCall,
   createHttpBridgeClient,
@@ -101,6 +101,117 @@ describe("bridge-client", () => {
     if (!res.ok) expect(res.error.code).toBe("UNITY_RELOADING");
   });
 
+  it("preserves a structured bridge error returned with HTTP 504", async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(504, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        id: "timeout-request",
+        ok: false,
+        result: null,
+        error: {
+          code: "BRIDGE_TIMEOUT",
+          message: "Main-thread handler did not complete within 15s.",
+          details: { method: "scene.getHierarchy", budgetMs: 15_000 },
+        },
+        meta: {
+          unityVersion: "6000.0.1f1",
+          projectPath: "/project",
+          durationMs: 15_001,
+        },
+      }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const client = createHttpBridgeClient({ port });
+      const res = await client.call("scene.getHierarchy");
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error.code).toBe("BRIDGE_TIMEOUT");
+        expect(res.error.message).toContain("did not complete");
+        expect(res.error.details).toEqual({ method: "scene.getHierarchy", budgetMs: 15_000 });
+        expect(res.meta).toMatchObject({ unityVersion: "6000.0.1f1", durationMs: 15_001 });
+      }
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("retries a play-mode await when domain reload cuts off an empty response", async () => {
+    const project = tmpProject();
+    let calls = 0;
+    const server = http.createServer((_req, res) => {
+      calls += 1;
+      if (calls === 1) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        id: "play-ready",
+        ok: true,
+        result: { isPlaying: true, isPaused: false, isTransitioning: false },
+        error: null,
+        meta: { unityVersion: "6000.0.1f1", projectPath: project, durationMs: 1 },
+      }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    writeDiscovery(project, port, process.pid);
+
+    try {
+      const client = createHttpBridgeClient({ projectPath: project, timeoutMs: 1000 });
+      const env = await bridgeCall(client, "playmode.await");
+      expect(env.ok).toBe(true);
+      expect(calls).toBe(2);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("keeps an empty response malformed for calls that are unsafe to retry", async () => {
+    const project = tmpProject();
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    writeDiscovery(project, port, process.pid);
+
+    try {
+      const client = createHttpBridgeClient({ projectPath: project, timeoutMs: 1000 });
+      const res = await client.call("scene.getHierarchy");
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error.code).toBe("MALFORMED_BRIDGE_RESPONSE");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("rejects a parseable but schema-invalid 2xx bridge response", async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ id: "bad", ok: true, result: {}, error: null, meta: {} }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const client = createHttpBridgeClient({ port });
+      const res = await client.call("scene.getHierarchy");
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error.code).toBe("MALFORMED_BRIDGE_RESPONSE");
+        expect(res.error.message).toContain("schema-invalid");
+      }
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("bridgeCall retries through UNITY_RELOADING and succeeds once the bridge is back", async () => {
     let calls = 0;
     const fake: BridgeClient = {
@@ -133,6 +244,44 @@ describe("bridge-client", () => {
     expect(calls).toBe(3);
     expect(env.ok).toBe(true);
     if (env.ok) expect(env.data.method).toBe("system.health");
+  });
+
+  it("bridgeCall uses the method timeout instead of a fixed 20s reload ceiling", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      let finished = false;
+      const fake: BridgeClient = {
+        source: "unity_bridge",
+        async call<T>(): Promise<BridgeResponse<T>> {
+          calls += 1;
+          return {
+            id: "t",
+            ok: false,
+            result: null,
+            error: { code: "UNITY_RELOADING", message: "domain reload" },
+            meta: {},
+          };
+        },
+        async isConnected() {
+          return false;
+        },
+      };
+
+      const pending = bridgeCall(fake, "asset.refresh").then((env) => {
+        finished = true;
+        return env;
+      });
+      await vi.advanceTimersByTimeAsync(21_000);
+      expect(finished).toBe(false);
+      await vi.advanceTimersByTimeAsync(104_001);
+      const env = await pending;
+      expect(env.ok).toBe(false);
+      if (!env.ok) expect(env.error.code).toBe("UNITY_RELOADING");
+      expect(calls).toBeGreaterThan(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("bridgeCall surfaces a terminal error without retrying", async () => {

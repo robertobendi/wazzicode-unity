@@ -274,6 +274,8 @@ export type TestRunStatus = z.infer<typeof TestRunStatusSchema>;
 export const PlayModeStatusSchema = z.object({
   isPlaying: z.boolean(),
   isPaused: z.boolean(),
+  /** Runtime speed multiplier. Available on bridges with play-mode configuration support. */
+  timeScale: z.number().optional(),
   /** True during the play-mode enter transition (domain reload in flight). */
   isTransitioning: z.boolean().optional(),
   /** Editor frame count, useful to confirm step/frame advances took effect. */
@@ -305,6 +307,38 @@ export const RuntimeFindResultSchema = z.object({
   truncated: z.boolean().optional(),
 });
 export type RuntimeFindResult = z.infer<typeof RuntimeFindResultSchema>;
+
+export const RuntimeMutationResultSchema = z.object({
+  applied: z.boolean(),
+  changed: z.boolean().optional(),
+  summary: z.string(),
+  target: z.string(),
+  runtimeOnly: z.boolean(),
+  undoable: z.boolean(),
+});
+export type RuntimeMutationResult = z.infer<typeof RuntimeMutationResultSchema>;
+
+// ----- Build readiness -----
+
+export const BuildSettingsSceneSchema = z.object({
+  path: z.string(),
+  enabled: z.boolean(),
+  guid: z.string().optional(),
+  exists: z.boolean(),
+});
+export type BuildSettingsScene = z.infer<typeof BuildSettingsSceneSchema>;
+
+export const BuildSettingsResultSchema = z.object({
+  valid: z.boolean(),
+  activeBuildTarget: z.string(),
+  buildTargetGroup: z.string(),
+  targetSupported: z.boolean(),
+  developmentBuild: z.boolean(),
+  enabledSceneCount: z.number().int().nonnegative(),
+  scenes: z.array(BuildSettingsSceneSchema),
+  issues: z.array(z.string()),
+});
+export type BuildSettingsResult = z.infer<typeof BuildSettingsResultSchema>;
 
 // ----- Asset / reference graph -----
 

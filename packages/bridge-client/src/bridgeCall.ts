@@ -12,7 +12,7 @@ import {
   ok,
   timed,
 } from "@uvibe/core";
-import { BridgeClient } from "./httpClient.js";
+import { BridgeClient, timeoutForMethod } from "./httpClient.js";
 
 /**
  * Probe GET /health (always answered, even with a frozen editor loop) and report whether Unity
@@ -49,15 +49,21 @@ function stallError(health: BridgeHealth, meta: Partial<ToolMeta>): ToolEnvelope
  *
  * Rides through script-domain reloads: a recompile (or entering play mode) briefly drops
  * the bridge socket, surfaced as UNITY_RELOADING. Rather than fail the tool, we wait and
- * retry for a few seconds so the agent's call simply resumes once Unity is back.
+ * retry within the method's verified timeout budget so the call resumes once Unity is back.
+ * Long-running orchestration can pass its remaining overall budget via reloadTimeoutMs.
  */
 export async function bridgeCall<T>(
   bridge: BridgeClient,
   method: BridgeMethod,
   params: Record<string, unknown> = {},
-  detailLevel: "summary" | "normal" | "full" = "normal"
+  detailLevel: "summary" | "normal" | "full" = "normal",
+  options: { reloadTimeoutMs?: number } = {}
 ): Promise<ToolEnvelope<T>> {
-  const reloadDeadline = Date.now() + 20_000;
+  const requestedReloadTimeout = options.reloadTimeoutMs ?? timeoutForMethod(method);
+  const reloadTimeoutMs = Number.isFinite(requestedReloadTimeout)
+    ? Math.max(0, requestedReloadTimeout)
+    : timeoutForMethod(method);
+  const reloadDeadline = Date.now() + reloadTimeoutMs;
   let result: BridgeResponse<T>;
   let durationMs = 0;
   // Short reloads are common (small script change), so start retrying quickly and back off.
@@ -67,7 +73,9 @@ export async function bridgeCall<T>(
     result = timedCall.result;
     durationMs += timedCall.durationMs;
     if (result.ok || result.error.code !== "UNITY_RELOADING" || Date.now() >= reloadDeadline) break;
-    await new Promise((r) => setTimeout(r, retryMs));
+    const remainingReloadMs = reloadDeadline - Date.now();
+    await new Promise((r) => setTimeout(r, Math.min(retryMs, remainingReloadMs)));
+    if (Date.now() >= reloadDeadline) break;
     retryMs = Math.min(800, Math.round(retryMs * 1.6));
   }
   if (!result.ok) {

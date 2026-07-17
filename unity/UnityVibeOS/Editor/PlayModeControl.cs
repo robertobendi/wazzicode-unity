@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using static UnityVibeOS.BridgeParams;
 
 namespace UnityVibeOS
 {
@@ -20,7 +21,8 @@ namespace UnityVibeOS
             {
                 { "isPlaying", isPlaying },
                 { "isPaused", EditorApplication.isPaused },
-                { "isTransitioning", willChange != isPlaying }
+                { "isTransitioning", willChange != isPlaying },
+                { "timeScale", (double)Time.timeScale }
             };
             if (isPlaying)
             {
@@ -45,6 +47,37 @@ namespace UnityVibeOS
             {
                 EditorApplication.ExitPlaymode();
             }
+            return Status();
+        }
+
+        public static IDictionary<string, object> Configure(IDictionary<string, object> p)
+        {
+            if (!EditorApplication.isPlaying)
+            {
+                throw new BridgeRouter.HandlerError("PLAY_MODE_REQUIRED", "Runtime configuration only takes effect in play mode. Enter play mode first.");
+            }
+
+            bool? isPaused = null;
+            float? timeScale = null;
+
+            if (p != null && p.TryGetValue("isPaused", out var pausedRaw) && pausedRaw != null)
+            {
+                if (!(pausedRaw is bool paused))
+                    throw new BridgeRouter.HandlerError("INVALID_ARGUMENT", "'isPaused' must be a boolean.");
+                isPaused = paused;
+            }
+
+            if (p != null && p.TryGetValue("timeScale", out var scaleRaw) && scaleRaw != null)
+            {
+                var scale = TryFloat(p, "timeScale");
+                if (!scale.HasValue || float.IsNaN(scale.Value) || float.IsInfinity(scale.Value) || scale.Value < 0f || scale.Value > 100f)
+                    throw new BridgeRouter.HandlerError("INVALID_ARGUMENT", "'timeScale' must be a finite number between zero and 100.");
+                timeScale = scale.Value;
+            }
+
+            if (isPaused.HasValue) EditorApplication.isPaused = isPaused.Value;
+            if (timeScale.HasValue) Time.timeScale = timeScale.Value;
+
             return Status();
         }
 

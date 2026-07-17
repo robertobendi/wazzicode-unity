@@ -49,15 +49,24 @@ namespace UnityVibeOS
             }, "playmode.status");
             RegisterAwait("playmode.step", _ => PlayModeControl.StepsRemaining == 0, "playmode.stepStatus", beginMethod: "playmode.beginStep");
 
-            // Defer to next editor tick so static-init order across the package is settled.
-            EditorApplication.delayCall += () => { try { Start(); } catch (Exception e) { Debug.LogError($"[UnityVibeOS] bridge auto-start failed: {e}"); } };
             // On domain reload we only tear down the socket — the discovery file stays so the
             // client knows a bridge exists here and treats the gap as UNITY_RELOADING, not a
             // missing Editor. On quit we also remove the discovery file.
-            AssemblyReloadEvents.beforeAssemblyReload -= Stop;
-            AssemblyReloadEvents.beforeAssemblyReload += Stop;
+            AssemblyReloadEvents.beforeAssemblyReload -= StopForReload;
+            AssemblyReloadEvents.beforeAssemblyReload += StopForReload;
             EditorApplication.quitting -= OnQuit;
             EditorApplication.quitting += OnQuit;
+
+            // Start immediately: an unfocused Editor may not deliver the delayCall tick after a
+            // domain reload. Keep the delayed call as a retry for transient bind/startup failures.
+            TryStart();
+            EditorApplication.delayCall += TryStart;
+        }
+
+        static void TryStart()
+        {
+            try { Start(); }
+            catch (Exception e) { Debug.LogError($"[UnityVibeOS] bridge auto-start failed: {e}"); }
         }
 
         public static void Start()
@@ -68,17 +77,20 @@ namespace UnityVibeOS
             int requested = ResolvePreferredPort();
             for (int candidate = requested; candidate < requested + 16; candidate++)
             {
+                HttpListener listener = null;
+                CancellationTokenSource cts = null;
                 try
                 {
-                    var listener = new HttpListener();
+                    listener = new HttpListener();
                     var prefix = $"http://{DefaultHost}:{candidate}/";
                     listener.Prefixes.Add(prefix);
                     listener.Start();
                     Listener = listener;
                     Port = candidate;
-                    Cts = new CancellationTokenSource();
+                    cts = new CancellationTokenSource();
+                    Cts = cts;
                     StartedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    ServeTask = Task.Run(() => AcceptLoop(Cts.Token));
+                    ServeTask = Task.Run(() => AcceptLoop(listener, cts.Token));
                     WriteDiscovery();
                     Debug.Log($"[UnityVibeOS] bridge listening on {prefix} (project {ProjectInfo.ProjectPath})");
                     return;
@@ -86,12 +98,13 @@ namespace UnityVibeOS
                 catch (HttpListenerException)
                 {
                     // Port busy (another Editor / leftover socket) — try the next one.
+                    ReleaseAttempt(listener, cts);
                     continue;
                 }
                 catch (Exception e)
                 {
+                    ReleaseAttempt(listener, cts);
                     Debug.LogError($"[UnityVibeOS] failed to start bridge on {DefaultHost}:{candidate}: {e.Message}");
-                    Listener = null;
                     return;
                 }
             }
@@ -149,28 +162,53 @@ namespace UnityVibeOS
 
         public static void Stop()
         {
-            try
+            StopCore(true);
+        }
+
+        static void StopForReload()
+        {
+            StopCore(false);
+        }
+
+        static void StopCore(bool deleteDiscovery)
+        {
+            var cts = Cts;
+            var listener = Listener;
+            Listener = null;
+            Cts = null;
+            ServeTask = null;
+            StartedAt = 0;
+            try { cts?.Cancel(); } catch (ObjectDisposedException) { /* already stopping */ }
+            if (listener != null)
             {
-                Cts?.Cancel();
-                if (Listener != null)
-                {
-                    try { Listener.Stop(); } catch { /* ignore */ }
-                    try { Listener.Close(); } catch { /* ignore */ }
-                }
+                try { listener.Stop(); } catch { /* ignore */ }
+                try { listener.Close(); } catch { /* ignore */ }
             }
-            finally
+            try { cts?.Dispose(); } catch { /* ignore */ }
+            if (deleteDiscovery) DeleteDiscovery();
+        }
+
+        static void OnQuit()
+        {
+            Stop();
+        }
+
+        static void ReleaseAttempt(HttpListener listener, CancellationTokenSource cts)
+        {
+            if (ReferenceEquals(Listener, listener))
             {
                 Listener = null;
                 Cts = null;
                 ServeTask = null;
                 StartedAt = 0;
             }
-        }
-
-        static void OnQuit()
-        {
-            Stop();
-            DeleteDiscovery();
+            try { cts?.Cancel(); } catch { /* ignore */ }
+            if (listener != null)
+            {
+                try { listener.Stop(); } catch { /* ignore */ }
+                try { listener.Close(); } catch { /* ignore */ }
+            }
+            try { cts?.Dispose(); } catch { /* ignore */ }
         }
 
         /// <summary>
@@ -188,6 +226,7 @@ namespace UnityVibeOS
                 case "asset.findDependencies":
                 case "asset.findMissingScripts":
                 case "asset.findMissingReferences":
+                case "asset.refresh":
                     return TimeSpan.FromSeconds(120);
                 case "test.run":
                 case "test.status":
@@ -197,14 +236,14 @@ namespace UnityVibeOS
             }
         }
 
-        static async Task AcceptLoop(CancellationToken token)
+        static async Task AcceptLoop(HttpListener listener, CancellationToken token)
         {
-            while (!token.IsCancellationRequested && Listener != null && Listener.IsListening)
+            while (!token.IsCancellationRequested && listener.IsListening)
             {
                 HttpListenerContext ctx;
                 try
                 {
-                    ctx = await Listener.GetContextAsync().ConfigureAwait(false);
+                    ctx = await listener.GetContextAsync().ConfigureAwait(false);
                 }
                 catch (ObjectDisposedException) { break; }
                 catch (HttpListenerException) { break; }
@@ -304,6 +343,10 @@ namespace UnityVibeOS
                 }
 
                 DispatchAndRespond(ctx, id, method, p, start, null);
+            }
+            catch (ThreadAbortException)
+            {
+                // Expected when Unity tears down the AppDomain while an RPC is in flight.
             }
             catch (Exception e)
             {
@@ -453,7 +496,16 @@ namespace UnityVibeOS
 
             if (settled.HasValue && result is IDictionary<string, object> dict)
             {
-                dict["settled"] = settled.Value;
+                bool authoritativeSettled = settled.Value;
+                if (authoritativeSettled
+                    && method == "compile.status"
+                    && dict.TryGetValue("isCompiling", out var isCompiling)
+                    && isCompiling is bool compiling
+                    && compiling)
+                {
+                    authoritativeSettled = false;
+                }
+                dict["settled"] = authoritativeSettled;
             }
 
             var ok = new Dictionary<string, object>

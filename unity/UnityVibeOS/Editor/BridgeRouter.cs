@@ -52,6 +52,8 @@ namespace UnityVibeOS
                     };
                 case "system.summary":
                     return ProjectInfo.GetSummary();
+                case "build.getSettings":
+                    return ProjectInfo.GetBuildSettings();
                 case "scene.getOpenScenes":
                     return SceneInspector.GetOpenScenes();
                 case "scene.getHierarchy":
@@ -78,16 +80,18 @@ namespace UnityVibeOS
                         else if (st is int iv) since = iv;
                         else if (st is double dv) since = (long)dv;
                     }
-                    var logs = ConsoleCapture.Read(level, limit, since);
+                    var logs = ConsoleCapture.Read(level, limit, since, out bool truncated, out int bufferSize);
                     return new Dictionary<string, object>
                     {
                         { "logs", logs },
-                        { "truncated", false },
-                        { "bufferSize", ConsoleCapture.BufferSize }
+                        { "truncated", truncated },
+                        { "bufferSize", bufferSize }
                     };
                 }
                 case "compile.status":
                     return CompileWatcher.GetStatus();
+                case "asset.refresh":
+                    return CompileWatcher.RefreshAssets();
                 case "screenshot.gameView":
                 {
                     int width = GetInt(p, "width", 1280);
@@ -135,6 +139,8 @@ namespace UnityVibeOS
                     return PlayModeControl.StepStatus();
                 case "playmode.status":
                     return PlayModeControl.Status();
+                case "playmode.configure":
+                    return PlayModeControl.Configure(p);
                 case "runtime.findObjects":
                 {
                     string query = Str(p, "query", null);
@@ -150,6 +156,8 @@ namespace UnityVibeOS
                     bool includeFields = GetBool(p, "includeFields", true);
                     return RuntimeInspector.Inspect(instanceId, path, includeFields);
                 }
+                case "runtime.setField":
+                    return RuntimeInspector.SetField(p);
 
                 case "asset.findMissingScripts":
                 {
@@ -258,6 +266,13 @@ namespace UnityVibeOS
 
                 case "console.clear":
                     return ConsoleCapture.Clear();
+
+                case "test.run":
+                case "test.status":
+                case "test.cancel":
+                    throw new HandlerError(
+                        "TEST_FRAMEWORK_MISSING",
+                        "Unity Test Framework is not installed or its optional UnityVibeOS integration did not load.");
 
                 default:
                     throw new HandlerError("INVALID_ARGUMENT", $"Unknown method: {method}");

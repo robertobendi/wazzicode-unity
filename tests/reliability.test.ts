@@ -58,6 +58,7 @@ describe("reliability/per-method timeouts", () => {
     // Asset-graph scans get 120s on the Unity side; the client must wait longer, not abort at 5s.
     expect(timeoutForMethod("asset.findReferences")).toBeGreaterThan(120_000);
     expect(timeoutForMethod("asset.findDependencies")).toBeGreaterThan(120_000);
+    expect(timeoutForMethod("asset.refresh")).toBeGreaterThan(120_000);
     // Play-mode transitions get 60s on the Unity side.
     expect(timeoutForMethod("playmode.enter")).toBeGreaterThan(60_000);
     // In-Editor code execution can compile.

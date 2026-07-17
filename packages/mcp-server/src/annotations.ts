@@ -24,11 +24,25 @@ const MUTATING_NON_WRITE = new Set<string>([
   "unity_batch", // can perform any sub-op, including writes
   "unity_generate_project_brain", // writes .unity-vibe/*
   "unity_manage_tools", // changes which tools are exposed this session
+  "unity_refresh_assets", // imports externally changed files into the AssetDatabase
+  "unity_verify", // refreshes assets and may start compilation/tests
+  "unity_capture_game_view", // saves under .unity-vibe/screenshots by default
+  "unity_capture_scene_view",
+  "unity_capture_selected",
+  "unity_capture_editor_window",
+  "unity_run_tests", // changes Test Runner session state
+  "unity_open_scene", // changes open Editor content
+  "unity_load_scene_additive",
+  "unity_open_prefab",
   "unity_simulate_input", // drives runtime input
   "unity_set_animator_parameter", // drives runtime animator
   "unity_enter_play_mode",
   "unity_exit_play_mode",
   "unity_step_frame",
+  "unity_configure_play_mode",
+  "unity_set_runtime_field",
+  "unity_smoke_test",
+  "unity_qa",
 ]);
 
 // Writes that overwrite/erase or run code — hard to undo (no Unity Undo entry). Scene/prefab edits

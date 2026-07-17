@@ -57,6 +57,7 @@ const METHOD_TIMEOUT_MS: Record<string, number> = {
   "asset.findDependencies": 125_000,
   "asset.findMissingScripts": 125_000,
   "asset.findMissingReferences": 125_000,
+  "asset.refresh": 125_000,
   // Play-mode transitions trigger a domain reload / scene (un)load.
   "playmode.enter": 65_000,
   "playmode.exit": 65_000,
@@ -77,6 +78,15 @@ const METHOD_TIMEOUT_MS: Record<string, number> = {
 };
 
 const DEFAULT_TIMEOUT_MS = 20_000;
+
+const RELOAD_SAFE_EMPTY_RESPONSE_METHODS = new Set<string>([
+  "playmode.enter",
+  "playmode.exit",
+  "playmode.await",
+  "compile.await",
+  "test.await",
+  "asset.refresh",
+]);
 
 export function timeoutForMethod(method: string): number {
   return METHOD_TIMEOUT_MS[method] ?? DEFAULT_TIMEOUT_MS;
@@ -172,6 +182,29 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
         settled = true;
         resolve(r);
       };
+      const finishTransportFailure = (message: string) => {
+        const classify = () => {
+          const editorExited = t.unityPid !== undefined && processHasExited(t.unityPid);
+          const code = t.bridgeKnown && !editorExited ? "UNITY_RELOADING" : "UNITY_NOT_CONNECTED";
+          finish({
+            id: body.id,
+            ok: false,
+            result: null,
+            error: {
+              code,
+              message: editorExited
+                ? `Unity Editor process ${t.unityPid} exited while handling '${method}'.`
+                : message,
+              ...(editorExited
+                ? { details: { editorExited: true, unityPid: t.unityPid, method } }
+                : {}),
+            },
+            meta: {},
+          });
+        };
+        if (t.unityPid !== undefined) setTimeout(classify, 100);
+        else classify();
+      };
 
       const req = http.request(
         {
@@ -193,23 +226,24 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
           res.on("end", () => {
             const text = Buffer.concat(chunks).toString("utf8");
             const status = res.statusCode ?? 0;
-            if (status < 200 || status >= 300) {
-              finish({
-                id: body.id,
-                ok: false,
-                result: null,
-                error: {
-                  code: "UNITY_NOT_CONNECTED",
-                  message: `Unity bridge HTTP ${status}: ${text.slice(0, 200)}`,
-                },
-                meta: {},
-              });
-              return;
-            }
-            let parsed: BridgeResponse<T>;
+            let parsed: unknown;
             try {
-              parsed = JSON.parse(text) as BridgeResponse<T>;
+              parsed = JSON.parse(text) as unknown;
             } catch {
+              if (status < 200 || status >= 300) {
+                finish(httpStatusError(body.id, status, text));
+                return;
+              }
+              if (
+                text.length === 0 &&
+                t.bridgeKnown &&
+                RELOAD_SAFE_EMPTY_RESPONSE_METHODS.has(method)
+              ) {
+                finishTransportFailure(
+                  `Bridge response ended while Unity reloaded during '${method}'.`
+                );
+                return;
+              }
               finish({
                 id: body.id,
                 ok: false,
@@ -221,6 +255,18 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
                 },
                 meta: {},
               });
+              return;
+            }
+            if (status < 200 || status >= 300) {
+              if (isBridgeErrorResponse(parsed)) {
+                finish(parsed);
+              } else {
+                finish(httpStatusError(body.id, status, text));
+              }
+              return;
+            }
+            if (!isBridgeResponse<T>(parsed)) {
+              finish(malformedBridgeResponse(body.id, text));
               return;
             }
             // Identity guard: the Editor that answered must be the project Claude works in.
@@ -260,34 +306,9 @@ export function createHttpBridgeClient(opts: HttpBridgeOptions = {}): BridgeClie
           });
           return;
         }
-        const classify = () => {
-          const editorExited = t.unityPid !== undefined && processHasExited(t.unityPid);
-          // A known, live Editor with a closed socket is normally reloading its C# domain. A dead
-          // discovery PID is terminal for this call: classifying a native crash as reloading makes
-          // bridgeCall retry the operation that killed Unity.
-          const code = t.bridgeKnown && !editorExited ? "UNITY_RELOADING" : "UNITY_NOT_CONNECTED";
-          const message = editorExited
-            ? `Unity Editor process ${t.unityPid} exited while handling '${method}'.`
-            : (e?.message ?? "Bridge call failed.");
-          finish({
-            id: body.id,
-            ok: false,
-            result: null,
-            error: {
-              code,
-              message,
-              ...(editorExited
-                ? { details: { editorExited: true, unityPid: t.unityPid, method } }
-                : {}),
-            },
-            meta: {},
-          });
-        };
-
         // On a native abort the socket closes just before the OS reaps Unity. Give that transition
         // a short grace window; a domain reload keeps the same PID alive and remains retryable.
-        if (t.unityPid !== undefined) setTimeout(classify, 100);
-        else classify();
+        finishTransportFailure(e?.message ?? "Bridge call failed.");
       });
 
       req.write(payload);
@@ -339,4 +360,64 @@ function processHasExited(pid: number): boolean {
 function samePath(a: string, b: string): boolean {
   const norm = (s: string) => path.resolve(s).replace(/[\\/]+$/, "").toLowerCase();
   return norm(a) === norm(b);
+}
+
+function isBridgeResponse<T>(value: unknown): value is BridgeResponse<T> {
+  if (!isRecord(value) || typeof value.id !== "string" || !isRecord(value.meta)) return false;
+  if (value.ok === true) {
+    return (
+      Object.prototype.hasOwnProperty.call(value, "result") &&
+      value.error === null &&
+      typeof value.meta.unityVersion === "string" &&
+      typeof value.meta.projectPath === "string" &&
+      typeof value.meta.durationMs === "number"
+    );
+  }
+  return isBridgeErrorResponse(value);
+}
+
+function isBridgeErrorResponse(
+  value: unknown
+): value is Extract<BridgeResponse<unknown>, { ok: false }> {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.ok === false &&
+    value.result === null &&
+    isRecord(value.error) &&
+    typeof value.error.code === "string" &&
+    typeof value.error.message === "string" &&
+    isRecord(value.meta)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function malformedBridgeResponse(id: string, text: string): BridgeResponse<never> {
+  return {
+    id,
+    ok: false,
+    result: null,
+    error: {
+      code: "MALFORMED_BRIDGE_RESPONSE",
+      message: "Bridge returned a schema-invalid JSON payload.",
+      details: { sample: text.slice(0, 200) },
+    },
+    meta: {},
+  };
+}
+
+function httpStatusError(id: string, status: number, text: string): BridgeResponse<never> {
+  return {
+    id,
+    ok: false,
+    result: null,
+    error: {
+      code: "UNITY_NOT_CONNECTED",
+      message: `Unity bridge HTTP ${status}: ${text.slice(0, 200)}`,
+    },
+    meta: {},
+  };
 }

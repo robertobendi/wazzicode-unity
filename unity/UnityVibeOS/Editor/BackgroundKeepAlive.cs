@@ -44,22 +44,28 @@ namespace UnityVibeOS
 
         static BackgroundKeepAlive()
         {
-            EditorApplication.delayCall += Apply;   // defer so package static-init order is settled
-            AssemblyReloadEvents.beforeAssemblyReload -= StopWaker;
-            AssemblyReloadEvents.beforeAssemblyReload += StopWaker;
-            EditorApplication.quitting -= StopWaker;
-            EditorApplication.quitting += StopWaker;
+            AssemblyReloadEvents.beforeAssemblyReload -= Shutdown;
+            AssemblyReloadEvents.beforeAssemblyReload += Shutdown;
+            EditorApplication.quitting -= Shutdown;
+            EditorApplication.quitting += Shutdown;
+
+            // Apply immediately so an unfocused Editor cannot stall before its first post-reload
+            // delayCall. Reapply once on the next tick after the rest of the package initializes.
+            Apply();
+            EditorApplication.delayCall += Apply;
         }
 
         static void Apply()
         {
-            _enabledCached = Enabled;
+            bool enabled = Enabled;
+            _enabledCached = enabled;
             EditorApplication.update -= Tick;
             EditorApplication.playModeStateChanged -= OnPlayModeChanged;
-            if (!Enabled)
+            if (!enabled)
             {
                 StopWaker();
                 BackgroundPower.KeepUnthrottled(false);
+                Application.runInBackground = PlayerSettings.runInBackground;
                 return;
             }
 
@@ -83,6 +89,13 @@ namespace UnityVibeOS
             var w = _waker;
             _waker = null;
             try { w?.Dispose(); } catch { /* ignore */ }
+        }
+
+        static void Shutdown()
+        {
+            StopWaker();
+            BackgroundPower.KeepUnthrottled(false);
+            Application.runInBackground = PlayerSettings.runInBackground;
         }
 
         static void OnPlayModeChanged(PlayModeStateChange change)

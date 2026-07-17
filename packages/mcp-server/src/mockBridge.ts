@@ -29,6 +29,19 @@ export function createMockBridgeClient(): BridgeClient {
       ],
     }),
 
+    "build.getSettings": () => ({
+      valid: true,
+      activeBuildTarget: "StandaloneOSX",
+      buildTargetGroup: "Standalone",
+      targetSupported: true,
+      developmentBuild: true,
+      enabledSceneCount: 1,
+      scenes: [
+        { path: "Assets/Scenes/Sample.unity", enabled: true, guid: "scene123", exists: true },
+      ],
+      issues: [],
+    }),
+
     "scene.getOpenScenes": () => ({
       scenes: [
         {
@@ -184,6 +197,13 @@ export function createMockBridgeClient(): BridgeClient {
       warningCount: 0,
       errors: [],
     }),
+    "asset.refresh": () => ({
+      isCompiling: false,
+      hasErrors: false,
+      errorCount: 0,
+      warningCount: 0,
+      errors: [],
+    }),
     // Long-poll await: mock settles immediately with the idle status.
     "compile.await": () => ({
       isCompiling: false,
@@ -296,11 +316,12 @@ export function createMockBridgeClient(): BridgeClient {
       settled: true,
     }),
 
-    "playmode.enter": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 1 }),
-    "playmode.exit": () => ({ isPlaying: false, isPaused: false, isTransitioning: false }),
-    "playmode.step": () => ({ isPlaying: true, isPaused: true, frameCount: 2, framesStepped: 1, stepping: false, settled: true }),
-    "playmode.status": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 42, timeSinceLevelLoad: 0.7 }),
-    "playmode.await": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 42, settled: true }),
+    "playmode.enter": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 1, timeScale: 1 }),
+    "playmode.exit": () => ({ isPlaying: false, isPaused: false, isTransitioning: false, timeScale: 1 }),
+    "playmode.step": () => ({ isPlaying: true, isPaused: true, frameCount: 2, framesStepped: 1, stepping: false, settled: true, timeScale: 1 }),
+    "playmode.status": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 42, timeSinceLevelLoad: 0.7, timeScale: 1 }),
+    "playmode.configure": () => ({ isPlaying: true, isPaused: true, isTransitioning: false, frameCount: 42, timeSinceLevelLoad: 0.7, timeScale: 0.5 }),
+    "playmode.await": () => ({ isPlaying: true, isPaused: false, isTransitioning: false, frameCount: 42, settled: true, timeScale: 1 }),
 
     "runtime.findObjects": () => ({
       isPlaying: true,
@@ -332,6 +353,14 @@ export function createMockBridgeClient(): BridgeClient {
           { type: "PlayerController", assembly: "Assembly-CSharp", enabled: true, fields: { health: 72, moveSpeed: 7.5 } },
         ],
       },
+    }),
+    "runtime.setField": () => ({
+      applied: true,
+      changed: true,
+      summary: "Set runtime-only PlayerController.moveSpeed on /Gameplay/Player",
+      target: "/Gameplay/Player",
+      runtimeOnly: true,
+      undoable: false,
     }),
 
     "asset.findMissingScripts": () => ({

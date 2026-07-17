@@ -6,13 +6,17 @@ import { unityGetSceneHierarchy } from "./unityGetSceneHierarchy.js";
 import { unityInspectSelected } from "./unityInspectSelected.js";
 import { unityGetConsoleLogs } from "./unityGetConsoleLogs.js";
 import { unityWaitForCompile } from "./unityWaitForCompile.js";
+import { unityRefreshAssets } from "./unityRefreshAssets.js";
 import { unityCheckGitStatus } from "./unityCheckGitStatus.js";
 import { unityCaptureGameView } from "./unityCaptureGameView.js";
 import { unityCaptureSceneView } from "./unityCaptureSceneView.js";
 import { unityCaptureSelected } from "./unityCaptureSelected.js";
 import { unityCaptureEditorWindow } from "./unityCaptureEditorWindow.js";
 import { unityGetPerformanceStats } from "./unityGetPerformanceStats.js";
+import { unityGetBuildSettings } from "./unityBuildSettings.js";
 import { unityRunTests } from "./unityRunTests.js";
+import { unitySmokeTest } from "./unitySmokeTest.js";
+import { unityQa } from "./unityQa.js";
 import {
   unityEnterPlayMode,
   unityExitPlayMode,
@@ -20,6 +24,7 @@ import {
   unityGetPlayModeStatus,
 } from "./unityPlayMode.js";
 import { unityFindRuntimeObjects, unityInspectRuntimeObject } from "./unityRuntime.js";
+import { unityConfigurePlayMode, unitySetRuntimeField } from "./unityRuntimeControl.js";
 import {
   unityFindMissingScripts,
   unityFindMissingReferences,
@@ -82,6 +87,7 @@ export const allTools: AnyToolDef[] = [
   unityInspectSelected,
   unityGetConsoleLogs,
   unityWaitForCompile,
+  unityRefreshAssets,
   unityCheckGitStatus,
   // Visual
   unityCaptureGameView,
@@ -92,13 +98,18 @@ export const allTools: AnyToolDef[] = [
   unityGetPerformanceStats,
   // Tests
   unityRunTests,
+  unityGetBuildSettings,
+  unitySmokeTest,
+  unityQa,
   // Play mode + runtime
   unityEnterPlayMode,
   unityExitPlayMode,
   unityStepFrame,
   unityGetPlayModeStatus,
+  unityConfigurePlayMode,
   unityFindRuntimeObjects,
   unityInspectRuntimeObject,
+  unitySetRuntimeField,
   // Asset / reference graph
   unityFindMissingScripts,
   unityFindMissingReferences,
@@ -159,19 +170,25 @@ export {
   unityInspectSelected,
   unityGetConsoleLogs,
   unityWaitForCompile,
+  unityRefreshAssets,
   unityCheckGitStatus,
   unityCaptureGameView,
   unityCaptureSceneView,
   unityCaptureSelected,
   unityCaptureEditorWindow,
   unityGetPerformanceStats,
+  unityGetBuildSettings,
   unityRunTests,
+  unitySmokeTest,
+  unityQa,
   unityEnterPlayMode,
   unityExitPlayMode,
   unityStepFrame,
   unityGetPlayModeStatus,
+  unityConfigurePlayMode,
   unityFindRuntimeObjects,
   unityInspectRuntimeObject,
+  unitySetRuntimeField,
   unityFindMissingScripts,
   unityFindMissingReferences,
   unityFindDependencies,

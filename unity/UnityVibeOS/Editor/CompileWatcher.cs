@@ -77,5 +77,11 @@ namespace UnityVibeOS
                 { "errors", errors }
             };
         }
+
+        public static IDictionary<string, object> RefreshAssets()
+        {
+            AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate | ImportAssetOptions.ForceSynchronousImport);
+            return GetStatus();
+        }
     }
 }

@@ -79,5 +79,52 @@ namespace UnityVibeOS
             };
             return dict;
         }
+
+        public static IDictionary<string, object> GetBuildSettings()
+        {
+            var target = EditorUserBuildSettings.activeBuildTarget;
+            var group = BuildPipeline.GetBuildTargetGroup(target);
+            bool targetSupported = BuildPipeline.IsBuildTargetSupported(group, target);
+            var scenes = new List<object>();
+            var issues = new List<object>();
+            int enabledSceneCount = 0;
+
+            var configuredScenes = EditorBuildSettings.scenes;
+            if (configuredScenes != null)
+            {
+                foreach (var scene in configuredScenes)
+                {
+                    string path = scene.path ?? "";
+                    bool exists = !string.IsNullOrEmpty(path) && AssetDatabase.LoadAssetAtPath<SceneAsset>(path) != null;
+                    if (scene.enabled)
+                    {
+                        enabledSceneCount++;
+                        if (!exists) issues.Add($"Enabled scene is missing: {path}");
+                    }
+                    scenes.Add(new Dictionary<string, object>
+                    {
+                        { "path", path },
+                        { "enabled", scene.enabled },
+                        { "guid", scene.guid.ToString() },
+                        { "exists", exists }
+                    });
+                }
+            }
+
+            if (enabledSceneCount == 0) issues.Add("No enabled scenes are configured in Build Settings.");
+            if (!targetSupported) issues.Add($"Build target {target} is not supported by this Unity installation.");
+
+            return new Dictionary<string, object>
+            {
+                { "valid", issues.Count == 0 },
+                { "activeBuildTarget", target.ToString() },
+                { "buildTargetGroup", group.ToString() },
+                { "targetSupported", targetSupported },
+                { "developmentBuild", EditorUserBuildSettings.development },
+                { "enabledSceneCount", enabledSceneCount },
+                { "scenes", scenes },
+                { "issues", issues }
+            };
+        }
     }
 }

@@ -53,9 +53,15 @@ export const UNITY_PROMPTS: UnityPrompt[] = [
   },
   {
     name: "play_test",
-    config: { title: "Play-test the game", description: "Enter play mode, observe, and exit cleanly." },
+    config: { title: "Play-test the game", description: "Run a guarded runtime smoke test with automatic cleanup." },
     build: () =>
-      "Play-test the current scene: `unity_enter_play_mode`, then observe with `unity_get_console_logs`, `unity_find_runtime_objects`/`unity_inspect_runtime_object`, `unity_capture_game_view`, and `unity_get_performance_stats`. Use `unity_simulate_input` to exercise controls and `unity_step_frame` to advance deterministically if needed. Summarize what happened (errors, FPS/draw calls, anything off), then `unity_exit_play_mode`.",
+      "Run `unity_smoke_test` on the current scene and report its pass/fail checks, new runtime errors, performance sample, screenshot path, and cleanup result. If it exposes a problem, investigate in play mode with `unity_find_runtime_objects`/`unity_inspect_runtime_object`, `unity_configure_play_mode`, `unity_set_runtime_field`, `unity_simulate_input`, or `unity_step_frame`, then leave the Editor in its original play state.",
+  },
+  {
+    name: "qa",
+    config: { title: "Run the full Unity QA gate", description: "Compile, test, scan assets/build settings, and smoke-test runtime." },
+    build: () =>
+      "Run `unity_qa` with its default full gate. Report one pass/fail verdict followed by only actionable failures: compile or console errors, failed/inconclusive tests, missing scripts or references, build-settings issues, smoke-test runtime errors, performance budget failures, and cleanup failures.",
   },
   {
     name: "enable_autonomy",

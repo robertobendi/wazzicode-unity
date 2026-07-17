@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ToolDef, ToolContext } from "../registry.js";
 import { BRIDGE_METHODS, bridgeCall, isUnknownMethodError } from "./_helpers.js";
-import { PlayModeStatus, ToolEnvelope } from "@uvibe/core";
+import { PlayModeStatus, ToolEnvelope, err } from "@uvibe/core";
 
 /** Single long-poll round is capped server-side; re-issue until our own deadline. */
 const AWAIT_WINDOW_MS = 25_000;
@@ -20,9 +20,29 @@ export const unityEnterPlayMode: ToolDef<typeof EnterShape, PlayModeStatus> = {
   inputShape: EnterShape,
   async run(args, ctx) {
     const wait = args.waitForReady ?? true;
-    const enter = await bridgeCall<PlayModeStatus>(ctx.bridge, BRIDGE_METHODS.playModeEnter);
+    const timeoutMs = args.timeoutMs ?? 30_000;
+    const start = Date.now();
+    const enter = await bridgeCall<PlayModeStatus>(
+      ctx.bridge,
+      BRIDGE_METHODS.playModeEnter,
+      {},
+      "normal",
+      wait || args.timeoutMs !== undefined ? { reloadTimeoutMs: timeoutMs } : {}
+    );
     if (!enter.ok || !wait || ctx.configMockMode) return enter;
-    return waitForPlayState(ctx, "playing", args.timeoutMs ?? 30_000, enter);
+    const remaining = timeoutMs - (Date.now() - start);
+    if (remaining <= 0) {
+      return err(
+        "BRIDGE_TIMEOUT",
+        `Timed out after ${timeoutMs}ms waiting for play mode to become playing.`,
+        { source: ctx.bridge.source, durationMs: Date.now() - start },
+        { until: "playing", timeoutMs, lastState: enter.data }
+      );
+    }
+    return waitForPlayState(ctx, "playing", remaining, enter, {
+      start,
+      timeoutMs,
+    });
   },
 };
 
@@ -39,9 +59,29 @@ export const unityExitPlayMode: ToolDef<typeof ExitShape, PlayModeStatus> = {
   inputShape: ExitShape,
   async run(args, ctx) {
     const wait = args.waitForReady ?? true;
-    const exit = await bridgeCall<PlayModeStatus>(ctx.bridge, BRIDGE_METHODS.playModeExit);
+    const timeoutMs = args.timeoutMs ?? 30_000;
+    const start = Date.now();
+    const exit = await bridgeCall<PlayModeStatus>(
+      ctx.bridge,
+      BRIDGE_METHODS.playModeExit,
+      {},
+      "normal",
+      wait || args.timeoutMs !== undefined ? { reloadTimeoutMs: timeoutMs } : {}
+    );
     if (!exit.ok || !wait || ctx.configMockMode) return exit;
-    return waitForPlayState(ctx, "stopped", args.timeoutMs ?? 30_000, exit);
+    const remaining = timeoutMs - (Date.now() - start);
+    if (remaining <= 0) {
+      return err(
+        "BRIDGE_TIMEOUT",
+        `Timed out after ${timeoutMs}ms waiting for play mode to become stopped.`,
+        { source: ctx.bridge.source, durationMs: Date.now() - start },
+        { until: "stopped", timeoutMs, lastState: exit.data }
+      );
+    }
+    return waitForPlayState(ctx, "stopped", remaining, exit, {
+      start,
+      timeoutMs,
+    });
   },
 };
 
@@ -100,41 +140,79 @@ async function waitForPlayState(
   ctx: ToolContext,
   until: "playing" | "stopped",
   timeoutMs: number,
-  fallback: ToolEnvelope<PlayModeStatus>
+  fallback: ToolEnvelope<PlayModeStatus>,
+  overall?: { start: number; timeoutMs: number }
 ): Promise<ToolEnvelope<PlayModeStatus>> {
   const start = Date.now();
+  const resultStart = overall?.start ?? start;
+  const reportedTimeoutMs = overall?.timeoutMs ?? timeoutMs;
   const wantPlaying = until === "playing";
   let last = fallback;
   let useAwait = true;
   while (Date.now() - start < timeoutMs) {
     if (useAwait) {
       const remaining = timeoutMs - (Date.now() - start);
-      const res = await bridgeCall<PlayModeStatus>(ctx.bridge, BRIDGE_METHODS.playModeAwait, {
-        until,
-        timeoutMs: Math.min(remaining, AWAIT_WINDOW_MS),
-      });
+      const res = await bridgeCall<PlayModeStatus>(
+        ctx.bridge,
+        BRIDGE_METHODS.playModeAwait,
+        { until, timeoutMs: Math.min(remaining, AWAIT_WINDOW_MS) },
+        "normal",
+        { reloadTimeoutMs: remaining }
+      );
       if (res.ok) {
         last = res;
-        if (res.data.settled !== false) return res;
+        if (res.data.settled !== false) {
+          if (reachedPlayState(res.data, wantPlaying)) return res;
+          return err(
+            "MALFORMED_BRIDGE_RESPONSE",
+            `playmode.await reported a settled '${until}' transition without reaching that state.`,
+            { source: ctx.bridge.source, durationMs: Date.now() - resultStart },
+            { until, state: res.data }
+          );
+        }
         continue; // window closed while still transitioning — re-issue
       }
       if (isUnknownMethodError(res)) {
         useAwait = false;
         continue;
       }
-      // Transient (reload retries already happened inside bridgeCall) — brief pause, retry.
-      await sleep(400);
-      continue;
+      if (res.error.code === "UNITY_RELOADING" && Date.now() - start >= timeoutMs) break;
+      // bridgeCall already rides through reloads. Anything left is terminal and must not be
+      // hidden behind the earlier successful enter/exit response.
+      return res;
     }
-    const s = await bridgeCall<PlayModeStatus>(ctx.bridge, BRIDGE_METHODS.playModeStatus);
-    if (s.ok) {
-      last = s;
-      if (s.data.isPlaying === wantPlaying) return s;
+    const remaining = timeoutMs - (Date.now() - start);
+    const s = await bridgeCall<PlayModeStatus>(
+      ctx.bridge,
+      BRIDGE_METHODS.playModeStatus,
+      {},
+      "normal",
+      { reloadTimeoutMs: Math.max(0, remaining) }
+    );
+    if (!s.ok) {
+      if (s.error.code === "UNITY_RELOADING" && Date.now() - start >= timeoutMs) break;
+      return s;
     }
-    await sleep(400);
+    last = s;
+    if (reachedPlayState(s.data, wantPlaying)) return s;
+    const remainingAfterCall = timeoutMs - (Date.now() - start);
+    const delayMs = Math.min(400, Math.max(0, remainingAfterCall));
+    if (delayMs > 0) await sleep(delayMs);
   }
-  if (last.ok) last.warnings.push(`Timed out after ${timeoutMs}ms waiting for play-mode transition.`);
-  return last;
+  return err(
+    "BRIDGE_TIMEOUT",
+    `Timed out after ${reportedTimeoutMs}ms waiting for play mode to become ${until}.`,
+    { source: ctx.bridge.source, durationMs: Date.now() - resultStart },
+    {
+      until,
+      timeoutMs: reportedTimeoutMs,
+      ...(last.ok ? { lastState: last.data } : {}),
+    }
+  );
+}
+
+function reachedPlayState(state: PlayModeStatus, wantPlaying: boolean): boolean {
+  return state.isPlaying === wantPlaying && state.isTransitioning !== true;
 }
 
 function sleep(ms: number): Promise<void> {

@@ -58,6 +58,7 @@ describe("toolLabel", () => {
     "unity_capture_selected",
     "unity_check_git_status",
     "unity_clear_console",
+    "unity_configure_play_mode",
     "unity_create_gameobject",
     "unity_create_material",
     "unity_create_prefab_variant",
@@ -78,6 +79,7 @@ describe("toolLabel", () => {
     "unity_find_runtime_objects",
     "unity_generate_project_brain",
     "unity_get_animator_state",
+    "unity_get_build_settings",
     "unity_get_console_logs",
     "unity_get_open_scenes",
     "unity_get_performance_stats",
@@ -95,8 +97,10 @@ describe("toolLabel", () => {
     "unity_orient",
     "unity_paint_tilemap",
     "unity_project_summary",
+    "unity_qa",
     "unity_read_script",
     "unity_reflect",
+    "unity_refresh_assets",
     "unity_remove_component",
     "unity_reparent",
     "unity_run_tests",
@@ -104,10 +108,12 @@ describe("toolLabel", () => {
     "unity_save_scene",
     "unity_script_edit",
     "unity_set_animator_parameter",
+    "unity_set_runtime_field",
     "unity_set_serialized_field",
     "unity_set_transform",
     "unity_simulate_input",
     "unity_slice_sprite",
+    "unity_smoke_test",
     "unity_step_frame",
     "unity_verify",
     "unity_wait_for_compile",
@@ -132,6 +138,6 @@ describe("toolLabel", () => {
   });
 
   it("covers the expected number of unity tools", () => {
-    expect(UNITY_TOOL_NAMES).toHaveLength(66);
+    expect(UNITY_TOOL_NAMES).toHaveLength(72);
   });
 });

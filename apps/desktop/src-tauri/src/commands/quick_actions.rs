@@ -24,7 +24,7 @@ fn default_quick_actions() -> Vec<QuickAction> {
     vec![
         QuickAction {
             label: "Fix whatever's broken".into(),
-            prompt: "Run unity_verify, find any compile errors or failing tests, and fix them.".into(),
+            prompt: "Run unity_qa, fix every actionable failure it finds, then rerun the full gate until it passes.".into(),
         },
         QuickAction {
             label: "Screenshot tour".into(),

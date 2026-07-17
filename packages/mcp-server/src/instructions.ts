@@ -10,7 +10,7 @@ export const SERVER_INSTRUCTIONS = `Unity Vibe OS — a Unity-aware operating la
 GOLDEN RULES
 1. Start any task with \`unity_orient\` — one call returns the project summary, open scenes, current selection, compile status, recent errors/warnings, git status, and brain freshness. Don't gather those separately.
 2. Before writing C# against a Unity/package API, verify it exists with \`unity_reflect\` (it reads the project's actually-loaded assemblies — ground truth over memory). \`unity_docs\` adds prose/usage.
-3. After ANY C# change, run \`unity_verify\` (compile → console → tests → one pass/fail verdict). Never claim a change works until it passes.
+3. After ANY C# change, run \`unity_verify\` (asset refresh → compile → console → tests → one pass/fail verdict). Never claim a change works until it passes.
 4. When the user says "this" / "the selected object", call \`unity_inspect_selected\` first.
 5. Inspect first, act second, verify after. Prefer a concrete target (named GameObject, file path, instanceId) over guessing.
 
@@ -18,7 +18,9 @@ EDIT C#: \`unity_read_script\` (returns a sha256) → \`unity_create_script\` fo
 
 BUILD SCENES: unity_create_gameobject, unity_add_component, unity_set_serialized_field, unity_assign_reference, unity_set_transform, unity_reparent, unity_instantiate_prefab, unity_save_scene. Every scene/prefab edit is Undo-wrapped (Ctrl+Z). Bundle a known multi-step plan into ONE \`unity_batch\` call.
 
-PLAY-TEST: unity_enter_play_mode → observe with unity_get_console_logs / unity_find_runtime_objects / unity_inspect_runtime_object / unity_get_performance_stats / unity_simulate_input → unity_exit_play_mode. unity_capture_game_view, unity_capture_scene_view, and unity_capture_selected return real images — use them to SEE what you built; pass format:"jpg" when capturing repeatedly (≈10x smaller). On macOS, never call unity_capture_editor_window: Unity's framebuffer API can terminate the Editor, so the tool intentionally returns FEATURE_UNAVAILABLE. unity_step_frame steps N frames in one call.
+PLAY-TEST: prefer \`unity_smoke_test\` for a guarded enter → settle → runtime errors/performance/screenshot → cleanup pass with one verdict. For deeper debugging use unity_enter_play_mode → unity_find_runtime_objects / unity_inspect_runtime_object / unity_configure_play_mode / unity_set_runtime_field / unity_simulate_input → unity_exit_play_mode. Runtime field overrides are temporary and discarded on exit. unity_capture_game_view, unity_capture_scene_view, and unity_capture_selected return real images — use them to SEE what you built; pass format:"jpg" when capturing repeatedly (≈10x smaller). On macOS, never call unity_capture_editor_window: Unity's framebuffer API can terminate the Editor, so the tool intentionally returns FEATURE_UNAVAILABLE. unity_step_frame steps N frames in one call.
+
+QA: \`unity_qa\` is the full gate: truthful compile/console/tests, missing-script/reference scans, build readiness, then a guarded smoke test. \`unity_get_build_settings\` checks enabled scenes and platform support without starting a build.
 
 DIAGNOSE: unity_find_missing_scripts, unity_find_missing_references, unity_find_references / unity_find_dependencies before any rename/delete.
 
@@ -28,4 +30,4 @@ TOOL GROUPS: core/scripting/reflection/runtime/testing are active; codegen is of
 
 BRIDGE STATE: UNITY_RELOADING means the Editor is mid script-reload — recoverable, auto-retries, just proceed. UNITY_NOT_CONNECTED means no Editor with this project is open (ask the user to open Unity, then \`uvibe doctor\`). UNITY_EDITOR_STALLED means Unity is frozen in the background (unfocused, keep-awake off) — retrying is USELESS; stop and ask the user to focus the Unity window or enable Window ▸ Unity Vibe OS ▸ Keep Unity awake (background). Never retry the same stalled/timed-out call more than twice — surface the error to the user instead.
 
-Slash commands (/mcp__unity-vibe-os__*): orient, diagnose_scene, analyze_scene, verify, new_script, play_test, enable_autonomy. Resources: unity://project-brain, unity://conventions, unity://action-log, unity://scene-hierarchy, unity://console.`;
+Slash commands (/mcp__unity-vibe-os__*): orient, diagnose_scene, analyze_scene, verify, new_script, play_test, qa, enable_autonomy. Resources: unity://project-brain, unity://conventions, unity://action-log, unity://scene-hierarchy, unity://console.`;

@@ -29,6 +29,7 @@ const STANDARD_LABELS: Record<string, string> = {
 const UNITY_LABELS: Record<string, string> = {
   orient: "Getting oriented in Unity",
   verify: "Checking everything compiles and tests pass",
+  qa: "Running the full Unity QA gate",
   batch: "Making several changes",
   project_summary: "Looking over the project",
   generate_project_brain: "Studying the project",
@@ -37,6 +38,7 @@ const UNITY_LABELS: Record<string, string> = {
   inspect_selected: "Inspecting the selected object",
   get_console_logs: "Reading the Unity console",
   wait_for_compile: "Waiting for Unity to compile",
+  refresh_assets: "Refreshing Unity assets",
   check_git_status: "Checking for changes",
   // Visual
   capture_game_view: "Taking a screenshot of the game",
@@ -46,13 +48,17 @@ const UNITY_LABELS: Record<string, string> = {
   get_performance_stats: "Checking performance",
   // Tests
   run_tests: "Running tests",
+  get_build_settings: "Checking build readiness",
+  smoke_test: "Smoke-testing the game",
   // Play mode + runtime
   enter_play_mode: "Pressing Play",
   exit_play_mode: "Stopping Play",
   step_frame: "Advancing a frame",
   get_play_mode_status: "Checking play mode",
+  configure_play_mode: "Adjusting the running game",
   find_runtime_objects: "Finding objects in the running game",
   inspect_runtime_object: "Inspecting a running object",
+  set_runtime_field: "Testing a runtime value",
   // Asset graph
   find_missing_scripts: "Looking for broken scripts",
   find_missing_references: "Looking for broken links",
