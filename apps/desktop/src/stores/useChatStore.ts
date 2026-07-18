@@ -21,6 +21,7 @@ import type {
   ChatSession,
   DoneEvent,
   ErrorEvent,
+  QueuedTask,
 } from "@/types/chat";
 import type { SessionPayload } from "@/types/session";
 
@@ -41,6 +42,16 @@ function emptySession(): ChatSession {
   };
 }
 
+function discardQueuedAttachments(tasks: QueuedTask[]): void {
+  for (const task of tasks) {
+    for (const attachment of task.attachments) {
+      void api.removeStaged(attachment.path).catch(() => {
+        // The staged file is disposable and may already have been removed.
+      });
+    }
+  }
+}
+
 interface ChatState {
   project: string | null;
   messages: ChatMessage[];
@@ -48,6 +59,9 @@ interface ChatState {
   running: boolean;
   activeRunId: string | null;
   cancelRequested: boolean;
+  queuedTasks: QueuedTask[];
+  /** Non-null when a failed/stopped task requires confirmation to continue. */
+  queuePauseReason: string | null;
 
   /** Assistant message currently being streamed + its running draft. */
   assistantId: string | null;
@@ -60,6 +74,21 @@ interface ChatState {
     attachments?: Attachment[],
     options?: AgentRunOptions,
   ) => Promise<void>;
+  /** Atomically start now or enqueue, avoiding terminal-event click races. */
+  submitTask: (
+    prompt: string,
+    attachments?: Attachment[],
+    options?: AgentRunOptions,
+  ) => "sent" | "queued" | null;
+  enqueue: (
+    prompt: string,
+    attachments?: Attachment[],
+    options?: AgentRunOptions,
+  ) => string | null;
+  runNextQueued: () => Promise<boolean>;
+  removeQueued: (id: string) => Promise<void>;
+  clearQueue: () => Promise<void>;
+  pauseQueue: (reason: string) => void;
   cancel: () => Promise<void>;
   reset: () => void;
   /** Append a quiet, system-style notice line (e.g. after a revert). */
@@ -80,11 +109,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   running: false,
   activeRunId: null,
   cancelRequested: false,
+  queuedTasks: [],
+  queuePauseReason: null,
   assistantId: null,
   draft: null,
 
   setProject: (project) => {
-    if (get().project === project) return;
+    const state = get();
+    if (state.project === project) return;
+    discardQueuedAttachments(state.queuedTasks);
     set({
       project,
       messages: [],
@@ -92,21 +125,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
       running: false,
       activeRunId: null,
       cancelRequested: false,
+      queuedTasks: [],
+      queuePauseReason: null,
       assistantId: null,
       draft: null,
     });
   },
 
-  reset: () =>
+  reset: () => {
+    discardQueuedAttachments(get().queuedTasks);
     set({
       messages: [],
       session: emptySession(),
       running: false,
       activeRunId: null,
       cancelRequested: false,
+      queuedTasks: [],
+      queuePauseReason: null,
       assistantId: null,
       draft: null,
-    }),
+    });
+  },
 
   appendNotice: (text) =>
     set((state) => ({
@@ -125,6 +164,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })),
 
   loadSession: (payload) => {
+    discardQueuedAttachments(get().queuedTasks);
     const messages = payload.messages ?? [];
     const runOptions = inferSessionRunOptions(payload);
     set({
@@ -142,6 +182,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       running: false,
       activeRunId: null,
       cancelRequested: false,
+      queuedTasks: [],
+      queuePauseReason: null,
       assistantId: null,
       draft: null,
     });
@@ -239,8 +281,92 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // run. If startup failed, restore the prior empty session so the user can
       // change model/effort and retry without creating another chat.
       set({ session: state.session });
+      get().pauseQueue(
+        "The task could not start. Review the error, then resume the queue.",
+      );
     }
   },
+
+  submitTask: (prompt, attachments = [], options) => {
+    const state = get();
+    const text = prompt.trim();
+    if ((!text && attachments.length === 0) || !state.project) return null;
+
+    if (state.running || state.queuedTasks.length > 0) {
+      return get().enqueue(text, attachments, options) ? "queued" : null;
+    }
+
+    void get().send(text, attachments, options);
+    return "sent";
+  },
+
+  enqueue: (prompt, attachments = [], options) => {
+    const state = get();
+    const text = prompt.trim();
+    if ((!text && attachments.length === 0) || !state.project) return null;
+
+    const runOptions = resolveChatRunOptions({
+      sessionRunOptions: state.session.runOptions,
+      sessionBackend: state.session.backend,
+      requested: options,
+      settings: useSettingsStore.getState().settings,
+    });
+    const task: QueuedTask = {
+      id: newId(),
+      prompt: text,
+      attachments: [...attachments],
+      runOptions,
+      createdAt: Date.now(),
+    };
+    set((current) => ({ queuedTasks: [...current.queuedTasks, task] }));
+    return task.id;
+  },
+
+  runNextQueued: async () => {
+    const state = get();
+    if (state.running || !state.project || state.queuedTasks.length === 0) {
+      return false;
+    }
+    const [next, ...remaining] = state.queuedTasks;
+    set({ queuedTasks: remaining, queuePauseReason: null });
+    await get().send(next.prompt, next.attachments, next.runOptions);
+    return true;
+  },
+
+  removeQueued: async (id) => {
+    const task = get().queuedTasks.find((item) => item.id === id);
+    set((state) => {
+      const queuedTasks = state.queuedTasks.filter((item) => item.id !== id);
+      return {
+        queuedTasks,
+        queuePauseReason:
+          queuedTasks.length === 0 ? null : state.queuePauseReason,
+      };
+    });
+    if (!task) return;
+    await Promise.all(
+      task.attachments.map((attachment) =>
+        api.removeStaged(attachment.path).catch(() => undefined),
+      ),
+    );
+  },
+
+  clearQueue: async () => {
+    const tasks = get().queuedTasks;
+    set({ queuedTasks: [], queuePauseReason: null });
+    await Promise.all(
+      tasks.flatMap((task) =>
+        task.attachments.map((attachment) =>
+          api.removeStaged(attachment.path).catch(() => undefined),
+        ),
+      ),
+    );
+  },
+
+  pauseQueue: (reason) =>
+    set((state) =>
+      state.queuedTasks.length > 0 ? { queuePauseReason: reason } : {},
+    ),
 
   cancel: async () => {
     const { running, activeRunId: runId } = get();

@@ -17,7 +17,8 @@ import AgentRunControls from "@/components/agent/AgentRunControls";
 import { MicIcon } from "../shell/icons";
 
 /**
- * Prompt input: Enter to send, Shift+Enter for a newline, Stop while running.
+ * Prompt input: Enter to send/queue, Shift+Enter for a newline. While an agent
+ * is running, the dock stays available and new tasks join a FIFO queue.
  *
  * The mic dictates locally (offline Whisper — see `hooks/useDictation`). It
  * *appends* to whatever is already typed rather than replacing it, so speech and
@@ -26,8 +27,10 @@ import { MicIcon } from "../shell/icons";
  */
 export default function Composer() {
   const running = useChatStore((s) => s.running);
-  const send = useChatStore((s) => s.send);
+  const submitTask = useChatStore((s) => s.submitTask);
   const cancel = useChatStore((s) => s.cancel);
+  const cancelRequested = useChatStore((s) => s.cancelRequested);
+  const queuedTasks = useChatStore((s) => s.queuedTasks);
   const project = useChatStore((s) => s.project);
   const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
   const cliInstalling = useCliInstallActive();
@@ -111,9 +114,9 @@ export default function Composer() {
   }, []);
   const dictation = useDictation(appendDictated);
 
-  const canSend =
+  const queueing = running || queuedTasks.length > 0;
+  const canSubmit =
     (value.trim() || attachments.length > 0) &&
-    !running &&
     !loopRunning &&
     !cliInstalling;
 
@@ -121,7 +124,7 @@ export default function Composer() {
   const showQuickActions =
     !value.trim() &&
     attachments.length === 0 &&
-    !running &&
+    !queueing &&
     !loopRunning &&
     quickActions.length > 0;
 
@@ -138,10 +141,11 @@ export default function Composer() {
   }
 
   function submit() {
-    if (!canSend) return;
+    if (!canSubmit) return;
     const text = value.trim();
+    const accepted = submitTask(text, attachments, runOptions);
+    if (!accepted) return;
     setValue("");
-    void send(text, attachments, runOptions);
     clearAttachments(); // detach — the files now belong to the sent message
     requestAnimationFrame(() => autosize(ref.current));
   }
@@ -222,11 +226,15 @@ export default function Composer() {
                 ? "Auto mode is running…"
                 : cliInstalling
                   ? "Finishing the CLI install…"
-                : dictation.state === "recording"
-                  ? "Listening… click the mic to finish."
-                  : dictation.state === "transcribing"
-                    ? "Transcribing…"
-                    : `Ask ${agentLabel} to change your game…`
+                  : running
+                    ? "Add another task — it will start when this one finishes…"
+                    : queuedTasks.length > 0
+                      ? "Add another task to the queue…"
+                      : dictation.state === "recording"
+                        ? "Listening… click the mic to finish."
+                        : dictation.state === "transcribing"
+                          ? "Transcribing…"
+                          : `Ask ${agentLabel} to change your game…`
             }
             className="selectable max-h-40 min-h-[2.75rem] w-full resize-none bg-transparent px-2.5 py-2 text-sm leading-relaxed text-fg placeholder:text-fg-dim focus:outline-none disabled:opacity-50"
           />
@@ -252,22 +260,23 @@ export default function Composer() {
                 <MicButton dictation={dictation} />
               )}
 
-              {running ? (
+              {running && (
                 <button
                   onClick={() => void cancel()}
-                  className="shrink-0 rounded-lg border border-white/10 bg-white/[0.055] px-4 py-2 text-sm font-medium text-fg hover:bg-white/[0.09]"
+                  disabled={cancelRequested}
+                  className="shrink-0 rounded-lg border border-white/10 bg-white/[0.055] px-3 py-2 text-sm font-medium text-fg hover:bg-white/[0.09] disabled:cursor-wait disabled:opacity-55"
                 >
-                  Stop
-                </button>
-              ) : (
-                <button
-                  onClick={submit}
-                  disabled={!canSend}
-                  className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
-                >
-                  Send
+                  {cancelRequested ? "Stopping…" : "Stop"}
                 </button>
               )}
+              <button
+                onClick={submit}
+                disabled={!canSubmit}
+                title={queueing ? "Run after the tasks ahead of it" : undefined}
+                className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
+              >
+                {queueing ? "Queue task" : "Send"}
+              </button>
             </div>
           </div>
 
@@ -280,7 +289,7 @@ export default function Composer() {
               <AgentRunControls
                 value={runOptions}
                 onChange={setRunOptions}
-                disabled={running || !!sessionOptions}
+                disabled={queueing || !!sessionOptions}
               />
               {sessionOptions && (
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-dim">

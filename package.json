@@ -13,8 +13,8 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "pnpm -r --filter './packages/*' --filter './apps/*' build",
-    "typecheck": "pnpm -r --filter './packages/*' --filter './apps/*' typecheck",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "uvibe": "node apps/cli/bin/uvibe"

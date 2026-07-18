@@ -18,13 +18,14 @@ export default function TopBar() {
   const project = useChatStore((s) => s.project);
   const update = useSettingsStore((s) => s.update);
   const chatRunning = useChatStore((s) => s.running);
+  const queuedTaskCount = useChatStore((s) => s.queuedTasks.length);
   const totalCost = useChatStore((s) => s.session.totalCostUsd);
   const totalTokens = useChatStore((s) => s.session.totalTokens);
   const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
   const bridge = useStatusStore((s) => s.status);
   const cliInstalling = useCliInstallActive();
   const taskActive = chatRunning || loopRunning;
-  const navigationLocked = taskActive || cliInstalling;
+  const navigationLocked = taskActive || queuedTaskCount > 0 || cliInstalling;
   const {
     activityOpen,
     toggleActivity,
@@ -68,7 +69,7 @@ export default function TopBar() {
           disabled={navigationLocked}
           title={
             navigationLocked
-              ? "Wait for the current task or CLI install before switching projects"
+              ? "Finish or clear pending tasks before switching projects"
               : undefined
           }
           className="rounded-md px-1.5 py-0.5 text-xs text-fg-dim transition-colors duration-150 hover:bg-ink-800 hover:text-fg-muted disabled:cursor-not-allowed disabled:opacity-40"
@@ -181,7 +182,7 @@ function ModeToggle({
           disabled={disabled}
           title={
             disabled
-              ? "Wait for the current task or CLI install before changing modes"
+              ? "Finish or clear pending tasks before changing modes"
               : undefined
           }
           className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${

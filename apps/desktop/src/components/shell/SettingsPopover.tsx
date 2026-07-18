@@ -28,8 +28,9 @@ export default function SettingsPopover() {
   const showToast = useToastStore((s) => s.show);
   const ref = useRef<HTMLDivElement>(null);
   const chatRunning = useChatStore((s) => s.running);
+  const queuedTaskCount = useChatStore((s) => s.queuedTasks.length);
   const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
-  const taskActive = chatRunning || loopRunning;
+  const taskActive = chatRunning || queuedTaskCount > 0 || loopRunning;
 
   const backend: AgentBackend = settings?.agentBackend ?? "claude";
   const cli = useCliSetup(backend);
@@ -200,7 +201,9 @@ export default function SettingsPopover() {
       <p className="mt-2 text-xs leading-relaxed text-fg-dim">{meta.blurb}</p>
       {taskActive && (
         <p className="mt-2 rounded-lg border border-warning/20 bg-warning/5 px-2.5 py-2 text-xs leading-relaxed text-fg-muted">
-          Stop the current task before changing agents, installing a CLI, or reconnecting an account.
+          {queuedTaskCount > 0
+            ? "Finish or clear the task queue before changing agents or setup."
+            : "Stop the current task before changing agents, installing a CLI, or reconnecting an account."}
         </p>
       )}
 

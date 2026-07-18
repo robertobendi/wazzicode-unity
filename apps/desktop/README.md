@@ -97,6 +97,14 @@ falls back to the iteration cap. Set `maxIterations` accordingly.
 Model overrides are stored per backend, so switching agents can't hand a
 `claude-*` model id to Codex (or a `gpt-*` one to Claude).
 
+### Queued tasks
+
+The composer stays available while an agent is working. Pressing Enter or
+**Queue task** adds the message and its attachments to the current conversation's
+ordered queue. After a successful terminal event, Studio autosaves the finished
+turn before starting the next task. A stopped or failed task pauses the remaining
+queue so it can be reviewed, resumed, trimmed one task at a time, or cleared.
+
 To wire Codex up outside the app (plain terminal use), the CLI prints the TOML
 block and the one-liner that registers it:
 

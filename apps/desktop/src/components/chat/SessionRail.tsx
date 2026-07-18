@@ -16,6 +16,7 @@ export default function SessionRail() {
   const newChat = useSessionsStore((s) => s.newChat);
   const project = useChatStore((s) => s.project);
   const running = useChatStore((s) => s.running);
+  const queuedTaskCount = useChatStore((s) => s.queuedTasks.length);
   const showToast = useToastStore((s) => s.show);
   const agentLabel = useSettingsStore(
     (s) => BACKENDS[s.settings?.agentBackend ?? "claude"].label,
@@ -24,10 +25,14 @@ export default function SessionRail() {
 
   if (!project) return null;
   const proj = project;
-  const busyCopy = `${agentLabel} is still working on the last message.`;
+  const workPending = running || queuedTaskCount > 0;
+  const busyCopy =
+    queuedTaskCount > 0
+      ? "Finish or clear the task queue before changing chats."
+      : `${agentLabel} is still working on the last message.`;
 
   async function onOpen(id: string) {
-    if (running) {
+    if (workPending) {
       showToast(busyCopy);
       return;
     }
@@ -36,7 +41,7 @@ export default function SessionRail() {
   }
 
   function onNewChat() {
-    if (running) {
+    if (workPending) {
       showToast(busyCopy);
       return;
     }

@@ -104,7 +104,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   },
 
   open: async (project, sessionId) => {
-    if (useChatStore.getState().running) return false;
+    const chat = useChatStore.getState();
+    if (chat.running || chat.queuedTasks.length > 0) return false;
     try {
       const payload = await api.loadSession(project, sessionId);
       useChatStore.getState().loadSession(payload);
@@ -129,6 +130,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   },
 
   newChat: async (project) => {
+    const chat = useChatStore.getState();
+    if (chat.running || chat.queuedTasks.length > 0) return;
     await get().autosave(project);
     useChatStore.getState().reset();
     set({ activeSessionId: null });

@@ -88,45 +88,46 @@ pub fn spawn_streaming(
     args: Vec<String>,
     prompt: String,
 ) -> AppResult<(ChildHandle, JoinHandle<ExitInfo>)> {
-    // Reuse proc's PATH augmentation + no-window handling, then override the
-    // stdio it nulls (we need to write the prompt and read the stream).
-    let mut std_cmd = crate::proc::command(backend.bin())?;
-    std_cmd
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .current_dir(project)
-        .args(&args);
-    // Use each CLI's own stored login rather than provider keys inherited from
-    // the app's launch environment. A stray key could silently switch the
-    // account and billing path for a non-interactive run.
-    let credential_guard = match backend {
-        Backend::Claude => {
-            let guard = crate::claudeauth::configure_child(&mut std_cmd)?;
-            if args.iter().any(|arg| arg == "--effort") {
-                crate::claudeauth::prefer_cli_effort(&mut std_cmd);
+    let mut child = {
+        // Reuse proc's PATH augmentation + no-window handling, then override
+        // the stdio it nulls (we write the prompt and read the stream).
+        let mut std_cmd = crate::proc::command(backend.bin())?;
+        std_cmd
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(project)
+            .args(&args);
+        // Use each CLI's own stored login rather than provider keys inherited
+        // from the app's launch environment. A stray key could silently switch
+        // the account and billing path for a non-interactive run. The guard's
+        // scope deliberately ends immediately after spawn.
+        let _credential_guard = match backend {
+            Backend::Claude => {
+                let guard = crate::claudeauth::configure_child(&mut std_cmd)?;
+                if args.iter().any(|arg| arg == "--effort") {
+                    crate::claudeauth::prefer_cli_effort(&mut std_cmd);
+                }
+                Some(guard)
             }
-            Some(guard)
+            Backend::Codex => {
+                crate::codexauth::isolate_child_environment(&mut std_cmd);
+                None
+            }
+        };
+        // Own process group so cancellation can kill the whole tree (the agent
+        // + its MCP server child) with a single group signal.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            std_cmd.process_group(0);
         }
-        Backend::Codex => {
-            crate::codexauth::isolate_child_environment(&mut std_cmd);
-            None
-        }
-    };
-    // Own process group so cancellation can kill the whole tree (the agent + its
-    // MCP server child) with a single group signal.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        std_cmd.process_group(0);
-    }
 
-    let mut cmd = tokio::process::Command::from(std_cmd);
-    cmd.kill_on_drop(true);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| AppError::Other(format!("could not start {}: {e}", backend.label())))?;
-    drop(credential_guard);
+        let mut cmd = tokio::process::Command::from(std_cmd);
+        cmd.kill_on_drop(true);
+        cmd.spawn()
+            .map_err(|e| AppError::Other(format!("could not start {}: {e}", backend.label())))
+    }?;
 
     let pid = child.id();
     let child_stdin = child.stdin.take();

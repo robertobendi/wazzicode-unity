@@ -4,6 +4,7 @@ import { api } from "@/api";
 import { useChatStore } from "@/stores/useChatStore";
 import { useSessionsStore } from "@/stores/useSessionsStore";
 import { useDebugStore } from "@/stores/useDebugStore";
+import { settleTaskQueue } from "@/lib/taskQueue";
 import type {
   ChatTerminalEvent,
   DoneEvent,
@@ -38,16 +39,34 @@ export function useAgentStream() {
     const debug = useDebugStore.getState().push;
 
     const handleDone = (payload: DoneEvent) => {
-      if (useChatStore.getState().activeRunId !== activeRunId) return;
+      const before = useChatStore.getState();
+      if (before.activeRunId !== activeRunId) return;
       debug("done", payload);
       finish(activeRunId, payload);
       const project = useChatStore.getState().project;
-      if (project) void useSessionsStore.getState().autosave(project);
+      void settleTaskQueue({
+        outcome: before.cancelRequested
+          ? "stopped"
+          : payload.isError
+            ? "failed"
+            : "completed",
+        persist: project
+          ? () => useSessionsStore.getState().autosave(project)
+          : undefined,
+        advance: () => useChatStore.getState().runNextQueued(),
+        pause: (reason) => useChatStore.getState().pauseQueue(reason),
+      });
     };
     const handleError = (payload: ErrorEvent) => {
-      if (useChatStore.getState().activeRunId !== activeRunId) return;
+      const before = useChatStore.getState();
+      if (before.activeRunId !== activeRunId) return;
       debug("error", payload);
       fail(activeRunId, payload);
+      void settleTaskQueue({
+        outcome: before.cancelRequested ? "stopped" : "failed",
+        advance: () => useChatStore.getState().runNextQueued(),
+        pause: (reason) => useChatStore.getState().pauseQueue(reason),
+      });
     };
     const handleTerminal = (event: ChatTerminalEvent) => {
       if (event.kind === "done") handleDone(event.payload);

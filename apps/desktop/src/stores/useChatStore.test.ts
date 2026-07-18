@@ -5,12 +5,14 @@ import type { Settings } from "@/types/settings";
 const mocks = vi.hoisted(() => ({
   chatSend: vi.fn(),
   chatCancel: vi.fn(),
+  removeStaged: vi.fn(),
 }));
 
 vi.mock("@/api", () => ({
   api: {
     chatSend: mocks.chatSend,
     chatCancel: mocks.chatCancel,
+    removeStaged: mocks.removeStaged,
   },
 }));
 
@@ -38,6 +40,7 @@ describe("chat run snapshots", () => {
     projectNumber += 1;
     mocks.chatSend.mockReset().mockResolvedValue("run-1");
     mocks.chatCancel.mockReset();
+    mocks.removeStaged.mockReset().mockResolvedValue(undefined);
     useSettingsStore.getState().setSettings(settings);
     useChatStore.getState().setProject(`/project-${projectNumber}`);
   });
@@ -137,5 +140,144 @@ describe("chat run snapshots", () => {
     await send;
 
     expect(mocks.chatCancel).toHaveBeenCalledWith("delayed-run");
+  });
+
+  it("keeps queued tasks in FIFO order until each run fully settles", async () => {
+    mocks.chatSend
+      .mockResolvedValueOnce("run-1")
+      .mockResolvedValueOnce("run-2")
+      .mockResolvedValueOnce("run-3");
+    const options: AgentRunOptions = {
+      backend: "codex",
+      model: "gpt-5.6-sol",
+      effort: "high",
+    };
+
+    await useChatStore.getState().send("First", [], options);
+    const secondResult = useChatStore.getState().submitTask("Second", [], {
+      backend: "claude",
+      model: "opus",
+      effort: "low",
+    });
+    const thirdResult = useChatStore.getState().submitTask("Third");
+
+    expect([secondResult, thirdResult]).toEqual(["queued", "queued"]);
+    expect(mocks.chatSend).toHaveBeenCalledTimes(1);
+    expect(useChatStore.getState().queuedTasks.map((task) => task.prompt)).toEqual([
+      "Second",
+      "Third",
+    ]);
+    expect(useChatStore.getState().queuedTasks[0].runOptions).toEqual(options);
+
+    useChatStore.getState().finish("run-1", {
+      sessionId: "codex-session",
+      costUsd: null,
+      tokens: 100,
+      isError: false,
+      resultText: "Done",
+      numTurns: 1,
+    });
+    await useChatStore.getState().runNextQueued();
+
+    expect(mocks.chatSend).toHaveBeenNthCalledWith(
+      2,
+      `/project-${projectNumber}`,
+      "Second",
+      "codex-session",
+      options,
+    );
+    expect(useChatStore.getState().queuedTasks.map((task) => task.prompt)).toEqual([
+      "Third",
+    ]);
+
+    useChatStore.getState().finish("run-2", {
+      sessionId: "codex-session",
+      costUsd: null,
+      tokens: 50,
+      isError: false,
+      resultText: "Done again",
+      numTurns: 1,
+    });
+    await useChatStore.getState().runNextQueued();
+
+    expect(mocks.chatSend).toHaveBeenNthCalledWith(
+      3,
+      `/project-${projectNumber}`,
+      "Third",
+      "codex-session",
+      options,
+    );
+    expect(useChatStore.getState().queuedTasks).toEqual([]);
+  });
+
+  it("atomically starts a task submitted just after the active run settles", async () => {
+    mocks.chatSend
+      .mockResolvedValueOnce("run-1")
+      .mockResolvedValueOnce("run-2");
+    await useChatStore.getState().send("First");
+    useChatStore.getState().finish("run-1", {
+      sessionId: "claude-session",
+      costUsd: 0.01,
+      tokens: null,
+      isError: false,
+      resultText: "Done",
+      numTurns: 1,
+    });
+
+    const result = useChatStore.getState().submitTask("At the boundary");
+    await vi.waitFor(() => expect(mocks.chatSend).toHaveBeenCalledTimes(2));
+
+    expect(result).toBe("sent");
+    expect(useChatStore.getState().queuedTasks).toEqual([]);
+    expect(mocks.chatSend).toHaveBeenLastCalledWith(
+      `/project-${projectNumber}`,
+      "At the boundary",
+      "claude-session",
+      expect.objectContaining({ backend: "claude" }),
+    );
+  });
+
+  it("pauses and preserves queued work when the active task cannot start", async () => {
+    let rejectRun: (error: Error) => void = () => undefined;
+    mocks.chatSend.mockReturnValueOnce(
+      new Promise<string>((_resolve, reject) => {
+        rejectRun = reject;
+      }),
+    );
+
+    const first = useChatStore.getState().send("First");
+    expect(useChatStore.getState().submitTask("Keep this for later")).toBe(
+      "queued",
+    );
+    rejectRun(new Error("agent unavailable"));
+    await first;
+
+    expect(useChatStore.getState().running).toBe(false);
+    expect(useChatStore.getState().queuedTasks.map((task) => task.prompt)).toEqual([
+      "Keep this for later",
+    ]);
+    expect(useChatStore.getState().queuePauseReason).toMatch(/could not start/i);
+  });
+
+  it("preserves paused tasks and cleans up removed queued attachments", async () => {
+    await useChatStore.getState().send("First");
+    const id = useChatStore.getState().enqueue("Review this", [
+      {
+        id: "attachment-1",
+        path: "/project/.unity-vibe/inbox/review.png",
+        name: "review.png",
+        kind: "image",
+      },
+    ]);
+    useChatStore.getState().pauseQueue("Review the error, then resume.");
+
+    expect(useChatStore.getState().queuePauseReason).toMatch(/resume/i);
+    await useChatStore.getState().removeQueued(id!);
+
+    expect(useChatStore.getState().queuedTasks).toEqual([]);
+    expect(useChatStore.getState().queuePauseReason).toBeNull();
+    expect(mocks.removeStaged).toHaveBeenCalledWith(
+      "/project/.unity-vibe/inbox/review.png",
+    );
   });
 });

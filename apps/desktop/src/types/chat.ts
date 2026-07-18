@@ -71,6 +71,16 @@ export interface ChatMessage {
   errorRaw?: string;
 }
 
+/** A user task waiting for the current agent run to settle. */
+export interface QueuedTask {
+  id: string;
+  prompt: string;
+  attachments: Attachment[];
+  /** Frozen when queued so later settings changes cannot alter its meaning. */
+  runOptions: AgentRunOptions;
+  createdAt: number;
+}
+
 export interface ChatSession {
   /** Captured from the `system/init` (or `result`) event; enables --resume. */
   sessionId: string | null;

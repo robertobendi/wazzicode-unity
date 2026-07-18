@@ -16,6 +16,7 @@ export default function RevertControl() {
   const reverting = useRevertStore((s) => s.reverting);
   const revert = useRevertStore((s) => s.revert);
   const running = useChatStore((s) => s.running);
+  const queuedTaskCount = useChatStore((s) => s.queuedTasks.length);
   const project = useChatStore((s) => s.project);
   const appendNotice = useChatStore((s) => s.appendNotice);
   const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
@@ -23,7 +24,9 @@ export default function RevertControl() {
   const [confirming, setConfirming] = useState(false);
 
   // Available only once a turn has finished, and never mid-run.
-  if (!checkpoint || running || loopRunning || !project) return null;
+  if (!checkpoint || running || queuedTaskCount > 0 || loopRunning || !project) {
+    return null;
+  }
   const proj = project;
 
   async function onConfirm() {
