@@ -22,7 +22,6 @@ const settings: Settings = {
   recentProjects: [],
   currentProject: "/project",
   agentBackend: "claude",
-  powerMode: false,
   model: null,
   codexModel: null,
   effort: null,

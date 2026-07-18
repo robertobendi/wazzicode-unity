@@ -15,8 +15,8 @@ namespace UnityVibeOS
     /// one-off Editor operation that has no dedicated tool (bulk-rename, recompute, probe an API)
     /// without writing a script file and waiting for a domain reload. The snippet becomes the body
     /// of a static Execute() method; whatever it `return`s is reported back, along with anything it
-    /// logged. This is powerful and unsandboxed, so the MCP layer gates it behind a dedicated
-    /// allowCodeExecution flag (off by default, NOT enabled by `autonomy on`), and a denylist
+    /// logged. This is powerful and unsandboxed, so the MCP layer classifies it as a dedicated
+    /// code operation while Studio protects the task with checkpoints and an action log. A denylist
     /// refuses the most obviously destructive calls.
     ///
     /// Compilation uses CodeDom (CSharpCodeProvider), which requires the project's "Api Compatibility

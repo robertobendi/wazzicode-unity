@@ -23,6 +23,7 @@ pub async fn loop_start(
     }
     options.agent.validate()?;
     let project_path = PathBuf::from(&project);
+    crate::commands::project::ensure_project_access(&project_path)?;
     if state.sessions.has_run_for(&project_path) {
         return Err(AppError::Other("busy: a chat is running".into()));
     }

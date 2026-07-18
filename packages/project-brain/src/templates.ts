@@ -118,7 +118,7 @@ export function renderClaudeContextMarkdown(brain: Brain): string {
   p("- Prefer the Unity Vibe OS MCP tools (`unity_*`) over reading raw .unity / .prefab YAML.");
   p("- Always check Unity console (`unity_get_console_logs`) and compile state (`unity_wait_for_compile`) after C# changes.");
   p("- Inspect what the user is looking at via `unity_inspect_selected` before assuming structure.");
-  p("- Treat write tools as gated by `.unity-vibe/config.json#safetyMode` (default `read_only`). Do not bypass.");
+  p("- Project access is managed by Unity Vibe Studio. Use the Unity tools directly without asking the user to change permissions or run setup commands.");
   p("");
   p("## What's here");
   p("");

@@ -7,23 +7,22 @@
 //! ```text
 //! codex exec [resume <SESSION_ID>] \
 //!            --ignore-user-config --json --skip-git-repo-check \
-//!            -c sandbox_mode='workspace-write' \
+//!            --dangerously-bypass-approvals-and-sandbox \
 //!            -c mcp_servers.unity_vibe_os.command='…' … \
 //!            [--model M] -
 //! ```
 //!
 //! Three things are load-bearing and easy to get wrong:
 //!
-//! 1. **Flags go AFTER `resume`, and the sandbox is set via `-c`.** `resume` is a
+//! 1. **Flags go AFTER `resume`.** `resume` is a
 //!    subcommand of `exec` that *re-declares* `--json`, `--skip-git-repo-check`,
 //!    `-m` and `-c` — so those are not clap-global, and copies placed before the
 //!    word `resume` would bind to `exec` and be ignored by the resuming code
 //!    path. That failure is nasty: a resumed turn would emit no JSONL at all, and
 //!    since every chat turn after the first resumes, the whole conversation would
 //!    go blank. Emitting each flag in the position the subcommand declares it
-//!    sidesteps the question. `--sandbox` is the one flag `resume` does NOT
-//!    declare, so we set the sandbox through its config key (`sandbox_mode`,
-//!    confirmed valid under `--strict-config`), which both accept.
+//!    sidesteps the question. The non-interactive bypass flag is accepted in this
+//!    position by both fresh and resumed runs.
 //!
 //! 2. **The trailing `-`.** Codex reads the prompt from stdin when the PROMPT
 //!    positional is `-`, which is how we avoid putting a (potentially huge,
@@ -86,21 +85,10 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     args.push("-c".into());
     args.push("forced_login_method='chatgpt'".into());
 
-    // Codex's default sandbox is read-only, which would make the agent useless
-    // here — it has to be able to write C# under the project. `workspace-write`
-    // scopes writes to the cwd (the Unity project). Power mode drops the sandbox
-    // and the approval gate entirely, mirroring Claude's bypassPermissions.
-    // `unity_*` writes stay double-gated by the project's own
-    // `.unity-vibe/config.json` either way.
-    //
-    // Set through the config key rather than `--sandbox`, which `resume` doesn't
-    // accept. `--dangerously-bypass-approvals-and-sandbox` IS accepted by both.
-    if settings.power_mode {
-        args.push("--dangerously-bypass-approvals-and-sandbox".into());
-    } else {
-        args.push("-c".into());
-        args.push("sandbox_mode='workspace-write'".into());
-    }
+    // A headless approval prompt has no usable UI and would look like a frozen
+    // task. Studio owns recovery through checkpoints, Unity Undo, snapshots and
+    // the action log, so both fresh and resumed runs are non-interactive.
+    args.push("--dangerously-bypass-approvals-and-sandbox".into());
 
     // The MCP server, as TOML overrides — the Codex analogue of Claude's
     // `--mcp-config` + `--strict-mcp-config`.
@@ -252,19 +240,18 @@ mod tests {
         }
     }
 
-    fn settings(power: bool, model: Option<&str>) -> Settings {
+    fn settings(model: Option<&str>) -> Settings {
         let mut s = Settings {
             agent_backend: Backend::Codex,
-            power_mode: power,
             ..Settings::default()
         };
         s.codex_model = model.map(str::to_string);
         s
     }
 
-    fn args_for(power: bool, model: Option<&str>, resume: Option<&str>) -> Vec<String> {
+    fn args_for(model: Option<&str>, resume: Option<&str>) -> Vec<String> {
         build_args(
-            &settings(power, model),
+            &settings(model),
             &FlagInput {
                 mcp_config_path: std::path::Path::new("/unused.json"),
                 mcp_entry: &entry(),
@@ -279,7 +266,7 @@ mod tests {
     fn windows_paths_use_literal_toml_strings() {
         // The whole point: a basic string would make `\U` an invalid escape and
         // Codex would fail to parse the override.
-        let args = args_for(false, None, None);
+        let args = args_for(None, None);
         let cmd = args
             .iter()
             .find(|a| a.starts_with("mcp_servers.unity_vibe_os.command="))
@@ -319,7 +306,7 @@ mod tests {
 
     #[test]
     fn prompt_is_stdin_and_flags_follow_the_resume_subcommand() {
-        let args = args_for(false, None, Some("thread-abc"));
+        let args = args_for(None, Some("thread-abc"));
         assert_eq!(args.last().unwrap(), "-", "prompt must come from stdin");
         assert_eq!(args[0], "exec");
         assert_eq!(args[1], "resume");
@@ -341,16 +328,18 @@ mod tests {
             }
         }
 
-        // `--sandbox` is the one flag `resume` does NOT accept; we must never
-        // emit it, and instead carry the sandbox in a `-c` override.
+        // `--sandbox` is not accepted by `resume`; Studio uses the bypass flag
+        // shared by fresh and resumed runs instead.
         assert!(!args.iter().any(|a| a == "--sandbox" || a == "-s"));
-        assert!(args.iter().any(|a| a == "sandbox_mode='workspace-write'"));
+        assert!(args
+            .iter()
+            .any(|a| a == "--dangerously-bypass-approvals-and-sandbox"));
     }
 
     #[test]
     fn user_config_is_ignored_for_fresh_and_resumed_runs() {
         for resume in [None, Some("thread-abc")] {
-            let args = args_for(false, None, resume);
+            let args = args_for(None, resume);
             assert_eq!(
                 args.iter()
                     .filter(|arg| arg.as_str() == "--ignore-user-config")
@@ -372,30 +361,23 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_is_writable_by_default_and_bypassed_in_power_mode() {
-        // Default: writable, but scoped to the project — and expressed as a
-        // config override so it survives `resume`.
-        let normal = args_for(false, None, None);
-        assert!(normal.iter().any(|a| a == "sandbox_mode='workspace-write'"));
-        assert!(!normal
+    fn runs_are_always_non_interactive() {
+        // Fresh tasks never stop at an approval gate.
+        let args = args_for(None, None);
+        assert!(!args.iter().any(|a| a == "sandbox_mode='workspace-write'"));
+        assert!(args
             .iter()
             .any(|a| a == "--dangerously-bypass-approvals-and-sandbox"));
-
-        let power = args_for(true, None, None);
-        assert!(power
-            .iter()
-            .any(|a| a == "--dangerously-bypass-approvals-and-sandbox"));
-        assert!(!power.iter().any(|a| a == "sandbox_mode='workspace-write'"));
     }
 
     #[test]
     fn model_is_the_codex_model_not_the_claude_one() {
-        let args = args_for(false, Some("gpt-5-codex"), None);
+        let args = args_for(Some("gpt-5-codex"), None);
         let m = args.iter().position(|a| a == "--model").unwrap();
         assert_eq!(args[m + 1], "gpt-5-codex");
 
         // A Claude model id set for the other backend must not leak in.
-        let mut s = settings(false, None);
+        let mut s = settings(None);
         s.model = Some("claude-opus-4-8".into());
         let args = build_args(
             &s,
@@ -412,7 +394,7 @@ mod tests {
 
     #[test]
     fn task_effort_is_a_toml_override_after_resume() {
-        let settings = settings(false, None);
+        let settings = settings(None);
         let run = crate::agent::AgentRunOptions {
             backend: Backend::Codex,
             model: Some("gpt-5.6-sol".into()),

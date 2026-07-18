@@ -63,12 +63,6 @@ export const UNITY_PROMPTS: UnityPrompt[] = [
     build: () =>
       "Run `unity_qa` with its default full gate. Report one pass/fail verdict followed by only actionable failures: compile or console errors, failed/inconclusive tests, missing scripts or references, build-settings issues, smoke-test runtime errors, performance budget failures, and cleanup failures.",
   },
-  {
-    name: "enable_autonomy",
-    config: { title: "Enable write access", description: "Explain how to let Claude apply changes." },
-    build: () =>
-      "Writes are gated by safetyMode. If you need me to apply changes (scene/prefab/asset/script edits), tell me to run `uvibe autonomy on` (autopilot + writes + autoSnapshot; every scene/prefab change is Undo-wrapped and all writes are action-logged). `unity_execute_code` stays off unless `allowCodeExecution` is enabled separately. Do not edit `.unity-vibe/config.json` by hand — use the CLI. Confirm the current posture with `uvibe autonomy status`.",
-  },
 ];
 
 export function registerPrompts(server: McpServer): void {

@@ -1,30 +1,34 @@
 # Safety model
 
-Unity Vibe OS is **read-only by default**. Write tools are not exposed in the MVP. The safety package designs the gate that future write tools will pass through.
+Unity Vibe Studio is ready to inspect and edit a project immediately. It repairs project access when a project is selected and again before every task, so users do not need to understand or approve internal access modes.
 
 ## Modes
 
-Set in `.unity-vibe/config.json#safetyMode`. Default: `read_only`.
+Stored in `.unity-vibe/config.json#safetyMode`. Studio-managed projects use `autopilot` by default.
 
 | Mode | Behavior |
 |---|---|
 | `read_only` | All write tools blocked with `SAFETY_MODE_BLOCKED`. Inspection, diagnostics, screenshots, brain generation are allowed. |
 | `suggest` | Write tools return a structured proposed change instead of applying it. |
 | `confirm` | Write tools allowed only for tool categories explicitly enabled in config. Snapshots required if `autoSnapshot=true`. |
-| `autopilot` | Same as `confirm` but without per-call confirmation prompts. Still gated by per-category flags and snapshots. |
+| `autopilot` | Normal Studio mode: tools run without per-call permission prompts and remain protected by checkpoints, Undo, snapshots, and action logging. |
 
 ## Per-category flags
 
 ```json
 {
-  "allowSceneWrites": false,
-  "allowPrefabWrites": false,
+  "allowSceneWrites": true,
+  "allowPrefabWrites": true,
   "allowScriptWrites": true,
+  "allowAssetWrites": true,
+  "allowMenuItems": true,
+  "allowCodeExecution": true,
+  "allowedMenuItems": ["*"],
   "autoSnapshot": true
 }
 ```
 
-Even in `autopilot`, scene/prefab writes need their flag set. Script writes default to allowed because Claude Code already edits source files.
+Studio maintains these values automatically. The flags remain in the lower-level configuration schema for compatibility and emergency lock-down, not as normal user-facing setup.
 
 ## Snapshots
 
@@ -34,7 +38,7 @@ Even in `autopilot`, scene/prefab writes need their flag set. Script writes defa
 - `listSnapshots(projectPath)` — newest-first.
 - `restoreSnapshot(projectPath, id)` — copies files back.
 
-Future write tools must `createSnapshot` before mutation when `autoSnapshot=true` or refuse with `WRITE_REQUIRES_SNAPSHOT`.
+Write tools create snapshots where applicable when `autoSnapshot=true`.
 
 ## Action log
 
@@ -60,6 +64,6 @@ Every write attempt — success, error, or blocked — is appended as JSONL to `
 - Never delete assets permanently — moved to `.unity-vibe/trash/` with explicit override.
 - Never mass-rename or mass-move assets without an explicit task plan.
 
-## Why write tools are not yet exposed
+## User experience
 
-The brief is explicit: "Do not implement scene/prefab mutation until inspection, diagnostics, project brain, snapshots, and action logs work." Inspection ✓, brain ✓, snapshot+action-log primitives ✓, but the mutation handlers themselves are deliberately not yet wired through the MCP server. Shipping them without verifiable end-to-end safety would defeat the point.
+Permission switches are deliberately not part of the normal UI. Studio launches its supported agent backends non-interactively, repairs the selected project's tool access, and reports task progress in the chat. Recovery stays available through the pre-task git checkpoint, Unity Undo, snapshots, and the action log.

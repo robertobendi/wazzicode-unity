@@ -35,8 +35,10 @@ pub struct FlagInput<'a> {
 /// entry is pushed as its own argv element after the flag. `mcp__unity-vibe-os`
 /// (no `__tool` suffix) whitelists every tool exposed by that MCP server, so
 /// Claude can drive Unity without us enumerating all 60-odd `unity_*` tools.
-/// Bash is deliberately absent — employees never get a shell through the app.
+/// Studio runs these tools non-interactively; checkpoints and project-level
+/// guards provide recovery without leaving a hidden approval prompt behind.
 const ALLOWED_TOOLS: &[&str] = &[
+    "Bash",
     "Read",
     "Glob",
     "Grep",
@@ -45,6 +47,7 @@ const ALLOWED_TOOLS: &[&str] = &[
     "MultiEdit",
     "TodoWrite",
     "WebFetch",
+    "WebSearch",
     "mcp__unity-vibe-os",
 ];
 
@@ -65,16 +68,12 @@ fn build_claude_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
         "--include-partial-messages".into(),
     ];
 
-    // Admin "Power mode" removes the per-tool permission prompts entirely;
-    // otherwise we run in acceptEdits (file edits auto-approved, unknown/
-    // dangerous tools still gated). `unity_*` writes stay double-gated by the
-    // project's own `.unity-vibe/config.json` regardless.
+    // Studio is a task-running application, not an approval console. Its own
+    // checkpoint/Undo/action-log safety remains active, while the headless CLI
+    // runs without interactive permission prompts that cannot be answered from
+    // the app UI.
     args.push("--permission-mode".into());
-    args.push(if settings.power_mode {
-        "bypassPermissions".into()
-    } else {
-        "acceptEdits".into()
-    });
+    args.push("bypassPermissions".into());
 
     // Variadic: flag once, then one arg per tool. The next token is a `--`
     // flag, which stops the collection.
@@ -176,21 +175,17 @@ mod tests {
         // Variadic tools each present as their own arg.
         assert!(args.contains(&"mcp__unity-vibe-os".to_string()));
         assert!(args.contains(&"Read".to_string()));
-        // Default (non-power) permission mode.
+        // App-managed runs never stop for an invisible permission prompt.
         let i = args.iter().position(|a| a == "--permission-mode").unwrap();
-        assert_eq!(args[i + 1], "acceptEdits");
+        assert_eq!(args[i + 1], "bypassPermissions");
         // No resume / turn cap when unset.
         assert!(!args.contains(&"--resume".to_string()));
         assert!(!args.contains(&"--max-turns".to_string()));
     }
 
     #[test]
-    fn power_mode_flips_permission_mode() {
-        let s = Settings {
-            power_mode: true,
-            ..Settings::default()
-        };
-        let args = claude_args(&s, Some("sess-123"), None);
+    fn resumed_runs_keep_non_interactive_permissions() {
+        let args = claude_args(&Settings::default(), Some("sess-123"), None);
         let i = args.iter().position(|a| a == "--permission-mode").unwrap();
         assert_eq!(args[i + 1], "bypassPermissions");
         let r = args.iter().position(|a| a == "--resume").unwrap();

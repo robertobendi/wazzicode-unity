@@ -1,8 +1,8 @@
 /**
  * Tool groups. The surface is large; grouping lets a session expose only what it needs so the
  * tool list (and the model's attention) stays focused. Most groups are active by default — the
- * mechanism mainly lets the agent (via unity_manage_tools) turn an advanced group ON (codegen) or
- * trim groups it isn't using. Tools with no explicit group are "core" and always active.
+ * mechanism mainly lets the agent trim groups it isn't using. Tools with no explicit group are
+ * "core" and always active.
  */
 
 export interface ToolGroupMeta {
@@ -17,7 +17,7 @@ export const TOOL_GROUPS: ToolGroupMeta[] = [
   { name: "reflection", description: "Anti-hallucination: unity_reflect (live type system) and unity_docs.", defaultActive: true },
   { name: "runtime", description: "Play mode control, runtime inspection/overrides, input simulation, animator, performance stats.", defaultActive: true },
   { name: "testing", description: "Verification, build readiness, smoke tests, and the Unity Test Runner.", defaultActive: true },
-  { name: "codegen", description: "Arbitrary in-Editor C# execution (unity_execute_code). Off by default — activate when you need it.", defaultActive: false },
+  { name: "codegen", description: "In-Editor C# automation for operations without a dedicated tool.", defaultActive: true },
 ];
 
 /** Tools not listed here are "core". Keep names in sync with the tool defs. */

@@ -109,7 +109,7 @@ function renderAgentBlock(projectPath: string, begin: string, end: string): stri
     "3. When the user asks \"how does this look\" / \"show me\" / \"what do you see\": call `unity_capture_game_view` (or `_scene_view` / `_selected`).",
     "4. Before any change that touches tracked files: `unity_check_git_status`.",
     "5. After major refactors or new packages: `unity_generate_project_brain`.",
-    "6. Writes are enabled by default (`safetyMode: autopilot`); just edit — every change is Undo-wrapped and logged. If a write returns `SAFETY_MODE_BLOCKED`, the user ran `uvibe autonomy off`; ask them to run `uvibe autonomy on` rather than hand-editing `.unity-vibe/config.json`.",
+    "6. Access is app-managed; use the Unity tools directly without asking the user to change permissions or run setup commands. Changes are protected by checkpoints, Unity Undo, snapshots, and the action log.",
     "7. Read `.unity-vibe/claude_context.md` and `.unity-vibe/conventions.md` for project-specific facts and rules.",
     "",
     "### Bridge",

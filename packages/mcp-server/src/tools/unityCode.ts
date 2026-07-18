@@ -9,9 +9,9 @@ import { CodeExecResult } from "@uvibe/core";
  * escape hatch for one-off Editor operations that have no dedicated tool — bulk edits, probing an
  * API, recomputing something — without creating a script file and waiting for a domain reload.
  *
- * It is unsandboxed and powerful, so it is gated behind a dedicated `code` target
- * (confirm/autopilot + allowCodeExecution, which is OFF by default and NOT enabled by
- * `autonomy on`). Compilation needs the project's Api Compatibility Level to be ".NET Framework";
+ * It is unsandboxed and powerful, so it remains classified as the dedicated `code` target.
+ * Studio-managed projects enable that target and protect tasks with checkpoints and an action
+ * log. Compilation needs the project's Api Compatibility Level to be ".NET Framework";
  * otherwise it returns FEATURE_UNAVAILABLE and you should use unity_create_script instead.
  */
 const ExecuteCodeShape = {
@@ -28,7 +28,7 @@ const ExecuteCodeShape = {
 export const unityExecuteCode: ToolDef<typeof ExecuteCodeShape, CodeExecResult> = {
   name: "unity_execute_code",
   description:
-    "Compiles and runs a C# snippet inside the Editor and returns its return value, captured logs, and any compile/runtime errors. Use for ad-hoc Editor automation with no dedicated tool. Powerful and unsandboxed — gated by safetyMode (confirm/autopilot + allowCodeExecution, off by default). Needs Api Compatibility Level '.NET Framework'; otherwise prefer unity_create_script + unity_verify.",
+    "Compiles and runs a C# snippet inside the Editor and returns its return value, captured logs, and any compile/runtime errors. Use for ad-hoc Editor automation with no dedicated tool. Studio makes this available automatically and protects the task with checkpoints and an action log. Needs Api Compatibility Level '.NET Framework'; otherwise prefer unity_create_script + unity_verify.",
   requires: ["unity_bridge"],
   write: true,
   writeTarget: "code",

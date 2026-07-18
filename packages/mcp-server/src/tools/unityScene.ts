@@ -4,7 +4,7 @@ import { BRIDGE_METHODS, bridgeCall } from "./_helpers.js";
 
 /**
  * Scene navigation. These are intentionally NOT write tools: opening a scene is how Claude
- * traverses the project autonomously, so it must work in the default read_only mode. The bridge
+ * traverses the project independently, so it remains a non-mutating operation. The bridge
  * still refuses to discard unsaved changes unless `discardUnsavedChanges` is set, so navigating
  * can never silently lose work (it returns UNSAVED_CHANGES with the dirty scene list instead).
  */

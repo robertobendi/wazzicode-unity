@@ -3,6 +3,7 @@ import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient,
 import type { BridgeMethod, BridgeResponse } from "@uvibe/core";
 import type { BridgeClient } from "@uvibe/mcp-server";
 import { isEditorWindowCaptureSupported, unityCaptureEditorWindow } from "../packages/mcp-server/src/tools/unityCaptureEditorWindow.js";
+import { isMenuItemAllowed } from "../packages/mcp-server/src/tools/unityMenu.js";
 
 describe("mcp-server/registry", () => {
   it("registers all tools with unique names and real descriptions", () => {
@@ -121,6 +122,14 @@ describe("mcp-server/registry", () => {
     for (const t of allTools) {
       if (t.write) expect(t.writeTarget).toBeDefined();
     }
+  });
+});
+
+describe("mcp-server/menu access", () => {
+  it("accepts Studio's wildcard while preserving exact custom allowlists", () => {
+    expect(isMenuItemAllowed(["*"], "Assets/Refresh")).toBe(true);
+    expect(isMenuItemAllowed(["Assets/Refresh"], "Assets/Refresh")).toBe(true);
+    expect(isMenuItemAllowed(["Assets/Refresh"], "File/Exit")).toBe(false);
   });
 });
 
@@ -255,7 +264,7 @@ describe("mcp-server/tool groups", () => {
     return { state, enable: () => (state.enabled = true), disable: () => (state.enabled = false) };
   }
 
-  it("disables non-active groups (codegen) at registration and keeps core always on", () => {
+  it("starts every capability group active and keeps core always on", () => {
     const controller = new ToolGroupController(defaultActiveGroups());
     const handles = new Map<string, ReturnType<typeof fakeHandle>>();
     for (const tool of allTools) {
@@ -263,9 +272,9 @@ describe("mcp-server/tool groups", () => {
       handles.set(tool.name, h);
       controller.register(tool.name, h);
     }
-    // execute_code is in the codegen group, off by default → disabled.
+    // App-managed sessions expose codegen immediately; no permission setup step.
     expect(groupOf("unity_execute_code")).toBe("codegen");
-    expect(handles.get("unity_execute_code")!.state.enabled).toBe(false);
+    expect(handles.get("unity_execute_code")!.state.enabled).toBe(true);
     // A core tool stays enabled.
     expect(handles.get("unity_orient")!.state.enabled).toBe(true);
     // A default-on group (scripting) stays enabled.
@@ -280,6 +289,9 @@ describe("mcp-server/tool groups", () => {
       handles.set(tool.name, h);
       controller.register(tool.name, h);
     }
+    const deactivatedCodegen = controller.setActive("codegen", false);
+    expect(deactivatedCodegen.changed).toBe(true);
+    expect(handles.get("unity_execute_code")!.state.enabled).toBe(false);
     const activated = controller.setActive("codegen", true);
     expect(activated.changed).toBe(true);
     expect(handles.get("unity_execute_code")!.state.enabled).toBe(true);

@@ -86,7 +86,7 @@ const ERROR_META: Record<ErrorCode, ErrorMeta> = {
   MENU_ITEM_NOT_ALLOWED: {
     recoverable: true,
     suggestedAction:
-      "Add the exact menu path to `allowedMenuItems` (and set `allowMenuItems:true`) in .unity-vibe/config.json. unity_execute_menu_item only runs whitelisted commands.",
+      "Reopen the project in Unity Vibe Studio so project access is repaired, then retry the command.",
     defaultMessage: "Menu item is not in the configured allowlist.",
   },
   PROJECT_IDENTITY_MISMATCH: {

@@ -24,10 +24,10 @@ QA: \`unity_qa\` is the full gate: truthful compile/console/tests, missing-scrip
 
 DIAGNOSE: unity_find_missing_scripts, unity_find_missing_references, unity_find_references / unity_find_dependencies before any rename/delete.
 
-SAFETY: scene/prefab/script/asset writes are ON by default (autopilot) — just edit; every write is Undo-wrapped + action-logged. Only two things stay opt-in: menu items (allowMenuItems + allowedMenuItems allowlist) and \`unity_execute_code\` (arbitrary in-Editor C#, in the \`codegen\` group, OFF by default — enable with \`unity_manage_tools\` activate codegen and ask the user to set allowCodeExecution). If a write ever returns SAFETY_MODE_BLOCKED the user locked it down; tell them to run \`uvibe autonomy on\` — do NOT edit .unity-vibe/config.json yourself.
+ACCESS: Studio manages project and agent permissions automatically. Use the tools you need without asking the user to run setup or permission commands. Scene/prefab changes remain Unity Undo-wrapped; file tasks have a pre-run git checkpoint; all MCP writes are action-logged. If a tool is unavailable, use the closest dedicated tool and report the concrete operation that failed.
 
-TOOL GROUPS: core/scripting/reflection/runtime/testing are active; codegen is off. \`unity_manage_tools\` lists/toggles them. Big scenes: unity_get_scene_hierarchy is capped (maxNodes) and flags truncated — narrow with scenePath/maxDepth instead of dumping everything.
+TOOL GROUPS: all groups are active. \`unity_manage_tools\` can trim unused groups. Big scenes: unity_get_scene_hierarchy is capped (maxNodes) and flags truncated — narrow with scenePath/maxDepth instead of dumping everything.
 
 BRIDGE STATE: UNITY_RELOADING means the Editor is mid script-reload — recoverable, auto-retries, just proceed. UNITY_NOT_CONNECTED means no Editor with this project is open (ask the user to open Unity, then \`uvibe doctor\`). UNITY_EDITOR_STALLED means Unity is frozen in the background (unfocused, keep-awake off) — retrying is USELESS; stop and ask the user to focus the Unity window or enable Window ▸ Unity Vibe OS ▸ Keep Unity awake (background). Never retry the same stalled/timed-out call more than twice — surface the error to the user instead.
 
-Slash commands (/mcp__unity-vibe-os__*): orient, diagnose_scene, analyze_scene, verify, new_script, play_test, qa, enable_autonomy. Resources: unity://project-brain, unity://conventions, unity://action-log, unity://scene-hierarchy, unity://console.`;
+Slash commands (/mcp__unity-vibe-os__*): orient, diagnose_scene, analyze_scene, verify, new_script, play_test, qa. Resources: unity://project-brain, unity://conventions, unity://action-log, unity://scene-hierarchy, unity://console.`;

@@ -17,10 +17,10 @@ This repository builds **Unity Vibe OS**, a local Unity-aware operating layer fo
 - **Batch a known multi-step edit with `unity_batch`** — send the whole plan (e.g. create GameObject → add component → set fields → save) as one call instead of many round trips. Each op is still safety-gated and logged.
 - Prefer the `unity_*` MCP tools over reading raw `.unity` / `.prefab` YAML or shelling out to inspect the project.
 - When the user says "this object" or "the selected one", call `unity_inspect_selected` first.
-- Treat write tools as gated by `.unity-vibe/config.json#safetyMode`. Default is `read_only`. Do not bypass — if writes are blocked, tell the user to run `uvibe autonomy on` (flips to autopilot + writes + autoSnapshot) rather than editing config by hand.
+- Project and agent access are managed automatically by Unity Vibe Studio. Use the tools directly without asking the user to change permissions or run setup commands.
 - Use `unity_check_git_status` before suggesting any change that modifies tracked files.
 - Use `unity_generate_project_brain` (or `uvibe brain`) to refresh `.unity-vibe/` after major work.
-- Tools are organized into groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`). All are active except `codegen` (in-Editor C# execution). Call `unity_manage_tools` to `list_groups` or `activate`/`deactivate` one — e.g. `activate codegen` before using `unity_execute_code`, or deactivate groups you aren't using to shrink the tool list. Toggling updates the tool list live (no reconnect).
+- Tools are organized into groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`) and all are active. Call `unity_manage_tools` to `list_groups` or temporarily activate/deactivate one when you need a smaller tool list. Toggling updates the tool list live (no reconnect).
 - `unity_get_scene_hierarchy` is capped at `maxNodes` (default 5000); a big scene returns `truncated:true` (and `childrenOmitted` on depth-clipped nodes) — narrow with `scenePath`/`maxDepth` rather than dumping everything.
 
 ### Canonical edit loop (follow this without being told)
@@ -56,7 +56,7 @@ For writing and editing C# (you can author game code directly — don't hand it 
 
 `unity_execute_menu_item` is a generic escape hatch for any Editor command, but it only runs paths you've whitelisted (`allowMenuItems:true` + `allowedMenuItems` in config); otherwise it returns `MENU_ITEM_NOT_ALLOWED`. The 2D/asset pipeline tools are `unity_import_asset` and `unity_slice_sprite`.
 
-`unity_execute_code` compiles and runs a C# snippet *inside* the Editor (the snippet is the body of `static object Execute()`; `return` a value to get it back, and logs are captured). Reach for it for one-off Editor automation that has no dedicated tool — bulk operations, recomputing data, probing an API — instead of writing a throwaway script. It is unsandboxed, so it is off by default and **not** enabled by `autonomy on`; the user enables `allowCodeExecution` explicitly. It needs the project's Api Compatibility Level set to ".NET Framework"; otherwise it returns `FEATURE_UNAVAILABLE` and you should use `unity_create_script` + `unity_verify` instead.
+`unity_execute_code` compiles and runs a C# snippet *inside* the Editor (the snippet is the body of `static object Execute()`; `return` a value to get it back, and logs are captured). Reach for it for one-off Editor automation that has no dedicated tool — bulk operations, recomputing data, probing an API — instead of writing a throwaway script. Studio makes it available automatically and protects the task with checkpoints and an action log. It needs the project's Api Compatibility Level set to ".NET Framework"; otherwise it returns `FEATURE_UNAVAILABLE` and you should use `unity_create_script` + `unity_verify` instead.
 
 ### Editor focus
 
@@ -67,7 +67,7 @@ For writing and editing C# (you can author game code directly — don't hand it 
 This server is built for Claude Code specifically and leans on MCP features Claude Code surfaces natively:
 - **Server instructions** (`SERVER_INSTRUCTIONS` in `packages/mcp-server/src/instructions.ts`) — sent to Claude Code on connect, so the agent learns the toolset + canonical workflows *in the user's Unity project* (where there's no wazzicode CLAUDE.md). This is what lets the user "just write prompts" and trust the agent knows the tools. A test asserts every tool it names actually exists.
 - **Tool annotations** — every tool advertises `readOnlyHint`/`destructiveHint`/`idempotentHint`, so read-only tools (orient, inspect, find, capture, reflect) can be auto-approved while hard-to-undo writes (script edits, `unity_execute_code`, menu items, saves) are flagged. Additive, Undo-wrapped scene edits are intentionally *not* marked destructive.
-- **Slash commands (MCP prompts)** — `/mcp__unity-vibe-os__orient`, `…__diagnose_scene`, `…__analyze_scene`, `…__verify`, `…__new_script`, `…__play_test`, `…__enable_autonomy` expand to the matching tool workflow.
+- **Slash commands (MCP prompts)** — `/mcp__unity-vibe-os__orient`, `…__diagnose_scene`, `…__analyze_scene`, `…__verify`, `…__new_script`, and `…__play_test` expand to the matching tool workflow.
 - **`@`-mentionable resources** — `unity://project-brain`, `unity://conventions`, `unity://action-log`, and live `unity://scene-hierarchy` / `unity://console`.
 
 ### When the bridge is unavailable
@@ -83,7 +83,6 @@ This server is built for Claude Code specifically and leans on MCP features Clau
 - `uvibe doctor` — health check (MCP, bridge, brain, git, config).
 - `uvibe brain` — refresh project brain.
 - `uvibe verify --mock` — MVP acceptance checks against the mock bridge.
-- `uvibe autonomy [on|off|status]` — toggle Claude's write access without hand-editing config.
 - `uvibe mcp-config` — print Claude MCP config snippet. `--target=codex` prints the `[mcp_servers.*]` TOML block (plus the `codex mcp add` one-liner) for the OpenAI Codex CLI, which reads TOML rather than `.mcp.json`.
 - `uvibe init` — create `.unity-vibe/` scaffold.
 - `uvibe serve` — start the MCP server (used in your Claude config).
@@ -94,7 +93,7 @@ Unity Vibe Studio (`apps/desktop`) can drive **either** Claude Code (`claude -p 
 
 Four Codex-specific gotchas, all already handled — don't "fix" them back:
 - Codex takes MCP servers as **TOML `-c` overrides**, not a `--mcp-config` file, and Windows paths must be TOML *literal* strings (`'C:\x'`); a basic string makes `\U` an invalid escape and the whole config fails to parse.
-- `codex exec resume` **re-declares** `--json`, `--skip-git-repo-check`, `-m` and `-c`, so they are not clap-global: those flags must be emitted *after* the `resume` subcommand or they bind to `exec` and are ignored (which would silently disable JSONL on every resumed turn). `resume` accepts no `--sandbox`, so the sandbox travels as `-c sandbox_mode='workspace-write'`.
+- `codex exec resume` **re-declares** `--json`, `--skip-git-repo-check`, `-m` and `-c`, so they are not clap-global: those flags must be emitted *after* the `resume` subcommand or they bind to `exec` and are ignored (which would silently disable JSONL on every resumed turn). Studio's non-interactive bypass flag also follows the subcommand and is shared by fresh/resumed runs.
 - Codex reports **tokens, not USD**. `cost_usd` stays `None` (never `Some(0.0)`), and the auto-loop disables its budget cap + warns rather than pretending every turn was free.
 - **Subscription only.** The app never offers an API-key sign-in, and `agent::spawn` strips `OPENAI_API_KEY`/`CODEX_API_KEY` from every Codex child (`codexauth::scrub_api_key`) so a stray env var can't silently bill API credits instead of the user's ChatGPT plan.
 
@@ -116,5 +115,5 @@ Plan / phase / status / verify / decisions live in `.planning/`. The format mirr
   - **script** (`allowScriptWrites`, default true): `unity_create_script`, `unity_apply_text_edits`, `unity_script_edit`. Read-side `unity_read_script`/`unity_get_script_sha`/`unity_find_in_file` are ungated. Script writes hit disk and trigger a recompile (not Unity-Undoable — recovery is git / autoSnapshot), so follow with `unity_verify`.
   - **console**: `unity_clear_console`. **editor** (`allowMenuItems` + `allowedMenuItems` allowlist): `unity_execute_menu_item`.
   - Non-write but state-touching: `unity_open_scene`/`unity_load_scene_additive`/`unity_open_prefab` (navigation; allowed in `read_only`, guarded against discarding unsaved changes) and `unity_simulate_input`/`unity_set_animator_parameter`/`unity_get_animator_state` (runtime/ephemeral).
-  - All write tools are blocked under the default `read_only`; the user opts in via `confirm`/`autopilot` + the relevant `allow*` flag. Scene/prefab mutations are wrapped in Unity's Undo system (Ctrl+Z); asset/script writes are not Undoable (recover via git or autoSnapshot). Every write is recorded to `.unity-vibe/action_log.jsonl`.
+  - Studio enables the tools automatically. Scene/prefab mutations are wrapped in Unity's Undo system (Ctrl+Z); asset/script writes recover through the pre-task git checkpoint or automatic snapshot. Every write is recorded to `.unity-vibe/action_log.jsonl`.
 - The Test Framework integration lives in a separate assembly guarded by `UNITY_INCLUDE_TESTS`, so the core bridge still compiles when `com.unity.test-framework` is absent.

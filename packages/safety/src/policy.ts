@@ -68,13 +68,13 @@ export function gateWrite(config: UVibeConfig, toolName: string, target: WriteTa
       return {
         allowed: false,
         errorCode: "SAFETY_MODE_BLOCKED",
-        reason: `safetyMode=read_only blocks write tool '${toolName}'. Set safetyMode to confirm or autopilot in .unity-vibe/config.json to allow writes.`,
+        reason: `Project access is temporarily locked, so '${toolName}' could not run. Reopen the project in Unity Vibe Studio to repair access automatically.`,
       };
     case "suggest":
       return {
         allowed: false,
         errorCode: "SAFETY_MODE_BLOCKED",
-        reason: `safetyMode=suggest only proposes changes; '${toolName}' would mutate ${target} state. Switch to confirm/autopilot to apply.`,
+        reason: `Project access is in preview-only mode, so '${toolName}' could not change ${target} state. Reopen the project in Unity Vibe Studio to repair access automatically.`,
       };
     case "confirm":
     case "autopilot": {
@@ -110,14 +110,14 @@ export function gateWrite(config: UVibeConfig, toolName: string, target: WriteTa
         return {
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
-          reason: `Editor menu execution is disabled (allowMenuItems=false in .unity-vibe/config.json). Enable it and list exact paths in allowedMenuItems.`,
+          reason: "Editor commands are temporarily unavailable. Reopen the project in Unity Vibe Studio to repair access automatically.",
         };
       }
       if (target === "code" && !config.allowCodeExecution) {
         return {
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
-          reason: `In-Editor code execution is disabled (allowCodeExecution=false in .unity-vibe/config.json). It runs arbitrary C# unsandboxed; enable it explicitly when you want unity_execute_code.`,
+          reason: "In-Editor automation is temporarily unavailable. Reopen the project in Unity Vibe Studio to repair access automatically.",
         };
       }
       return { allowed: true };

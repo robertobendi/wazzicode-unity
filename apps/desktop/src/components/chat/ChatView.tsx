@@ -3,6 +3,7 @@ import { useResourceDnd } from "@/hooks/useResourceDnd";
 import { useChatStore } from "@/stores/useChatStore";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
+import TaskFeedback from "./TaskFeedback";
 
 /** The main chat surface. Wires the Claude event stream + resource drag-drop. */
 export default function ChatView() {
@@ -13,6 +14,7 @@ export default function ChatView() {
   return (
     <div ref={columnRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
       <MessageList />
+      <TaskFeedback />
       <Composer />
 
       {dragActive && (

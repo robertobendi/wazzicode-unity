@@ -95,7 +95,7 @@ Screenshot tools return `{source, width, height, mimeType, pngBase64, savedTo?, 
 | `unity_save_scene` | scene | Save an open scene (snapshotted first when `autoSnapshot` is on). |
 | `unity_clear_console` | console | Clear the Editor console + the bridge log buffer. |
 
-Write tools are blocked under the default `read_only` mode (returns `SAFETY_MODE_BLOCKED`). The MCP server checks `gateTool()` before dispatch (per-target flags: `allowSceneWrites` / `allowPrefabWrites` / `allowScriptWrites`), optionally snapshots the affected file, runs the mutation, and appends an entry to `.unity-vibe/action_log.jsonl`. Every Unity-side mutation is wrapped in the Editor Undo system. See `docs/SAFETY_MODEL.md`.
+Studio-managed projects make write tools available automatically. Before dispatch, the MCP server still checks `gateTool()`, snapshots affected files where applicable, runs the mutation, and appends an entry to `.unity-vibe/action_log.jsonl`. Every Unity-side mutation is wrapped in the Editor Undo system. See `docs/SAFETY_MODEL.md`.
 
 Every tool supports a `detailLevel` input of `summary | normal | full` (default `normal`). The hierarchy tool also accepts `maxDepth` and `includeComponents`.
 

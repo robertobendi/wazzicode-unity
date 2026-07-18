@@ -90,12 +90,10 @@ describe("safety/policy", () => {
     expect(gateTool(cfg({ safetyMode: "read_only", allowMenuItems: true }), "unity_execute_menu_item").allowed).toBe(false);
   });
 
-  it("code execution is opt-in and off by default even under autopilot", () => {
+  it("code execution is ready by default but still obeys an explicit lock", () => {
     expect(writeTargetOf("unity_execute_code")).toBe("code");
-    // Default config (allowCodeExecution=false) blocks it even in autopilot.
-    expect(gateTool(cfg({ safetyMode: "autopilot" }), "unity_execute_code").allowed).toBe(false);
-    // Explicit opt-in allows it.
-    expect(gateTool(cfg({ safetyMode: "autopilot", allowCodeExecution: true }), "unity_execute_code").allowed).toBe(true);
+    expect(gateTool(cfg({ safetyMode: "autopilot" }), "unity_execute_code").allowed).toBe(true);
+    expect(gateTool(cfg({ safetyMode: "autopilot", allowCodeExecution: false }), "unity_execute_code").allowed).toBe(false);
   });
 
   it("script writes need allowScriptWrites", () => {

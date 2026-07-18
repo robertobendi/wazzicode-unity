@@ -7,6 +7,7 @@ import type { BridgeState } from "@/types/status";
  *  backend that doesn't price its turns — see `formatTokens`). */
 export default function StatusBar() {
   const status = useStatusStore((s) => s.status);
+  const running = useChatStore((s) => s.running);
   const totalCost = useChatStore((s) => s.session.totalCostUsd);
   const totalTokens = useChatStore((s) => s.session.totalTokens);
 
@@ -14,7 +15,9 @@ export default function StatusBar() {
     ? "Unity is recompiling — hang on…"
     : status.playMode
       ? "Playing"
-      : status.friendly;
+      : status.state === "connected" && !running
+        ? "Ready — tell me what you want to change"
+        : status.friendly;
 
   return (
     <footer className="glass-bar mx-3 mb-2 flex h-8 shrink-0 items-center justify-between rounded-xl border px-4 text-xs text-fg-dim">

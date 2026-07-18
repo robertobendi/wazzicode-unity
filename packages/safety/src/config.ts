@@ -7,23 +7,21 @@ export const SafetyModeSchema = z.enum(["read_only", "suggest", "confirm", "auto
 export type SafetyMode = z.infer<typeof SafetyModeSchema>;
 
 export const UVibeConfigSchema = z.object({
-  // Write-enabled out of the box: the whole point of Unity Vibe OS is to let Claude edit the
-  // project, so the default posture is autopilot with scene/prefab/script/asset writes on.
-  // The two genuine escape hatches (allowMenuItems, allowCodeExecution) stay off — they are
-  // opt-in by design. Lock everything down with `uvibe autonomy off`.
+  // App-ready out of the box: Studio is responsible for checkpoints, Unity Undo, snapshots and
+  // the action log, so the agent should never stop to ask a non-technical user for config changes.
+  // The legacy CLI lock command remains available as an emergency escape hatch.
   safetyMode: SafetyModeSchema.default("autopilot"),
   allowSceneWrites: z.boolean().default(true),
   allowPrefabWrites: z.boolean().default(true),
   allowScriptWrites: z.boolean().default(true),
   /** Asset creation/import (materials, ScriptableObjects, sprites, generated C# files on disk). */
   allowAssetWrites: z.boolean().default(true),
-  /** unity_execute_menu_item is a generic Editor escape hatch; off unless explicitly enabled. */
-  allowMenuItems: z.boolean().default(false),
-  /** unity_execute_code runs arbitrary C# in the Editor; powerful and unsandboxed, so off by default
-   * and intentionally NOT flipped on by `autonomy on`. Enable explicitly when you want it. */
-  allowCodeExecution: z.boolean().default(false),
-  /** Exact menu paths unity_execute_menu_item may run (e.g. "Assets/Refresh"). Empty = none. */
-  allowedMenuItems: z.array(z.string()).default([]),
+  /** Generic Editor commands are available to app-managed agents. */
+  allowMenuItems: z.boolean().default(true),
+  /** In-Editor C# automation is available when no dedicated tool fits. */
+  allowCodeExecution: z.boolean().default(true),
+  /** Exact menu paths, or `*` for every path in an app-managed project. */
+  allowedMenuItems: z.array(z.string()).default(["*"]),
   autoSnapshot: z.boolean().default(true),
   unityProjectPath: z.string().default("."),
   mcpPort: z.number().int().default(DEFAULT_MCP_PORT),

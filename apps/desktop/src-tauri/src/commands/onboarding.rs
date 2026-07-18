@@ -4,9 +4,9 @@
 //! - `onboarding_check_cli` / `onboarding_install_cli` — detect / install the
 //!   selected agent's CLI, Claude or Codex (streaming progress on
 //!   `onboarding:progress`).
-//! - `onboarding_setup_project` — the "prepare this project" sequence: uvibe
-//!   init → install the Unity package (if needed) → autonomy on → write the
-//!   app-managed MCP config → patch `.gitignore` → verify with `uvibe doctor`.
+//! - `onboarding_setup_project` — one app-managed "prepare this project"
+//!   sequence: initialize, install the Unity package, configure access and the
+//!   agent connection, tidy scratch paths, then verify.
 //!
 //! Sub-processes reuse `mcpconfig::resolve_uvibe` so the wizard runs the SAME
 //! uvibe binary the chat/loop MCP server will (bundled sidecar in release, the
@@ -147,8 +147,7 @@ pub async fn onboarding_install_cli(
     .map_err(|e| AppError::Other(format!("install task failed: {e}")))?
 }
 
-/// Prepare a Unity project for the app: init → install package (if needed) →
-/// autonomy on → mcp config → .gitignore → doctor. Each step emits progress and
+/// Prepare a Unity project for the app. Each step emits friendly progress and
 /// contributes a `SetupStep` to the aggregated result.
 #[tauri::command]
 pub async fn onboarding_setup_project(
@@ -492,14 +491,21 @@ fn setup_blocking(
         });
     }
 
-    // (c) autonomy on — flip writes on (autopilot + autoSnapshot).
-    steps.push(run_uvibe_step(
-        &app,
-        "autonomy",
-        &uvibe_cmd,
-        &uvibe_prefix,
-        &["autonomy", "on", "--project", &proj],
-    ));
+    // (c) Repair access internally. This is intentionally not a CLI task in
+    // the UI: users should only see that Studio is finishing setup.
+    emit_line(&app, "access", "Finishing AI setup…");
+    match crate::commands::project::ensure_project_access(&project) {
+        Ok(_) => steps.push(SetupStep {
+            id: "access".into(),
+            ok: true,
+            detail: "ready".into(),
+        }),
+        Err(e) => steps.push(SetupStep {
+            id: "access".into(),
+            ok: false,
+            detail: e.to_string(),
+        }),
+    }
 
     // (d) App-managed MCP config (so the chat/loop runs get the unity server).
     emit_line(&app, "mcp_config", "Writing the agent connection…");
@@ -988,7 +994,7 @@ mod tests {
         assert_eq!(status.path.as_deref(), Some("/usr/local/bin/claude"));
         let error = status.error.expect("actionable error");
         assert!(error.contains("version probe failed"));
-        assert!(error.contains("install.sh"));
+        assert!(error.contains(manual_install_command(Backend::Claude)));
     }
 
     #[test]

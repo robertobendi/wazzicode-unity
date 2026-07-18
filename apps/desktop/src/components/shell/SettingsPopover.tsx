@@ -1,22 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api";
-import AgentRunControls from "@/components/agent/AgentRunControls";
 import { useCliSetup, useOnboardingProgress } from "@/hooks/useOnboarding";
-import { runOptionsFromSettings } from "@/lib/agentOptions";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { usePairingStore } from "@/stores/usePairingStore";
 import { useChatStore } from "@/stores/useChatStore";
+import { useSessionsStore } from "@/stores/useSessionsStore";
 import { useLoopStore } from "@/stores/useLoopStore";
+import { useToastStore } from "@/stores/useToastStore";
 import { isLoopActive } from "@/types/loop";
 import { useUiStore } from "@/stores/useUiStore";
-import type { AgentRunOptions } from "@/types/agent";
 import { BACKENDS, type AgentBackend } from "@/types/settings";
 import BackendPicker from "./BackendPicker";
 
 /**
- * Small settings panel anchored under the gear. The agent picker sits on top
- * (it decides what everything below means), then the everyday toggle (debug
- * drawer) and an "Admin" section (power mode, redo setup) for advanced users.
+ * Focused settings dialog. Model/thinking controls stay in the composer where
+ * they affect the next task; this surface only contains app-wide choices.
  *
  * Model override and sign-in are per-backend: we only ever show the selected
  * backend's, so a Claude model id can't be handed to Codex or vice versa.
@@ -27,6 +25,7 @@ export default function SettingsPopover() {
   const update = useSettingsStore((s) => s.update);
   const setOpen = useUiStore((s) => s.setSettingsOpen);
   const setRepairing = useUiStore((s) => s.setRepairing);
+  const showToast = useToastStore((s) => s.show);
   const ref = useRef<HTMLDivElement>(null);
   const chatRunning = useChatStore((s) => s.running);
   const loopRunning = useLoopStore((s) => isLoopActive(s.state?.status));
@@ -36,9 +35,7 @@ export default function SettingsPopover() {
   const cli = useCliSetup(backend);
   const progress = useOnboardingProgress("install_cli");
   const [codexSignedIn, setCodexSignedIn] = useState<boolean | null>(null);
-  const defaults: AgentRunOptions = settings
-    ? runOptionsFromSettings(settings, backend)
-    : { backend, model: null, effort: null };
+  const [switchingBackend, setSwitchingBackend] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -55,12 +52,31 @@ export default function SettingsPopover() {
     };
   }, [backend, cli.error, cli.status?.found, cli.status?.version]);
 
-  function updateDefaults(next: AgentRunOptions) {
-    void update(
-      backend === "codex"
-        ? { codexModel: next.model, codexEffort: next.effort }
-        : { model: next.model, effort: next.effort },
-    );
+  async function switchBackend(next: AgentBackend) {
+    if (next === backend || taskActive || cli.installing || switchingBackend) {
+      return;
+    }
+    setSwitchingBackend(true);
+    try {
+      await update({ agentBackend: next });
+      const saved = useSettingsStore.getState();
+      if (saved.error || saved.settings?.agentBackend !== next) return;
+
+      // A provider session cannot be resumed by another provider. Preserve the
+      // old conversation in history, then clear its frozen run options so the
+      // very next message actually uses the newly selected agent.
+      const project = useChatStore.getState().project;
+      const hadConversation = useChatStore.getState().messages.length > 0;
+      if (project) await useSessionsStore.getState().newChat(project);
+
+      showToast(
+        hadConversation
+          ? `${BACKENDS[next].label} selected. The previous chat was saved.`
+          : `${BACKENDS[next].label} selected.`,
+      );
+    } finally {
+      setSwitchingBackend(false);
+    }
   }
 
   async function installCli() {
@@ -85,20 +101,45 @@ export default function SettingsPopover() {
     setRepairing(true);
   }
 
-  // Dismiss on outside click / Escape.
+  function close() {
+    setOpen(false);
+    requestAnimationFrame(() =>
+      document.getElementById("settings-trigger")?.focus(),
+    );
+  }
+
+  // The backdrop owns pointer dismissal. Keeping one explicit Escape listener
+  // avoids a document-wide hit-test trap competing with controls in the dialog.
   useEffect(() => {
-    function onDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
     function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      setOpen(false);
-      requestAnimationFrame(() => document.getElementById("settings-trigger")?.focus());
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+        return;
+      }
+      if (e.key !== "Tab" || !ref.current) return;
+      const focusable = Array.from(
+        ref.current.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), select:not(:disabled), input:not(:disabled), summary, [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (
+        e.shiftKey &&
+        (document.activeElement === first || document.activeElement === ref.current)
+      ) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
-    document.addEventListener("mousedown", onDown);
+    requestAnimationFrame(() => ref.current?.focus());
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
   }, [setOpen]);
@@ -111,20 +152,50 @@ export default function SettingsPopover() {
     <div
       ref={ref}
       id="settings-popover"
-      role="region"
+      role="dialog"
+      aria-modal="true"
       aria-label="Settings"
-      className="glass-card absolute right-3 top-14 z-30 max-h-[calc(100vh-5rem)] w-80 animate-appear overflow-y-auto rounded-2xl border p-4"
+      tabIndex={-1}
+      className="settings-surface fixed right-5 top-[4.75rem] z-[90] max-h-[calc(100vh-5.75rem)] w-[22rem] max-w-[calc(100vw-2rem)] animate-appear overflow-y-auto rounded-2xl border p-5 focus:outline-none"
     >
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-dim">
-        Agent
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-fg">Settings</h2>
+          <p className="mt-0.5 text-xs text-fg-dim">
+            Choose the agent for new chats.
+          </p>
+        </div>
+        <button
+          onClick={close}
+          aria-label="Close settings"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-xl leading-none text-fg-muted hover:bg-white/[0.08] hover:text-fg"
+        >
+          ×
+        </button>
       </div>
 
+      <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-dim">
+        Agent
+      </div>
       <div className="mt-2">
         <BackendPicker
           value={backend}
-          onChange={(b) => void update({ agentBackend: b })}
-          disabled={cli.installing || taskActive}
+          onChange={(b) => void switchBackend(b)}
+          disabled={cli.installing || taskActive || switchingBackend}
         />
+      </div>
+      <div
+        role="status"
+        aria-live="polite"
+        className="mt-2 flex items-center gap-2 text-xs text-fg-dim"
+      >
+        <span
+          aria-hidden
+          className={`h-1.5 w-1.5 rounded-full ${
+            switchingBackend ? "animate-dot-pulse bg-warning" : "bg-success"
+          }`}
+        />
+        {switchingBackend ? "Switching agent…" : `${meta.label} selected`}
       </div>
       <p className="mt-2 text-xs leading-relaxed text-fg-dim">{meta.blurb}</p>
       {taskActive && (
@@ -152,18 +223,6 @@ export default function SettingsPopover() {
           </button>
         </div>
       )}
-
-      <div className="mt-4 border-t border-white/5 pt-3">
-        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-dim">
-          New task defaults
-        </div>
-        <AgentRunControls
-          value={defaults}
-          onChange={updateDefaults}
-          disabled={cli.installing}
-          refreshKey={cli.status?.version}
-        />
-      </div>
 
       {!cli.checking && (!cli.status?.found || cli.error) && (
         <div className="mt-4 rounded-lg border border-warning/30 bg-warning/5 p-3">
@@ -200,7 +259,7 @@ export default function SettingsPopover() {
         </div>
       )}
 
-      <div className="mt-4 flex items-center justify-between gap-3">
+      <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-3.5">
         <span className="min-w-0">
           <span className="block text-sm text-fg">
             {backend === "codex" ? "ChatGPT account" : "Company account"}
@@ -240,50 +299,37 @@ export default function SettingsPopover() {
         )}
       </div>
 
-      <div className="mt-4 border-t border-white/5 pt-3">
-        <div className="text-xs font-medium uppercase tracking-wide text-fg-dim">
-          Settings
-        </div>
-
-        <Toggle
-          label="Debug drawer"
-          hint="Show the raw event log for troubleshooting."
-          checked={settings.debugDrawer}
-          onChange={(v) => void update({ debugDrawer: v })}
-        />
-      </div>
-
-      <div className="mt-4 border-t border-white/5 pt-3">
-        <div className="text-xs font-medium uppercase tracking-wide text-fg-dim">
-          Admin
-        </div>
-
-        <Toggle
-          label="Power mode"
-          hint="Let the AI act without per-step approval."
-          checked={settings.powerMode}
-          onChange={(v) => void update({ powerMode: v })}
-        />
-
-        <div className="mt-4 flex items-center justify-between">
-          <span>
-            <span className="block text-sm text-fg">Redo setup</span>
-            <span className="block text-xs text-fg-dim">
-              Run the first-run wizard again.
+      <details className="mt-4 border-t border-white/[0.08] pt-3">
+        <summary className="cursor-pointer text-xs font-medium text-fg-muted transition-colors hover:text-fg">
+          Advanced
+        </summary>
+        <div className="mt-2 rounded-xl border border-white/[0.07] bg-black/10 px-3.5 pb-3.5">
+          <Toggle
+            label="Debug drawer"
+            hint="Show raw events for troubleshooting."
+            checked={settings.debugDrawer}
+            onChange={(v) => void update({ debugDrawer: v })}
+          />
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/[0.07] pt-3.5">
+            <span>
+              <span className="block text-sm text-fg">Repair setup</span>
+              <span className="block text-xs text-fg-dim">
+                Recheck the agent, project, and Unity.
+              </span>
             </span>
-          </span>
-          <button
-            onClick={() => {
-              void update({ onboarded: false });
-              setOpen(false);
-            }}
-            disabled={cli.installing || taskActive}
-            className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Redo
-          </button>
+            <button
+              onClick={() => {
+                void update({ onboarded: false });
+                setOpen(false);
+              }}
+              disabled={cli.installing || taskActive}
+              className="shrink-0 rounded-md bg-ink-700 px-2.5 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-ink-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Repair
+            </button>
+          </div>
         </div>
-      </div>
+      </details>
     </div>
   );
 }

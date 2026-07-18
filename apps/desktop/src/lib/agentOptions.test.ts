@@ -13,7 +13,6 @@ const settings: Settings = {
   recentProjects: [],
   currentProject: null,
   agentBackend: "codex",
-  powerMode: false,
   model: "sonnet",
   codexModel: "gpt-5.6-sol",
   effort: "high",

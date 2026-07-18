@@ -19,7 +19,6 @@ const initial: Settings = {
   recentProjects: [],
   currentProject: null,
   agentBackend: "claude",
-  powerMode: false,
   model: null,
   codexModel: null,
   effort: null,

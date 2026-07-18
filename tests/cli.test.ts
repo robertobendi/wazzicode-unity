@@ -439,8 +439,9 @@ describe("cli/autonomy", () => {
       expect(onCfg.allowSceneWrites).toBe(true);
       expect(onCfg.allowPrefabWrites).toBe(true);
       expect(onCfg.autoSnapshot).toBe(true);
-      // Menu execution is NOT auto-enabled (broad escape hatch).
-      expect(onCfg.allowMenuItems).toBe(false);
+      expect(onCfg.allowMenuItems).toBe(true);
+      expect(onCfg.allowCodeExecution).toBe(true);
+      expect(onCfg.allowedMenuItems).toEqual(["*"]);
 
       // off → read_only again.
       r = await runAutonomy({ project: tmp, mock: false, json: false }, { command: "autonomy", positional: ["off"], flags: {} });

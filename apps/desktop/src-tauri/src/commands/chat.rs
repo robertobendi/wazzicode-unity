@@ -23,6 +23,9 @@ pub async fn chat_send(
 ) -> AppResult<String> {
     options.validate()?;
     let project_path = PathBuf::from(&project);
+    // Self-heal any old/manual read-only project config before the MCP server
+    // starts. Users should never have to run a permission command themselves.
+    crate::commands::project::ensure_project_access(&project_path)?;
     // Chat and auto mode are mutually exclusive per project.
     if state.loops.is_running_for(&project_path).await {
         return Err(crate::error::AppError::Other(

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useUiStore } from "@/stores/useUiStore";
@@ -10,6 +10,7 @@ import { useLoopEvents } from "@/hooks/useLoopEvents";
 import { useCheckpointEvents } from "@/hooks/useCheckpointEvents";
 import { useAgentStream } from "@/hooks/useAgentStream";
 import { useLoopStore } from "@/stores/useLoopStore";
+import { authenticationBackend } from "@/lib/appRouting";
 import PairingScreen from "@/components/pairing/PairingScreen";
 import CodexAuthScreen from "@/components/codex/CodexAuthScreen";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
@@ -32,8 +33,8 @@ export default function App() {
   const mode = useUiStore((s) => s.mode);
   const repairing = useUiStore((s) => s.repairing);
   const setRepairing = useUiStore((s) => s.setRepairing);
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const hydrateLoop = useLoopStore((s) => s.hydrate);
-  const [codexReady, setCodexReady] = useState(false);
 
   useEffect(() => {
     void load();
@@ -41,15 +42,10 @@ export default function App() {
 
   const project = settings?.currentProject ?? null;
 
-  function chooseAgent() {
-    setCodexReady(false);
+  function leaveAuthentication() {
     setRepairing(false);
-    void updateSettings({ onboarded: false });
+    setSettingsOpen(true);
   }
-
-  useEffect(() => {
-    if (settings?.agentBackend !== "codex") setCodexReady(false);
-  }, [settings?.agentBackend]);
 
   // Keep the chat store's project in sync (resets the conversation on change).
   // On a real switch, autosave the outgoing chat and reload history for the new
@@ -91,39 +87,35 @@ export default function App() {
     return (
       <OnboardingWizard
         onComplete={() => {
-          if (settings.agentBackend === "codex") setCodexReady(true);
           void updateSettings({ onboarded: true });
         }}
       />
     );
   }
 
-  // Auth gate FIRST (the connection is per-machine, not per-project), routed by
-  // backend. Claude uses the app's persisted pairing flag; Codex probes the
-  // CLI's ChatGPT login once per app/backend selection. Explicit reconnects
-  // force the corresponding browser/setup-token flow.
-  if (settings.agentBackend === "codex") {
-    if (!codexReady || repairing) {
-      return (
-        <CodexAuthScreen
-          onDone={() => {
-            setCodexReady(true);
-            setRepairing(false);
-          }}
-          onChooseAgent={chooseAgent}
-          forceSignIn={repairing}
-        />
-      );
-    }
-  } else if (!settings.pairedOk || repairing) {
+  // Selecting an agent must never unmount the project shell. Authentication is
+  // a separate, explicit Settings action; onboarding has already checked it on
+  // first run. This keeps a routine Claude/Codex switch from looking like the
+  // whole app closed.
+  const authBackend = authenticationBackend(settings.agentBackend, repairing);
+  if (authBackend === "codex") {
+    return (
+      <CodexAuthScreen
+        onDone={() => setRepairing(false)}
+        onChooseAgent={leaveAuthentication}
+        forceSignIn
+      />
+    );
+  }
+  if (authBackend === "claude") {
     return (
       <PairingScreen
         onDone={() => {
           void updateSettings({ pairedOk: true });
           setRepairing(false);
         }}
-        onChooseAgent={chooseAgent}
-        forcePair={repairing || !settings.pairedOk}
+        onChooseAgent={leaveAuthentication}
+        forcePair
       />
     );
   }

@@ -2,7 +2,7 @@
 
 **Make Claude Code see and edit your Unity project.**
 
-A local MCP server + Unity Editor package + project brain. Claude Code gets **60+ live `unity_*` tools** — inspect scenes, **write & verify C#**, run play mode, edit prefabs, and literally **see** your Game and Scene views via real screenshots. Read-only by default; writes are opt-in, Undo-able, and action-logged. Everything runs on `127.0.0.1`.
+A local MCP server + Unity Editor package + project brain. Claude Code gets **60+ live `unity_*` tools** — inspect scenes, **write & verify C#**, run play mode, edit prefabs, and literally **see** your Game and Scene views via real screenshots. Editing works immediately; changes are checkpointed, Undo-able, and action-logged. Everything runs on `127.0.0.1`.
 
 ---
 
@@ -80,7 +80,7 @@ This project has the unity-vibe-os MCP server connected — live unity_* tools o
 - "this object" / "the selected one" → unity_inspect_selected first.
 - "Does it play right?" → enter play mode, observe with console / unity_find_runtime_objects / unity_capture_game_view / perf stats, then exit. You can SEE the game via the screenshot tools.
 - "Why is it broken?" → unity_find_missing_scripts / unity_find_missing_references / unity_find_references before deleting or renaming.
-- Writes are gated by safetyMode. If one is blocked, tell me to run `uvibe autonomy on` — don't edit .unity-vibe/config.json yourself or bypass it. unity_execute_code stays off unless I enable allowCodeExecution. Every scene/prefab write is Undo-able and logged.
+- Project access is managed automatically. Use the Unity tools directly without asking me to change permissions or run setup commands. Every task gets a checkpoint, and scene/prefab changes are Undo-able and logged.
 
 Do the unity_orient check, then wait for my task.
 ```
@@ -132,13 +132,13 @@ Enter play mode, press jump a few times, capture the game view, and tell me if i
   - **Don't hallucinate APIs** — `unity_reflect` (live type system of *your* Unity + packages) and `unity_docs`.
   - **Build scenes/prefabs** — create GameObjects, add components, set/assign fields, transforms, instantiate prefabs, paint tilemaps, prefab mode, wire UI buttons, materials/ScriptableObjects, plus delete GameObjects / remove components / delete assets — 27 gated write tools, each Undo-able (or recoverable) and logged. `unity_batch` bundles a multi-step plan into one call.
   - **Play mode & runtime** — enter/exit/step, inspect runtime objects, simulate input, drive the Animator, read performance stats.
-  - **Power tools** — `unity_execute_code` (run C# in the Editor, opt-in) and `unity_manage_tools` (toggle tool groups live).
+  - **Editor automation** — `unity_execute_code` (run C# in the Editor) and `unity_manage_tools` (toggle tool groups live).
 - **Claude Code native** — server instructions teach the toolset on connect, MCP slash commands (`/mcp__unity-vibe-os__orient | analyze_scene | diagnose_scene | verify | new_script | play_test`), `@`-mentionable resources (`unity://project-brain | conventions | action-log | scene-hierarchy | console`), and tool annotations so reads auto-run and risky writes are flagged.
 - **Unity Editor package** (`unity/UnityVibeOS`) — localhost HTTP JSON-RPC bridge, scene/selection inspectors, console + compile watch, screenshots, scene/prefab/asset mutators, script editor, reflection, in-Editor C# execution, test runner, play-mode control. Survives domain reloads; keeps working when the Editor is unfocused.
-- **CLI** (`uvibe`) — `setup`, `init`, `serve`, `brain`, `doctor`, `verify`, `mcp-config`, `autonomy`, `install-unity-package`, `gsd-auto`.
+- **CLI** (`uvibe`) — `setup`, `init`, `serve`, `brain`, `doctor`, `verify`, `mcp-config`, `install-unity-package`, `gsd-auto`.
 - **Project brain** — filesystem scan (no Unity needed) → `.unity-vibe/project_brain.{md,json}`, `claude_context.md`, `conventions.md`, `config.json`.
 - **Mock bridge** — every MCP tool works without Unity for testing.
-- **Safety layer** — read-only by default; one-command `uvibe autonomy on` flips on writes (autopilot + Undo + autoSnapshot + action log). Per-target flags: `allowScene/Prefab/Asset/ScriptWrites`, `allowMenuItems`, `allowCodeExecution`.
+- **Recovery layer** — app-managed access is ready by default, with pre-task git checkpoints, Unity Undo, automatic snapshots, and an action log.
 
 ---
 
@@ -195,7 +195,7 @@ INSTALL.md                 install detail (prerequisites, flags, uninstall)
 ## 📊 Status
 
 - ✅ **67/67 vitest** green — registry, safety gates, tool groups, annotations, prompts, resources, server instructions, and end-to-end MCP exchange against the mock bridge (multimodal images decoded and rendered).
-- ✅ Shipped: full inspection, **C# script editing + `unity_verify`**, **`unity_reflect`/`unity_docs`**, scene/prefab/asset writes (gated, Undo-able), play-mode/runtime, screenshots, tool groups, Claude-Code-native slash commands/resources/annotations, one-command `uvibe autonomy on`.
+- ✅ Shipped: full inspection, **C# script editing + `unity_verify`**, **`unity_reflect`/`unity_docs`**, app-ready scene/prefab/asset editing, play-mode/runtime, screenshots, tool groups, and Claude-Code-native slash commands/resources/annotations.
 - ✅ One-command install: `bootstrap.mjs` → idempotent, per-project `.mcp.json` with absolute paths, marker-delimited `CLAUDE.md` and `AGENTS.md` blocks.
 - ⚠ The TypeScript/MCP layer is fully tested here, but the **Unity Editor C# package must be compiled inside a Unity Editor to runtime-verify** — especially the newer `ScriptEditor` / `CodeExecutor` / `ReflectionBridge`. See [`docs/UNITY_MANUAL_TEST_CHECKLIST.md`](docs/UNITY_MANUAL_TEST_CHECKLIST.md).
 - 🚧 Broader domains (physics, VFX, ProBuilder, UI Toolkit, profiler) are out of scope for now — see `.planning/ROADMAP.md`.

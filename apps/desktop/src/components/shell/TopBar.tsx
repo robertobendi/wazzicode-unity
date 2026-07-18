@@ -7,6 +7,7 @@ import { isLoopActive } from "@/types/loop";
 import type { BridgeState } from "@/types/status";
 import { formatTokens } from "@/lib/formatTokens";
 import { useCliInstallActive } from "@/hooks/useOnboarding";
+import { createPortal } from "react-dom";
 import { GearIcon, PanelIcon, SidebarIcon } from "./icons";
 import Logo from "./Logo";
 import RevertControl from "./RevertControl";
@@ -16,7 +17,6 @@ import SettingsPopover from "./SettingsPopover";
 export default function TopBar() {
   const project = useChatStore((s) => s.project);
   const update = useSettingsStore((s) => s.update);
-  const settingsBackend = useSettingsStore((s) => s.settings?.agentBackend);
   const chatRunning = useChatStore((s) => s.running);
   const totalCost = useChatStore((s) => s.session.totalCostUsd);
   const totalTokens = useChatStore((s) => s.session.totalTokens);
@@ -50,7 +50,7 @@ export default function TopBar() {
   const statusLabel = `Unity: ${bridgeLabel}${usageLabel ? `. Session usage: ${usageLabel}` : ""}`;
 
   return (
-    <header className="glass-bar relative mx-3 mt-3 grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center rounded-2xl border px-3">
+    <header className="glass-bar relative z-30 mx-3 mt-3 grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center rounded-2xl border px-3">
       <div className="flex min-w-0 items-center gap-2 overflow-hidden">
         {mode === "chat" && (
           <IconButton
@@ -123,7 +123,23 @@ export default function TopBar() {
         </IconButton>
       </div>
 
-      {settingsOpen && <SettingsPopover key={settingsBackend} />}
+      {settingsOpen &&
+        createPortal(
+          <>
+            <div
+              className="settings-backdrop fixed inset-0 z-[80]"
+              aria-hidden="true"
+              onMouseDown={() => {
+                setSettingsOpen(false);
+                requestAnimationFrame(() =>
+                  document.getElementById("settings-trigger")?.focus(),
+                );
+              }}
+            />
+            <SettingsPopover />
+          </>,
+          document.body,
+        )}
     </header>
   );
 }

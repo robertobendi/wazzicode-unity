@@ -12,7 +12,7 @@ import { PrimaryButton, SecondaryButton, Spinner, StepHeading } from "./_shared"
 const KNOWN = [
   { id: "init", label: "Setting up Unity Vibe OS" },
   { id: "install_package", label: "Installing the Unity package" },
-  { id: "autonomy", label: "Enabling AI edits" },
+  { id: "access", label: "Finishing AI setup" },
   { id: "mcp_config", label: "Connecting your agent to Unity" },
   { id: "gitignore", label: "Tidying project settings" },
   { id: "doctor", label: "Double-checking everything" },
@@ -96,8 +96,8 @@ export default function SetupStep({
   return (
     <div>
       <StepHeading title="Prepare your project">
-        We&apos;ll get <span className="text-fg">{projectName}</span> ready: install
-        the Unity connector, turn on AI edits, and verify the link.
+        We&apos;ll get <span className="text-fg">{projectName}</span> ready,
+        connect it to Unity, and check that everything works.
       </StepHeading>
 
       <div className="mt-6 space-y-2">

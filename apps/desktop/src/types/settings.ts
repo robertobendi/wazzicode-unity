@@ -15,8 +15,6 @@ export interface Settings {
   currentProject: string | null;
   /** Which CLI runs the work: Claude Code or the Codex CLI. */
   agentBackend: AgentBackend;
-  /** Admin escape hatch: drops the agent's permission gate. */
-  powerMode: boolean;
   /** Preferred Claude model id, or null to let the CLI decide. */
   model: string | null;
   /** Preferred Codex model id, or null to let the CLI decide. Separate from

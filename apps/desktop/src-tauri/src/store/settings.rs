@@ -27,10 +27,6 @@ pub struct Settings {
     /// settings file (schema v1, no such key) keeps its current behaviour.
     #[serde(default)]
     pub agent_backend: Backend,
-    /// Admin escape hatch: drops the agent's permission gate (Claude:
-    /// `bypassPermissions`; Codex: `--dangerously-bypass-approvals-and-sandbox`).
-    #[serde(default)]
-    pub power_mode: bool,
     /// Preferred Claude model id, or None to let the CLI decide.
     #[serde(default)]
     pub model: Option<String>,
@@ -91,7 +87,6 @@ impl Default for Settings {
             recent_projects: Vec::new(),
             current_project: None,
             agent_backend: Backend::default(),
-            power_mode: false,
             model: None,
             codex_model: None,
             effort: None,
@@ -167,7 +162,6 @@ mod tests {
         assert_eq!(s.codex_model, None);
         assert_eq!(s.effort, None);
         assert_eq!(s.codex_effort, None);
-        assert!(s.power_mode);
         assert_eq!(s.model.as_deref(), Some("claude-opus-4-8"));
     }
 
