@@ -13,6 +13,8 @@ interface LoopStoreState {
   state: LoopState | null;
   starting: boolean;
   error: string | null;
+  feedbackSending: boolean;
+  feedbackError: string | null;
   /** Live "now doing …" label while a sub-run streams, else null. */
   nowDoing: string | null;
 
@@ -20,6 +22,7 @@ interface LoopStoreState {
   hydrate: () => Promise<void>;
   start: (project: string, goal: string, options: LoopOptions) => Promise<void>;
   stop: () => Promise<void>;
+  addFeedback: (comment: string) => Promise<boolean>;
 
   // Called by useLoopEvents — not part of the UI surface.
   applyUpdate: (s: LoopState) => void;
@@ -30,6 +33,8 @@ export const useLoopStore = create<LoopStoreState>((set, get) => ({
   state: null,
   starting: false,
   error: null,
+  feedbackSending: false,
+  feedbackError: null,
   nowDoing: null,
 
   hydrate: async () => {
@@ -64,6 +69,25 @@ export const useLoopStore = create<LoopStoreState>((set, get) => ({
       await api.loopStop();
     } catch {
       // The driver still emits a terminal `loop:update`; nothing to do here.
+    }
+  },
+
+  addFeedback: async (comment) => {
+    if (get().feedbackSending) return false;
+    set({ feedbackSending: true, feedbackError: null });
+    try {
+      await api.loopFeedback(comment);
+      return true;
+    } catch (error) {
+      set({
+        feedbackError: friendlyError(
+          String(error),
+          "Couldn't add feedback to this loop.",
+        ),
+      });
+      return false;
+    } finally {
+      set({ feedbackSending: false });
     }
   },
 

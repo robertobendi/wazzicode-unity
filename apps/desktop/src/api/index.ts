@@ -113,6 +113,8 @@ export const api = {
   loopStart: (project: string, goal: string, options: LoopOptions) =>
     invoke<string>("loop_start", { project, goal, options }),
   loopStop: () => invoke<void>("loop_stop"),
+  loopFeedback: (comment: string) =>
+    invoke<void>("loop_feedback", { comment }),
   loopState: () => invoke<LoopState | null>("loop_state"),
 
   // Onboarding wizard. Setup + install stream progress on `onboarding:progress`.

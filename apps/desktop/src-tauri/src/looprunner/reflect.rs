@@ -204,6 +204,27 @@ pub fn decide_after_qa(
     }
 }
 
+/// Pending user guidance gets a safe chance to redirect the next builder
+/// before a done/blocked verdict terminates the loop. Stop and cost remain hard
+/// limits.
+pub fn feedback_step(
+    stop_requested: bool,
+    total_cost: f64,
+    max_cost: f64,
+    has_feedback: bool,
+) -> Option<Step> {
+    if !has_feedback {
+        return None;
+    }
+    if stop_requested {
+        return Some(Step::Stopped);
+    }
+    if total_cost >= max_cost {
+        return Some(Step::CostCapped);
+    }
+    Some(Step::Continue)
+}
+
 /// Gate a would-be `Continue` on the iteration budget: if advancing to
 /// `next_index` would meet/exceed `max_iterations`, stop instead.
 pub fn gate_iterations(next_index: u32, max_iterations: u32) -> Step {
@@ -355,6 +376,14 @@ mod tests {
             Step::Continue
         );
         assert_eq!(decide_after_qa(false, 0.0, 5.0, None), Step::Continue);
+    }
+
+    #[test]
+    fn queued_feedback_reopens_the_plan_without_bypassing_hard_limits() {
+        assert_eq!(feedback_step(false, 0.0, 5.0, true), Some(Step::Continue));
+        assert_eq!(feedback_step(true, 0.0, 5.0, true), Some(Step::Stopped));
+        assert_eq!(feedback_step(false, 5.0, 5.0, true), Some(Step::CostCapped));
+        assert_eq!(feedback_step(false, 0.0, 5.0, false), None);
     }
 
     #[test]

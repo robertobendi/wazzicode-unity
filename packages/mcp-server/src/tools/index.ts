@@ -73,10 +73,12 @@ import {
 import { unityExecuteCode } from "./unityCode.js";
 import { unityReflect, unityDocs } from "./unityReflect.js";
 import { unityManageTools } from "./unityManageTools.js";
+import { unityDiagnoseConnection } from "./unityDiagnoseConnection.js";
 
 export const allTools: AnyToolDef[] = [
   // Context / inspection
   unityOrient,
+  unityDiagnoseConnection,
   unityVerify,
   unityBatch,
   unityManageTools,
@@ -223,6 +225,7 @@ export {
   unitySliceSprite,
   unityPaintTilemap,
   unityOrient,
+  unityDiagnoseConnection,
   unityVerify,
   unityBatch,
   unityReadScript,

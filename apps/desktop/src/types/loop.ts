@@ -30,6 +30,14 @@ export interface QaResult {
   notes: string;
 }
 
+export interface LoopFeedback {
+  id: string;
+  text: string;
+  createdAtMs: number;
+  /** Null while queued; otherwise the zero-based builder step that received it. */
+  appliedAtIteration: number | null;
+}
+
 export interface LoopIteration {
   index: number;
   verdict: LoopVerdict;
@@ -49,6 +57,7 @@ export interface LoopState {
   totalCostUsd: number;
   options: LoopOptions;
   warnings: string[];
+  feedback: LoopFeedback[];
   currentRunId: string | null;
 }
 

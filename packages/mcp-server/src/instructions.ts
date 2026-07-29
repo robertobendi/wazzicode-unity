@@ -22,7 +22,7 @@ PLAY-TEST: prefer \`unity_smoke_test\` for a guarded enter → settle → runtim
 
 QA: \`unity_qa\` is the full gate: truthful compile/console/tests, missing-script/reference scans, build readiness, then a guarded smoke test. \`unity_get_build_settings\` checks enabled scenes and platform support without starting a build.
 
-DIAGNOSE: unity_find_missing_scripts, unity_find_missing_references, unity_find_references / unity_find_dependencies before any rename/delete.
+DIAGNOSE: \`unity_diagnose_connection\` explains missing/reloading/stalled/wrong-project bridges and MCP/package version drift in one call. Use unity_get_console_logs query:"..." for focused log searches. Use unity_find_missing_scripts, unity_find_missing_references, unity_find_references / unity_find_dependencies before any rename/delete.
 
 ACCESS: Studio manages project and agent permissions automatically. Use the tools you need without asking the user to run setup or permission commands. Scene/prefab changes remain Unity Undo-wrapped; file tasks have a pre-run git checkpoint; all MCP writes are action-logged. If a tool is unavailable, use the closest dedicated tool and report the concrete operation that failed.
 

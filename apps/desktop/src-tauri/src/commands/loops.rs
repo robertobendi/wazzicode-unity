@@ -56,6 +56,16 @@ pub async fn loop_stop(state: State<'_, AppState>) -> AppResult<()> {
     Ok(())
 }
 
+/// Queue user guidance for the next safe builder boundary.
+#[tauri::command]
+pub async fn loop_feedback(
+    app: AppHandle,
+    comment: String,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state.loops.add_feedback(&app, comment).await
+}
+
 /// The current (or last) loop state, or `null` if no loop has run.
 #[tauri::command]
 pub async fn loop_state(state: State<'_, AppState>) -> AppResult<Option<LoopState>> {

@@ -96,6 +96,8 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
             </p>
           ))}
 
+          {active && <FeedbackComposer />}
+
           <IterationTimeline iterations={state.iterations} />
         </div>
       </div>
@@ -127,6 +129,96 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function FeedbackComposer() {
+  const state = useLoopStore((s) => s.state)!;
+  const addFeedback = useLoopStore((s) => s.addFeedback);
+  const sending = useLoopStore((s) => s.feedbackSending);
+  const error = useLoopStore((s) => s.feedbackError);
+  const [comment, setComment] = useState("");
+  const pending = state.feedback.filter(
+    (item) => item.appliedAtIteration === null,
+  );
+  const lastApplied = [...state.feedback]
+    .reverse()
+    .find((item) => item.appliedAtIteration !== null);
+  const accepting = state.currentRunId !== null;
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!comment.trim() || !accepting || sending) return;
+    if (await addFeedback(comment.trim())) setComment("");
+  }
+
+  return (
+    <form
+      onSubmit={(event) => void submit(event)}
+      className="glass-card rounded-xl border px-4 py-3"
+    >
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <label
+            htmlFor="loop-feedback"
+            className="text-xs font-semibold text-fg-muted"
+          >
+            Guide the next step
+          </label>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-fg-dim">
+            Add feedback now. It is evaluated after the current agent turn,
+            before the next plan.
+          </p>
+        </div>
+        {pending.length > 0 && (
+          <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+            {pending.length} queued
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex items-end gap-2">
+        <textarea
+          id="loop-feedback"
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+          maxLength={2000}
+          rows={2}
+          disabled={!accepting || sending}
+          placeholder={
+            accepting
+              ? "Example: Keep the layout, but make the player easier to see."
+              : "Waiting for the next agent step…"
+          }
+          className="selectable min-h-[3rem] flex-1 resize-none rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs leading-relaxed text-fg placeholder:text-fg-dim focus:border-accent/40 focus:outline-none disabled:opacity-50"
+        />
+        <button
+          type="submit"
+          disabled={!comment.trim() || !accepting || sending}
+          className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
+        >
+          {sending ? "Adding…" : "Add feedback"}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
+      {pending.length > 0 && (
+        <ul className="mt-2 space-y-1 border-t border-white/[0.06] pt-2">
+          {pending.map((item) => (
+            <li
+              key={item.id}
+              className="truncate text-[11px] text-fg-muted"
+              title={item.text}
+            >
+              Queued: {item.text}
+            </li>
+          ))}
+        </ul>
+      )}
+      {pending.length === 0 && lastApplied && lastApplied.appliedAtIteration !== null && (
+        <p className="mt-2 truncate text-[11px] text-fg-dim" title={lastApplied.text}>
+          Applied to step {lastApplied.appliedAtIteration + 1}: {lastApplied.text}
+        </p>
+      )}
+    </form>
   );
 }
 

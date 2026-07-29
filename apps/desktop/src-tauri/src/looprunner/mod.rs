@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::JoinHandle;
@@ -88,6 +89,15 @@ pub struct QaResult {
     pub notes: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopFeedback {
+    pub id: String,
+    pub text: String,
+    pub created_at_ms: u64,
+    pub applied_at_iteration: Option<u32>,
+}
+
 /// One recorded iteration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +127,10 @@ pub struct LoopState {
     pub options: LoopOptions,
     /// One-time non-fatal warnings (e.g. git checkpointing unavailable).
     pub warnings: Vec<String>,
+    /// User guidance history. A null appliedAtIteration means it is queued for
+    /// the next builder boundary.
+    #[serde(default)]
+    pub feedback: Vec<LoopFeedback>,
     /// The currently-streaming sub-run id, for the live "now doing" line.
     pub current_run_id: Option<String>,
 }
@@ -181,6 +195,7 @@ impl LoopManager {
             total_cost_usd: 0.0,
             options: options.clone(),
             warnings: Vec::new(),
+            feedback: Vec::new(),
             current_run_id: None,
         };
 
@@ -235,6 +250,45 @@ impl LoopManager {
         if let Some(child) = child {
             child.cancel().await;
         }
+    }
+
+    /// Queue guidance while an agent turn is active. The driver drains it only
+    /// after that turn completes, before making the next plan.
+    pub async fn add_feedback(&self, app: &AppHandle, text: String) -> AppResult<()> {
+        let text = normalize_feedback(&text).map_err(AppError::Other)?;
+        let shared = {
+            let guard = self.active.lock().await;
+            guard.as_ref().map(|active| active.shared.clone())
+        }
+        .ok_or_else(|| AppError::Other("No Auto mode loop is running.".into()))?;
+
+        {
+            let mut state = shared.state.lock().await;
+            if state.status != LoopStatus::Running {
+                return Err(AppError::Other(
+                    "This Auto mode loop is stopping or has already finished.".into(),
+                ));
+            }
+            if state.current_run_id.is_none() {
+                return Err(AppError::Other(
+                    "Auto mode is between steps; add feedback when the next step starts.".into(),
+                ));
+            }
+            if feedback_target_iteration(&state) >= state.options.max_iterations {
+                return Err(AppError::Other(
+                    "The loop is on its final allowed step, so there is no next step for feedback."
+                        .into(),
+                ));
+            }
+            state.feedback.push(LoopFeedback {
+                id: nanoid::nanoid!(),
+                text,
+                created_at_ms: now_ms(),
+                applied_at_iteration: None,
+            });
+        }
+        persist_and_emit(app, &shared).await;
+        Ok(())
     }
 
     /// Current loop state (the last loop's final state persists after it ends).
@@ -295,6 +349,7 @@ impl Driver {
         let mut strikes: u32 = 0;
         let mut prev_summary = String::new();
         let mut qa_feedback: Option<String> = None;
+        let mut user_feedback: Vec<String> = Vec::new();
         let mut builder_session: Option<String> = None;
         let mut total_cost = 0.0f64;
         let mut i: u32 = 0;
@@ -314,7 +369,9 @@ impl Driver {
                 &self.options.reference_images,
                 &prev_summary,
                 qa_feedback.as_deref(),
+                &user_feedback,
             );
+            user_feedback.clear();
             let args = self.turn_args(builder_session.as_deref(), 60);
             let info = self.run_turn(run_id, args, prompt).await;
             self.set_current_run(None).await;
@@ -362,14 +419,22 @@ impl Driver {
             )
             .await;
 
-            let step = reflect::decide_after_builder(
+            let step = reflect::feedback_step(
                 self.stopped(),
                 total_cost,
                 max_cost,
-                reflection.verdict,
-                strikes,
-                qa_enabled,
-            );
+                self.has_pending_feedback().await,
+            )
+            .unwrap_or_else(|| {
+                reflect::decide_after_builder(
+                    self.stopped(),
+                    total_cost,
+                    max_cost,
+                    reflection.verdict,
+                    strikes,
+                    qa_enabled,
+                )
+            });
 
             match step {
                 Step::Stopped => return self.finish(LoopStatus::Stopped).await,
@@ -405,12 +470,19 @@ impl Driver {
                     });
                     self.set_iteration_qa(i, qa_result, total_cost).await;
 
-                    let step2 = reflect::decide_after_qa(
+                    let qa_step = reflect::decide_after_qa(
                         self.stopped(),
                         total_cost,
                         max_cost,
                         qa.as_ref().map(|q| q.pass),
                     );
+                    let step2 = reflect::feedback_step(
+                        self.stopped(),
+                        total_cost,
+                        max_cost,
+                        self.has_pending_feedback().await,
+                    )
+                    .unwrap_or(qa_step);
                     match step2 {
                         Step::Done => return self.finish(LoopStatus::Done).await,
                         Step::Stopped => return self.finish(LoopStatus::Stopped).await,
@@ -421,6 +493,7 @@ impl Driver {
                             if reflect::gate_iterations(i + 1, max_iter) == Step::MaxIterations {
                                 return self.finish(LoopStatus::MaxIterations).await;
                             }
+                            user_feedback = self.take_pending_feedback(i + 1).await;
                             i += 1;
                         }
                     }
@@ -430,6 +503,7 @@ impl Driver {
                     if reflect::gate_iterations(i + 1, max_iter) == Step::MaxIterations {
                         return self.finish(LoopStatus::MaxIterations).await;
                     }
+                    user_feedback = self.take_pending_feedback(i + 1).await;
                     i += 1;
                 }
             }
@@ -570,6 +644,34 @@ impl Driver {
         persist_and_emit(&self.app, &self.shared).await;
     }
 
+    async fn has_pending_feedback(&self) -> bool {
+        self.shared
+            .state
+            .lock()
+            .await
+            .feedback
+            .iter()
+            .any(|feedback| feedback.applied_at_iteration.is_none())
+    }
+
+    async fn take_pending_feedback(&self, iteration: u32) -> Vec<String> {
+        let feedback = {
+            let mut state = self.shared.state.lock().await;
+            let mut texts = Vec::new();
+            for item in &mut state.feedback {
+                if item.applied_at_iteration.is_none() {
+                    item.applied_at_iteration = Some(iteration);
+                    texts.push(item.text.clone());
+                }
+            }
+            texts
+        };
+        if !feedback.is_empty() {
+            persist_and_emit(&self.app, &self.shared).await;
+        }
+        feedback
+    }
+
     async fn finish(&self, status: LoopStatus) {
         {
             let mut st = self.shared.state.lock().await;
@@ -664,11 +766,13 @@ fn builder_prompt(
     images: &[String],
     prev_summary: &str,
     qa_feedback: Option<&str>,
+    user_feedback: &[String],
 ) -> String {
     let refs = reference_block(images);
+    let feedback = feedback_block(user_feedback);
     if i == 0 {
         format!(
-            "You are an autonomous Unity build agent working toward a goal, one small increment at a time.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nThis is the first iteration. Implement the FIRST small, safe increment toward the goal — do not attempt everything at once.{BUILDER_TAIL}"
+            "You are an autonomous Unity build agent working toward a goal, one small increment at a time.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}{feedback}\n\nThis is the first iteration. Implement the FIRST small, safe increment toward the goal — do not attempt everything at once.{BUILDER_TAIL}"
         )
     } else {
         let qa = match qa_feedback {
@@ -678,9 +782,23 @@ fn builder_prompt(
             _ => String::new(),
         };
         format!(
-            "Continue working toward the goal.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nPrevious iteration summary: {prev_summary}{qa}\n\nImplement the NEXT small increment toward the goal.{BUILDER_TAIL}"
+            "Continue working toward the goal.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nPrevious iteration summary: {prev_summary}{qa}{feedback}\n\nImplement the NEXT small increment toward the goal.{BUILDER_TAIL}"
         )
     }
+}
+
+fn feedback_block(feedback: &[String]) -> String {
+    if feedback.is_empty() {
+        return String::new();
+    }
+    let items = feedback
+        .iter()
+        .map(|text| format!("- {}", text.trim()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "\n\nUSER FEEDBACK RECEIVED DURING THE PREVIOUS STEP:\n{items}\n\nBefore acting, reconsider your plan against this feedback. Treat it as current user direction and address it in this step."
+    )
 }
 
 fn qa_prompt(goal: &str, images: &[String]) -> String {
@@ -710,13 +828,39 @@ fn first_line(s: &str) -> String {
         .to_string()
 }
 
+fn normalize_feedback(text: &str) -> Result<String, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("Write a comment before adding feedback.".into());
+    }
+    if text.chars().count() > 2_000 {
+        return Err("Feedback is limited to 2,000 characters.".into());
+    }
+    Ok(text.to_string())
+}
+
+fn feedback_target_iteration(state: &LoopState) -> u32 {
+    let completed = state.iterations.len() as u32;
+    match state.current_run_id.as_deref() {
+        Some(run_id) if run_id.ends_with(":builder") => completed + 1,
+        _ => completed,
+    }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn builder_prompt_switches_on_iteration() {
-        let first = builder_prompt(0, "make a cube", &[], "", None);
+        let first = builder_prompt(0, "make a cube", &[], "", None, &[]);
         assert!(first.contains("first iteration"));
         assert!(first.contains("make a cube"));
         assert!(first.contains("```json"));
@@ -727,10 +871,13 @@ mod tests {
             &["/tmp/ref.png".into()],
             "added a plane",
             Some("cube is the wrong colour"),
+            &["Make it twice as large.".into()],
         );
         assert!(later.contains("Previous iteration summary: added a plane"));
         assert!(later.contains("cube is the wrong colour"));
         assert!(later.contains("/tmp/ref.png"));
+        assert!(later.contains("USER FEEDBACK"));
+        assert!(later.contains("Make it twice as large."));
     }
 
     #[test]
@@ -775,5 +922,46 @@ mod tests {
             ..ExitInfo::default()
         };
         assert!(turn_failure(Backend::Claude, &valid).is_none());
+    }
+
+    #[test]
+    fn feedback_is_trimmed_bounded_and_targets_the_next_builder() {
+        assert_eq!(
+            normalize_feedback("  make it blue  ").unwrap(),
+            "make it blue"
+        );
+        assert!(normalize_feedback("   ").is_err());
+        assert!(normalize_feedback(&"x".repeat(2_001)).is_err());
+
+        let mut state = LoopState {
+            loop_id: "loop".into(),
+            goal: "goal".into(),
+            reference_images: vec![],
+            status: LoopStatus::Running,
+            iterations: vec![],
+            total_cost_usd: 0.0,
+            options: LoopOptions {
+                max_iterations: 10,
+                max_cost_usd: 5.0,
+                qa_every: 1,
+                reference_images: vec![],
+                agent: AgentRunOptions::default(),
+            },
+            warnings: vec![],
+            feedback: vec![],
+            current_run_id: Some("loop:1:0:builder".into()),
+        };
+        assert_eq!(feedback_target_iteration(&state), 1);
+        state.current_run_id = Some("loop:1:0:qa".into());
+        state.iterations.push(LoopIteration {
+            index: 0,
+            verdict: "done".into(),
+            summary: String::new(),
+            cost_usd: 0.0,
+            screenshot_path: None,
+            commit_sha: None,
+            qa: None,
+        });
+        assert_eq!(feedback_target_iteration(&state), 1);
     }
 }

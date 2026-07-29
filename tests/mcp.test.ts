@@ -29,6 +29,7 @@ describe("mcp-server/registry", () => {
       "unity_create_scriptable_object",
       "unity_delete_asset",
       "unity_delete_gameobject",
+      "unity_diagnose_connection",
       "unity_docs",
       "unity_enter_play_mode",
       "unity_execute_code",
@@ -423,6 +424,82 @@ describe("mcp-server/composition tools", () => {
       expect(Array.isArray(d.openScenes?.scenes)).toBe(true);
       expect("compile" in d).toBe(true);
       expect("git" in d).toBe(true);
+    }
+  });
+
+  it("unity_diagnose_connection returns a useful verdict without requiring RPC success", async () => {
+    const bridge: BridgeClient = {
+      source: "unity_bridge",
+      async call<T>(): Promise<BridgeResponse<T>> {
+        return {
+          id: "diagnose",
+          ok: false,
+          result: null,
+          error: { code: "UNITY_RELOADING", message: "domain reload" },
+          meta: {},
+        };
+      },
+      async isConnected() {
+        return false;
+      },
+      async health() {
+        return null;
+      },
+    };
+    const tool = allTools.find((t) => t.name === "unity_diagnose_connection")!;
+    const env = await tool.run(
+      {},
+      { bridge, projectPath: process.cwd(), configMockMode: false }
+    );
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const data = env.data as { state: string; nextAction: string };
+      expect(data.state).toBe("reloading");
+      expect(data.nextAction).toContain("Wait");
+    }
+  });
+
+  it("unity_get_console_logs filters message and stack text without a bridge change", async () => {
+    const bridge: BridgeClient = {
+      source: "unity_bridge",
+      async call<T>(): Promise<BridgeResponse<T>> {
+        return {
+          id: "logs",
+          ok: true,
+          result: {
+            logs: [
+              { type: "Warning", message: "Unrelated warning", timestamp: 1 },
+              {
+                type: "Exception",
+                message: "Operation failed",
+                stackTrace: "PlayerController.Update",
+                timestamp: 2,
+              },
+            ],
+            truncated: false,
+            bufferSize: 2,
+          } as T,
+          error: null,
+          meta: {
+            unityVersion: "6000.0.0f1",
+            projectPath: process.cwd(),
+            durationMs: 1,
+          },
+        };
+      },
+      async isConnected() {
+        return true;
+      },
+    };
+    const tool = allTools.find((t) => t.name === "unity_get_console_logs")!;
+    const env = await tool.run(
+      { query: "playercontroller" },
+      { bridge, projectPath: process.cwd(), configMockMode: false }
+    );
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      const data = env.data as { logs: Array<{ message: string }> };
+      expect(data.logs.map((entry) => entry.message)).toEqual(["Operation failed"]);
     }
   });
 
