@@ -115,7 +115,8 @@ export const api = {
   loopStop: () => invoke<void>("loop_stop"),
   loopFeedback: (comment: string) =>
     invoke<void>("loop_feedback", { comment }),
-  loopState: () => invoke<LoopState | null>("loop_state"),
+  loopState: (project: string) =>
+    invoke<LoopState | null>("loop_state", { project }),
 
   // Onboarding wizard. Setup + install stream progress on `onboarding:progress`.
   // The CLI steps take the backend, so only the selected agent must be present.

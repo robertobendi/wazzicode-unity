@@ -148,12 +148,17 @@ fn terminal_event(backend: Backend, info: &ExitInfo) -> TerminalEvent {
             serde_json::json!({ "friendly": "Stopped.", "raw": "Run cancelled by user." }),
         )
     } else if info.result_seen {
+        let result_text = if info.is_error {
+            info.error_text.as_ref().or(info.result_text.as_ref())
+        } else {
+            info.result_text.as_ref()
+        };
         TerminalEvent::Done(serde_json::json!({
             "sessionId": info.session_id,
             "costUsd": info.cost_usd,
             "tokens": info.tokens,
             "isError": info.is_error,
-            "resultText": info.result_text,
+            "resultText": result_text,
             "numTurns": info.num_turns,
         }))
     } else {

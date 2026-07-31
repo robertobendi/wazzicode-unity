@@ -58,6 +58,8 @@ pub struct LoopOptions {
     pub reference_images: Vec<String>,
     #[serde(default)]
     pub agent: AgentRunOptions,
+    #[serde(default)]
+    pub continuation_context: Option<String>,
 }
 
 /// Overall loop status.
@@ -98,6 +100,14 @@ pub struct LoopFeedback {
     pub applied_at_iteration: Option<u32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopFailure {
+    pub message: String,
+    pub phase: String,
+    pub iteration: u32,
+}
+
 /// One recorded iteration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,6 +141,8 @@ pub struct LoopState {
     /// the next builder boundary.
     #[serde(default)]
     pub feedback: Vec<LoopFeedback>,
+    #[serde(default)]
+    pub failure: Option<LoopFailure>,
     /// The currently-streaming sub-run id, for the live "now doing" line.
     pub current_run_id: Option<String>,
 }
@@ -196,6 +208,7 @@ impl LoopManager {
             options: options.clone(),
             warnings: Vec::new(),
             feedback: Vec::new(),
+            failure: None,
             current_run_id: None,
         };
 
@@ -269,11 +282,6 @@ impl LoopManager {
                     "This Auto mode loop is stopping or has already finished.".into(),
                 ));
             }
-            if state.current_run_id.is_none() {
-                return Err(AppError::Other(
-                    "Auto mode is between steps; add feedback when the next step starts.".into(),
-                ));
-            }
             if feedback_target_iteration(&state) >= state.options.max_iterations {
                 return Err(AppError::Other(
                     "The loop is on its final allowed step, so there is no next step for feedback."
@@ -291,12 +299,16 @@ impl LoopManager {
         Ok(())
     }
 
-    /// Current loop state (the last loop's final state persists after it ends).
-    pub async fn state(&self) -> Option<LoopState> {
+    /// Current in-memory state for `project`, or its most recently persisted
+    /// run after Studio restarts.
+    pub async fn state(&self, project: &Path) -> Option<LoopState> {
+        let project = std::fs::canonicalize(project).unwrap_or_else(|_| project.to_path_buf());
         let guard = self.active.lock().await;
         match guard.as_ref() {
-            Some(a) => Some(a.shared.state.lock().await.clone()),
-            None => None,
+            Some(active) if active.shared.project == project => {
+                Some(active.shared.state.lock().await.clone())
+            }
+            _ => load_latest_state(&project),
         }
     }
 
@@ -370,6 +382,7 @@ impl Driver {
                 &prev_summary,
                 qa_feedback.as_deref(),
                 &user_feedback,
+                self.options.continuation_context.as_deref(),
             );
             user_feedback.clear();
             let args = self.turn_args(builder_session.as_deref(), 60);
@@ -383,7 +396,7 @@ impl Driver {
             let info = match info {
                 Ok(info) => info,
                 Err(error) => {
-                    self.fail_turn(&error).await;
+                    self.fail_turn(&error, "builder", i).await;
                     return;
                 }
             };
@@ -457,7 +470,7 @@ impl Driver {
                     let qa_info = match qa_info {
                         Ok(info) => info,
                         Err(error) => {
-                            self.fail_turn(&error).await;
+                            self.fail_turn(&error, "qa", i).await;
                             return;
                         }
                     };
@@ -567,11 +580,19 @@ impl Driver {
         }
     }
 
-    async fn fail_turn(&self, error: &str) {
+    async fn fail_turn(&self, error: &str, phase: &str, iteration: u32) {
+        let message = first_meaningful_line(error);
+        {
+            let mut state = self.shared.state.lock().await;
+            state.failure = Some(LoopFailure {
+                message: message.clone(),
+                phase: phase.to_string(),
+                iteration,
+            });
+        }
         self.warn_once(&format!(
-            "{} task failed: {}",
-            self.backend().label(),
-            first_line(error)
+            "{} task failed: {message}",
+            self.backend().label()
         ))
         .await;
         self.finish(LoopStatus::Failed).await;
@@ -601,7 +622,8 @@ impl Driver {
         match res {
             Ok(Ok(sha)) => sha,
             Ok(Err(msg)) => {
-                self.warn_once(&format!("git: {}", first_line(&msg))).await;
+                self.warn_once(&format!("git: {}", first_meaningful_line(&msg)))
+                    .await;
                 None
             }
             Err(_) => None,
@@ -688,10 +710,16 @@ fn turn_failure(backend: Backend, info: &ExitInfo) -> Option<String> {
     }
     if info.is_error {
         return info
-            .result_text
+            .error_text
             .as_deref()
             .filter(|text| !text.trim().is_empty())
             .or_else(|| (!info.stderr_tail.trim().is_empty()).then_some(info.stderr_tail.as_str()))
+            .or_else(|| {
+                info.result_text.as_deref().filter(|text| {
+                    let trimmed = text.trim_start();
+                    !trimmed.is_empty() && !trimmed.starts_with("```json")
+                })
+            })
             .map(str::to_string)
             .or_else(|| Some(format!("{} returned an error.", backend.label())));
     }
@@ -712,6 +740,55 @@ async fn persist_and_emit(app: &AppHandle, shared: &LoopShared) {
         let _ = std::fs::write(shared.dir.join("state.json"), bytes);
     }
     let _ = app.emit("loop:update", &snapshot);
+}
+
+fn load_latest_state(project: &Path) -> Option<LoopState> {
+    let root = project.join(".unity-vibe").join("loop");
+    let mut candidates = std::fs::read_dir(root)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("state.json"))
+        .filter_map(|path| {
+            let modified = std::fs::metadata(&path).ok()?.modified().ok()?;
+            Some((modified, path))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| right.cmp(left));
+
+    for (_, path) in candidates {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(mut state) = serde_json::from_slice::<LoopState>(&bytes) else {
+            continue;
+        };
+        if state.status.is_active() {
+            let run_id = state.current_run_id.as_deref().unwrap_or("");
+            let phase = if run_id.ends_with(":qa") {
+                "qa"
+            } else {
+                "builder"
+            };
+            let iteration = run_id
+                .split(':')
+                .rev()
+                .nth(1)
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(state.iterations.len() as u32);
+            state.status = LoopStatus::Failed;
+            state.current_run_id = None;
+            state.failure = Some(LoopFailure {
+                message: "Studio closed while this agent step was still running.".into(),
+                phase: phase.into(),
+                iteration,
+            });
+            if let Ok(updated) = serde_json::to_vec_pretty(&state) {
+                let _ = std::fs::write(&path, updated);
+            }
+        }
+        return Some(state);
+    }
+    None
 }
 
 // --- git checkpoint (blocking) -------------------------------------------------
@@ -767,12 +844,24 @@ fn builder_prompt(
     prev_summary: &str,
     qa_feedback: Option<&str>,
     user_feedback: &[String],
+    continuation_context: Option<&str>,
 ) -> String {
     let refs = reference_block(images);
     let feedback = feedback_block(user_feedback);
     if i == 0 {
+        let continuation = continuation_context
+            .filter(|context| !context.trim().is_empty())
+            .map(|context| {
+                format!(
+                    "\n\nCONTINUATION CONTEXT:\n{}\n\nThis is not a blank-slate first step. Inspect the current project state and implement the NEXT remaining increment.",
+                    context.trim()
+                )
+            })
+            .unwrap_or_else(|| {
+                "\n\nThis is the first iteration. Implement the FIRST small, safe increment toward the goal — do not attempt everything at once.".into()
+            });
         format!(
-            "You are an autonomous Unity build agent working toward a goal, one small increment at a time.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}{feedback}\n\nThis is the first iteration. Implement the FIRST small, safe increment toward the goal — do not attempt everything at once.{BUILDER_TAIL}"
+            "You are an autonomous Unity build agent working toward a goal, one small increment at a time.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}{feedback}{continuation}{BUILDER_TAIL}"
         )
     } else {
         let qa = match qa_feedback {
@@ -820,11 +909,12 @@ fn trim_summary(s: &str, max: usize) -> String {
     }
 }
 
-fn first_line(s: &str) -> String {
+fn first_meaningful_line(s: &str) -> String {
     s.lines()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("")
-        .trim()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with("```") && *line != "{" && *line != "}")
+        .unwrap_or("The agent stopped unexpectedly.")
+        .trim_matches(|character| character == '"' || character == ',')
         .to_string()
 }
 
@@ -858,9 +948,32 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
 
+    fn test_state() -> LoopState {
+        LoopState {
+            loop_id: "loop".into(),
+            goal: "goal".into(),
+            reference_images: vec![],
+            status: LoopStatus::Running,
+            iterations: vec![],
+            total_cost_usd: 0.0,
+            options: LoopOptions {
+                max_iterations: 10,
+                max_cost_usd: 5.0,
+                qa_every: 1,
+                reference_images: vec![],
+                agent: AgentRunOptions::default(),
+                continuation_context: None,
+            },
+            warnings: vec![],
+            feedback: vec![],
+            failure: None,
+            current_run_id: Some("loop:1:0:builder".into()),
+        }
+    }
+
     #[test]
     fn builder_prompt_switches_on_iteration() {
-        let first = builder_prompt(0, "make a cube", &[], "", None, &[]);
+        let first = builder_prompt(0, "make a cube", &[], "", None, &[], None);
         assert!(first.contains("first iteration"));
         assert!(first.contains("make a cube"));
         assert!(first.contains("```json"));
@@ -872,12 +985,26 @@ mod tests {
             "added a plane",
             Some("cube is the wrong colour"),
             &["Make it twice as large.".into()],
+            None,
         );
         assert!(later.contains("Previous iteration summary: added a plane"));
         assert!(later.contains("cube is the wrong colour"));
         assert!(later.contains("/tmp/ref.png"));
         assert!(later.contains("USER FEEDBACK"));
         assert!(later.contains("Make it twice as large."));
+
+        let continued = builder_prompt(
+            0,
+            "make a cube",
+            &[],
+            "",
+            None,
+            &[],
+            Some("Step 1 already added the cube."),
+        );
+        assert!(continued.contains("CONTINUATION CONTEXT"));
+        assert!(continued.contains("Step 1 already added the cube."));
+        assert!(continued.contains("not a blank-slate first step"));
     }
 
     #[test]
@@ -916,6 +1043,17 @@ mod tests {
             .unwrap()
             .contains("Sign in"));
 
+        let partial = ExitInfo {
+            is_error: true,
+            result_seen: true,
+            result_text: Some("```json\n{\"status\":\"continue\"}\n```".into()),
+            ..ExitInfo::default()
+        };
+        assert_eq!(
+            turn_failure(Backend::Codex, &partial).as_deref(),
+            Some("Codex returned an error.")
+        );
+
         let valid = ExitInfo {
             result_seen: true,
             result_text: Some("done".into()),
@@ -933,24 +1071,7 @@ mod tests {
         assert!(normalize_feedback("   ").is_err());
         assert!(normalize_feedback(&"x".repeat(2_001)).is_err());
 
-        let mut state = LoopState {
-            loop_id: "loop".into(),
-            goal: "goal".into(),
-            reference_images: vec![],
-            status: LoopStatus::Running,
-            iterations: vec![],
-            total_cost_usd: 0.0,
-            options: LoopOptions {
-                max_iterations: 10,
-                max_cost_usd: 5.0,
-                qa_every: 1,
-                reference_images: vec![],
-                agent: AgentRunOptions::default(),
-            },
-            warnings: vec![],
-            feedback: vec![],
-            current_run_id: Some("loop:1:0:builder".into()),
-        };
+        let mut state = test_state();
         assert_eq!(feedback_target_iteration(&state), 1);
         state.current_run_id = Some("loop:1:0:qa".into());
         state.iterations.push(LoopIteration {
@@ -963,5 +1084,29 @@ mod tests {
             qa: None,
         });
         assert_eq!(feedback_target_iteration(&state), 1);
+    }
+
+    #[test]
+    fn reloads_an_interrupted_run_as_recoverable_failure() {
+        let project =
+            std::env::temp_dir().join(format!("unity-vibe-loop-test-{}", nanoid::nanoid!()));
+        let loop_dir = project.join(".unity-vibe").join("loop").join("saved-loop");
+        std::fs::create_dir_all(&loop_dir).unwrap();
+
+        let mut state = test_state();
+        state.current_run_id = Some("loop:saved-loop:4:builder".into());
+        let path = loop_dir.join("state.json");
+        std::fs::write(&path, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+
+        let restored = load_latest_state(&project).unwrap();
+        assert_eq!(restored.status, LoopStatus::Failed);
+        assert_eq!(restored.current_run_id, None);
+        let failure = restored.failure.unwrap();
+        assert_eq!(failure.phase, "builder");
+        assert_eq!(failure.iteration, 4);
+
+        let persisted: LoopState = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(persisted.status, LoopStatus::Failed);
+        std::fs::remove_dir_all(project).unwrap();
     }
 }

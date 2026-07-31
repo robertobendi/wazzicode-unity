@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api } from "@/api";
 import { friendlyError } from "@/lib/errorMessages";
+import { buildContinuationContext } from "@/lib/loopRecovery";
 import { isLoopActive, type LoopOptions, type LoopState } from "@/types/loop";
 
 /**
@@ -19,8 +20,9 @@ interface LoopStoreState {
   nowDoing: string | null;
 
   /** Load any persisted loop state on startup / project switch. */
-  hydrate: () => Promise<void>;
+  hydrate: (project: string) => Promise<void>;
   start: (project: string, goal: string, options: LoopOptions) => Promise<void>;
+  continueRun: (project: string, note: string) => Promise<void>;
   stop: () => Promise<void>;
   addFeedback: (comment: string) => Promise<boolean>;
 
@@ -37,12 +39,12 @@ export const useLoopStore = create<LoopStoreState>((set, get) => ({
   feedbackError: null,
   nowDoing: null,
 
-  hydrate: async () => {
+  hydrate: async (project) => {
     try {
-      const s = await api.loopState();
+      const s = await api.loopState(project);
       set({ state: s });
     } catch {
-      // No loop yet, or backend not ready — leave as null.
+      set({ state: null });
     }
   },
 
@@ -62,6 +64,21 @@ export const useLoopStore = create<LoopStoreState>((set, get) => ({
     } finally {
       set({ starting: false });
     }
+  },
+
+  continueRun: async (project, note) => {
+    const previous = get().state;
+    if (
+      !previous ||
+      isLoopActive(previous.status) ||
+      previous.status === "done"
+    ) {
+      return;
+    }
+    await get().start(project, previous.goal, {
+      ...previous.options,
+      continuationContext: buildContinuationContext(previous, note),
+    });
   },
 
   stop: async () => {

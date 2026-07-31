@@ -68,6 +68,11 @@ pub async fn loop_feedback(
 
 /// The current (or last) loop state, or `null` if no loop has run.
 #[tauri::command]
-pub async fn loop_state(state: State<'_, AppState>) -> AppResult<Option<LoopState>> {
-    Ok(state.loops.state().await)
+pub async fn loop_state(
+    project: String,
+    state: State<'_, AppState>,
+) -> AppResult<Option<LoopState>> {
+    let project = PathBuf::from(project);
+    crate::commands::project::ensure_project_access(&project)?;
+    Ok(state.loops.state(&project).await)
 }

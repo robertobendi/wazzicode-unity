@@ -1,8 +1,14 @@
 import { useState } from "react";
+import { useChatStore } from "@/stores/useChatStore";
 import { useLoopStore } from "@/stores/useLoopStore";
-import { isLoopActive, type LoopStatus } from "@/types/loop";
+import {
+  isLoopActive,
+  type LoopState,
+  type LoopStatus,
+} from "@/types/loop";
 import { BACKENDS } from "@/types/settings";
 import { runOptionsSummary } from "@/lib/modelCatalog";
+import { failureMessage as getFailureMessage } from "@/lib/loopRecovery";
 import IterationTimeline from "./IterationTimeline";
 import GoalCard from "./GoalCard";
 
@@ -34,6 +40,13 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
   const stop = useLoopStore((s) => s.stop);
   const active = isLoopActive(state.status);
   const backend = BACKENDS[state.options.agent.backend];
+  const warnings = state.warnings.filter(
+    (warning) =>
+      !(
+        state.status === "failed" &&
+        warning.startsWith(`${backend.label} task failed:`)
+      ),
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -87,7 +100,7 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
             <StatusBanner status={state.status} agentLabel={backend.label} />
           )}
 
-          {state.warnings.map((w) => (
+          {warnings.map((w) => (
             <p
               key={w}
               className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning"
@@ -96,7 +109,7 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
             </p>
           ))}
 
-          {active && <FeedbackComposer />}
+          {!active && <RunRecap state={state} agentLabel={backend.label} />}
 
           <IterationTimeline iterations={state.iterations} />
         </div>
@@ -104,28 +117,42 @@ function RunView({ onNewGoal }: { onNewGoal: () => void }) {
 
       {/* Sticky action bar */}
       <div className="glass-bar mx-3 mb-3 rounded-2xl border px-6 py-3">
-        <div className="mx-auto flex max-w-4xl items-center justify-between">
-          <span className="text-xs text-fg-dim">
-            Step {state.iterations.length}
-            {" · "}
-            {state.options.maxIterations} max
-          </span>
-          {active ? (
-            <button
-              onClick={() => void stop()}
-              disabled={state.status === "stopping"}
-              className="rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white transition-colors duration-150 hover:brightness-110 disabled:opacity-50"
-            >
-              {state.status === "stopping" ? "Stopping…" : "Stop"}
-            </button>
-          ) : (
-            <button
-              onClick={onNewGoal}
-              className="rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-hover"
-            >
-              Start another
-            </button>
-          )}
+        <div className="mx-auto max-w-4xl">
+          {active && <FeedbackComposer />}
+          {!active && state.status !== "done" && <RecoveryComposer />}
+          <div
+            className={`flex items-center justify-between ${
+              active || state.status !== "done"
+                ? "mt-3 border-t border-white/[0.06] pt-3"
+                : ""
+            }`}
+          >
+            <span className="text-xs text-fg-dim">
+              Step {state.iterations.length}
+              {" · "}
+              {state.options.maxIterations} max
+            </span>
+            {active ? (
+              <button
+                onClick={() => void stop()}
+                disabled={state.status === "stopping"}
+                className="rounded-xl bg-danger px-5 py-2.5 text-sm font-semibold text-white transition-colors duration-150 hover:brightness-110 disabled:opacity-50"
+              >
+                {state.status === "stopping" ? "Stopping…" : "Stop"}
+              </button>
+            ) : (
+              <button
+                onClick={onNewGoal}
+                className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors duration-150 ${
+                  state.status === "done"
+                    ? "bg-accent text-white hover:bg-accent-hover"
+                    : "border border-white/10 bg-white/[0.04] text-fg-muted hover:bg-white/[0.08] hover:text-fg"
+                }`}
+              >
+                {state.status === "done" ? "Start another" : "Start a new goal"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -144,7 +171,13 @@ function FeedbackComposer() {
   const lastApplied = [...state.feedback]
     .reverse()
     .find((item) => item.appliedAtIteration !== null);
-  const accepting = state.currentRunId !== null;
+  const feedbackTarget =
+    state.currentRunId?.endsWith(":builder") === true
+      ? state.iterations.length + 1
+      : state.iterations.length;
+  const accepting =
+    state.status === "running" &&
+    feedbackTarget < state.options.maxIterations;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -155,15 +188,12 @@ function FeedbackComposer() {
   return (
     <form
       onSubmit={(event) => void submit(event)}
-      className="glass-card rounded-xl border px-4 py-3"
+      className="rounded-xl bg-black/15 px-3 py-2"
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <label
-            htmlFor="loop-feedback"
-            className="text-xs font-semibold text-fg-muted"
-          >
-            Guide the next step
+          <label htmlFor="loop-feedback" className="text-xs font-semibold text-fg">
+            Add feedback while this runs
           </label>
           <p className="mt-0.5 text-[11px] leading-relaxed text-fg-dim">
             Add feedback now. It is evaluated after the current agent turn,
@@ -187,7 +217,7 @@ function FeedbackComposer() {
           placeholder={
             accepting
               ? "Example: Keep the layout, but make the player easier to see."
-              : "Waiting for the next agent step…"
+              : "No later step is available for feedback."
           }
           className="selectable min-h-[3rem] flex-1 resize-none rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs leading-relaxed text-fg placeholder:text-fg-dim focus:border-accent/40 focus:outline-none disabled:opacity-50"
         />
@@ -219,6 +249,117 @@ function FeedbackComposer() {
         </p>
       )}
     </form>
+  );
+}
+
+function RecoveryComposer() {
+  const project = useChatStore((store) => store.project);
+  const continueRun = useLoopStore((store) => store.continueRun);
+  const starting = useLoopStore((store) => store.starting);
+  const error = useLoopStore((store) => store.error);
+  const [note, setNote] = useState("");
+
+  return (
+    <div className="rounded-xl bg-black/15 px-3 py-2">
+      <p className="text-xs font-semibold text-fg">Continue from here</p>
+      <p className="mt-0.5 text-[11px] text-fg-dim">
+        Existing changes and checkpoints stay in place. Add optional guidance,
+        then continue only the unfinished work.
+      </p>
+      <div className="mt-2 flex items-end gap-2">
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          maxLength={2000}
+          rows={2}
+          placeholder="Optional: tell the next step what to reconsider or prioritize."
+          className="selectable min-h-[3rem] flex-1 resize-none rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs leading-relaxed text-fg placeholder:text-fg-dim focus:border-accent/40 focus:outline-none"
+        />
+        <button
+          onClick={() => {
+            if (project) void continueRun(project, note);
+          }}
+          disabled={!project || starting}
+          className="shrink-0 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white hover:bg-accent-hover disabled:opacity-40"
+        >
+          {starting ? "Continuing…" : "Continue from here"}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
+    </div>
+  );
+}
+
+function RunRecap({
+  state,
+  agentLabel,
+}: {
+  state: LoopState;
+  agentLabel: string;
+}) {
+  const completed = state.iterations.filter((iteration) =>
+    iteration.summary.trim(),
+  );
+  const incomplete = state.status !== "done";
+  const failure =
+    state.status === "failed" ? getFailureMessage(state, agentLabel) : null;
+
+  return (
+    <section className="glass-card rounded-xl border px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-fg">Run recap</h3>
+          <p className="mt-0.5 text-xs text-fg-dim">
+            {state.iterations.length} completed step
+            {state.iterations.length === 1 ? "" : "s"} preserved in the current
+            project.
+          </p>
+        </div>
+        {failure && (
+          <span className="rounded-full bg-danger/10 px-2 py-0.5 text-[10px] font-medium text-danger">
+            Interrupted
+          </span>
+        )}
+      </div>
+
+      {completed.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-fg-dim">
+            What was done
+          </p>
+          <ol className="mt-1.5 max-h-40 space-y-1.5 overflow-y-auto pr-2 text-xs leading-relaxed text-fg-muted">
+            {completed.map((iteration) => (
+              <li key={iteration.index}>
+                <span className="mr-1.5 font-mono text-fg-dim">
+                  {iteration.index + 1}.
+                </span>
+                {iteration.summary}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {failure && (
+        <div className="mt-3 rounded-lg bg-danger/10 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-danger">
+            Why it stopped
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-fg-muted">{failure}</p>
+        </div>
+      )}
+
+      <div className="mt-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-fg-dim">
+          {incomplete ? "What remains" : "Result"}
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+          {incomplete
+            ? "The original goal was not confirmed complete. Continuing will inspect the current project and resume with the remaining work without reverting completed steps."
+            : "The builder and final review confirmed the original goal complete."}
+        </p>
+      </div>
+    </section>
   );
 }
 

@@ -63,7 +63,7 @@ export default function App() {
 
   // Load any persisted auto-mode loop for the open project.
   useEffect(() => {
-    if (project) void hydrateLoop();
+    if (project) void hydrateLoop(project);
   }, [project, hydrateLoop]);
 
   // Poll the Unity bridge whenever a project is open; capture raw debug events;

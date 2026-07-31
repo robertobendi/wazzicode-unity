@@ -22,6 +22,8 @@ export interface LoopOptions {
   qaEvery: number;
   referenceImages: string[];
   agent: AgentRunOptions;
+  /** Existing-work context injected into the first builder step after recovery. */
+  continuationContext?: string | null;
 }
 
 export interface QaResult {
@@ -36,6 +38,13 @@ export interface LoopFeedback {
   createdAtMs: number;
   /** Null while queued; otherwise the zero-based builder step that received it. */
   appliedAtIteration: number | null;
+}
+
+export interface LoopFailure {
+  message: string;
+  phase: "builder" | "qa";
+  /** Zero-based step that failed. */
+  iteration: number;
 }
 
 export interface LoopIteration {
@@ -58,6 +67,7 @@ export interface LoopState {
   options: LoopOptions;
   warnings: string[];
   feedback: LoopFeedback[];
+  failure: LoopFailure | null;
   currentRunId: string | null;
 }
 

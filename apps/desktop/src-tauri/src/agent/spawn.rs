@@ -46,6 +46,9 @@ pub struct ExitInfo {
     pub tokens: Option<u64>,
     pub is_error: bool,
     pub result_text: Option<String>,
+    /// Explicit error payload from the agent protocol, kept separate from the
+    /// last assistant message so a partial result is never shown as the cause.
+    pub error_text: Option<String>,
     pub num_turns: Option<u64>,
     /// A terminal "the run produced an answer" line was seen.
     pub result_seen: bool,
@@ -193,6 +196,7 @@ pub fn spawn_streaming(
             tokens: captured.tokens,
             is_error: captured.is_error,
             result_text: captured.result_text,
+            error_text: captured.error_text,
             num_turns: captured.num_turns,
             result_seen: captured.result_seen,
             cancelled: cancelled.load(Ordering::SeqCst),
@@ -246,6 +250,7 @@ pub struct Captured {
     pub tokens: Option<u64>,
     pub is_error: bool,
     pub result_text: Option<String>,
+    pub error_text: Option<String>,
     pub num_turns: Option<u64>,
     pub result_seen: bool,
 }
@@ -276,6 +281,9 @@ fn capture_claude(c: &mut Captured, v: &serde_json::Value) {
             c.is_error = v.get("is_error").and_then(|b| b.as_bool()).unwrap_or(false);
             if let Some(r) = v.get("result").and_then(|s| s.as_str()) {
                 c.result_text = Some(r.to_string());
+                if c.is_error {
+                    c.error_text = Some(r.to_string());
+                }
             }
             if let Some(n) = v.get("num_turns").and_then(|n| n.as_u64()) {
                 c.num_turns = Some(n);

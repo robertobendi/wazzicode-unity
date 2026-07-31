@@ -213,13 +213,17 @@ pub fn capture(c: &mut super::spawn::Captured, v: &serde_json::Value) {
                 .and_then(|e| e.get("message"))
                 .and_then(|m| m.as_str())
             {
-                c.result_text = Some(msg.to_string());
+                let message = msg.to_string();
+                c.result_text = Some(message.clone());
+                c.error_text = Some(message);
             }
         }
         "error" => {
             c.is_error = true;
             if let Some(msg) = v.get("message").and_then(|m| m.as_str()) {
-                c.result_text = Some(msg.to_string());
+                let message = msg.to_string();
+                c.result_text = Some(message.clone());
+                c.error_text = Some(message);
             }
         }
         _ => {}
@@ -454,5 +458,21 @@ mod tests {
         assert!(f.is_error);
         assert!(f.result_seen);
         assert_eq!(f.result_text.as_deref(), Some("boom"));
+        assert_eq!(f.error_text.as_deref(), Some("boom"));
+
+        let mut partial = Captured::default();
+        capture(
+            &mut partial,
+            &serde_json::json!({"type":"item.completed",
+                "item":{"type":"agent_message","text":"```json\n{\"status\":\"continue\"}\n```"}}),
+        );
+        capture(&mut partial, &serde_json::json!({"type":"error"}));
+        assert!(partial.is_error);
+        assert!(partial.error_text.is_none());
+        assert!(partial
+            .result_text
+            .as_deref()
+            .unwrap()
+            .starts_with("```json"));
     }
 }
