@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { api } from "@/api";
 import { useSettingsStore } from "@/stores/useSettingsStore";
 import { useChatStore } from "@/stores/useChatStore";
 import { useUiStore } from "@/stores/useUiStore";
@@ -15,6 +16,7 @@ import PairingScreen from "@/components/pairing/PairingScreen";
 import CodexAuthScreen from "@/components/codex/CodexAuthScreen";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 import ProjectPicker from "@/components/project/ProjectPicker";
+import ProjectMapDrawer from "@/components/project/ProjectMapDrawer";
 import ChatView from "@/components/chat/ChatView";
 import SessionRail from "@/components/chat/SessionRail";
 import LoopPanel from "@/components/loop/LoopPanel";
@@ -23,6 +25,14 @@ import TopBar from "@/components/shell/TopBar";
 import ConnectionBanner from "@/components/shell/ConnectionBanner";
 import DebugDrawer from "@/components/shell/DebugDrawer";
 import ToastHost from "@/components/shell/Toast";
+import type { ProjectInfo } from "@/types/project";
+
+interface ProjectReadiness {
+  path: string;
+  checking: boolean;
+  info: ProjectInfo | null;
+  error: string | null;
+}
 
 export default function App() {
   const { settings, load } = useSettingsStore();
@@ -41,6 +51,50 @@ export default function App() {
   }, [load]);
 
   const project = settings?.currentProject ?? null;
+  const [projectReadiness, setProjectReadiness] =
+    useState<ProjectReadiness | null>(null);
+
+  // A persisted project may predate the project knowledge store. Inspect it
+  // before mounting chat so it is explicitly prepared instead of silently
+  // opening without the context future tasks rely on.
+  useEffect(() => {
+    if (!project || !settings?.onboarded) {
+      setProjectReadiness(null);
+      return;
+    }
+    let alive = true;
+    setProjectReadiness({
+      path: project,
+      checking: true,
+      info: null,
+      error: null,
+    });
+    void api
+      .validateUnityProject(project)
+      .then((info) => {
+        if (alive) {
+          setProjectReadiness({
+            path: project,
+            checking: false,
+            info,
+            error: null,
+          });
+        }
+      })
+      .catch((error) => {
+        if (alive) {
+          setProjectReadiness({
+            path: project,
+            checking: false,
+            info: null,
+            error: String(error),
+          });
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [project, settings?.onboarded]);
 
   function leaveAuthentication() {
     setRepairing(false);
@@ -124,9 +178,48 @@ export default function App() {
     return <ProjectPicker />;
   }
 
+  if (
+    !projectReadiness ||
+    projectReadiness.path !== project ||
+    projectReadiness.checking
+  ) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-ink-950 text-sm text-fg-dim">
+        Checking project map…
+      </div>
+    );
+  }
+
+  if (
+    projectReadiness.error ||
+    !projectReadiness.info?.ok ||
+    !projectReadiness.info.brainReady
+  ) {
+    return (
+      <ProjectPicker
+        initialCandidate={projectReadiness.info}
+        initialError={
+          projectReadiness.error ??
+          (projectReadiness.info?.ok
+            ? null
+            : "The selected folder is no longer a valid Unity project.")
+        }
+        onOpened={(info) =>
+          setProjectReadiness({
+            path: info.path,
+            checking: false,
+            info,
+            error: null,
+          })
+        }
+      />
+    );
+  }
+
   return (
     <div className="app-shell flex h-full w-full flex-col bg-ink-950 text-fg">
       <TopBar />
+      <ProjectMapDrawer project={project} />
       <ConnectionBanner />
       <div className="relative flex min-h-0 flex-1">
         {mode === "auto" ? (

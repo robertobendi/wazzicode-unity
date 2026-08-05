@@ -1,6 +1,7 @@
 import { AnyToolDef } from "../registry.js";
 import { unityProjectSummary } from "./unityProjectSummary.js";
 import { unityGenerateProjectBrain } from "./unityGenerateProjectBrain.js";
+import { unityQueryProjectBrain } from "./unityQueryProjectBrain.js";
 import { unityGetOpenScenes } from "./unityGetOpenScenes.js";
 import { unityGetSceneHierarchy } from "./unityGetSceneHierarchy.js";
 import { unityInspectSelected } from "./unityInspectSelected.js";
@@ -84,6 +85,7 @@ export const allTools: AnyToolDef[] = [
   unityManageTools,
   unityProjectSummary,
   unityGenerateProjectBrain,
+  unityQueryProjectBrain,
   unityGetOpenScenes,
   unityGetSceneHierarchy,
   unityInspectSelected,
@@ -167,6 +169,7 @@ export const allTools: AnyToolDef[] = [
 export {
   unityProjectSummary,
   unityGenerateProjectBrain,
+  unityQueryProjectBrain,
   unityGetOpenScenes,
   unityGetSceneHierarchy,
   unityInspectSelected,

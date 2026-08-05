@@ -62,6 +62,7 @@ describe("mcp-server/registry", () => {
       "unity_paint_tilemap",
       "unity_project_summary",
       "unity_qa",
+      "unity_query_project_brain",
       "unity_read_script",
       "unity_reflect",
       "unity_refresh_assets",

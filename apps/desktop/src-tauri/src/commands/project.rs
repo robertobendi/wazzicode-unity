@@ -22,6 +22,9 @@ pub struct ProjectInfo {
     pub has_project_settings: bool,
     /// `.unity-vibe/config.json` exists — the project has been `uvibe init`-ed.
     pub uvibe_initialized: bool,
+    /// The canonical knowledge manifest exists — `uvibe brain` completed at
+    /// least once for this project.
+    pub brain_ready: bool,
     /// `safetyMode` from that config (read_only / confirm / autopilot), if any.
     pub safety_mode: Option<String>,
 }
@@ -39,6 +42,7 @@ pub fn inspect_project(path: String) -> ProjectInfo {
     let unity_version = read_unity_version(&root);
     let config = root.join(".unity-vibe").join("config.json");
     let uvibe_initialized = config.is_file();
+    let brain_ready = crate::commands::project_map::project_map_is_initialized(&root);
     let safety_mode = if uvibe_initialized {
         read_safety_mode(&config)
     } else {
@@ -57,6 +61,7 @@ pub fn inspect_project(path: String) -> ProjectInfo {
         has_assets,
         has_project_settings,
         uvibe_initialized,
+        brain_ready,
         safety_mode,
     }
 }

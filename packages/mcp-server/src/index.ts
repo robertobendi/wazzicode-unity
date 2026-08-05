@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z, ZodRawShape } from "zod";
 import { PRODUCT_VERSION, ToolEnvelope, err } from "@uvibe/core";
 import { BridgeClient, createHttpBridgeClient, HttpBridgeOptions, timeoutForMethod } from "@uvibe/bridge-client";
+import { ensureBrainCurrent, readKnowledgeBase, type KnowledgeBase } from "@uvibe/project-brain";
 import { createMockBridgeClient } from "./mockBridge.js";
 import { allTools } from "./tools/index.js";
 import { AnyToolDef, ToolContext } from "./registry.js";
@@ -72,7 +73,9 @@ export function createServer(ctx: ToolContext): McpServer {
     },
     {
       // Delivered to Claude Code on connect — teaches the toolset + workflows in the user's project.
-      instructions: SERVER_INSTRUCTIONS,
+      instructions: ctx.projectKnowledgePrimer
+        ? `${SERVER_INSTRUCTIONS}\n\n${ctx.projectKnowledgePrimer}`
+        : SERVER_INSTRUCTIONS,
     }
   );
 
@@ -122,9 +125,33 @@ export function createServer(ctx: ToolContext): McpServer {
 
 export async function startMcpServer(opts: ServeOptions = {}): Promise<void> {
   const ctx = buildContext(opts);
+  try {
+    await ensureBrainCurrent(ctx.projectPath);
+    const knowledge = await readKnowledgeBase(ctx.projectPath);
+    if (knowledge) ctx.projectKnowledgePrimer = renderKnowledgePrimer(knowledge);
+  } catch {
+    // Orientation/query tools surface knowledge errors without preventing MCP startup.
+  }
   const server = createServer(ctx);
   const transport = new StdioServerTransport();
   await server.connect(transport);
+}
+
+function renderKnowledgePrimer(knowledge: KnowledgeBase): string {
+  const { manifest, entities } = knowledge;
+  const modules = entities
+    .filter((entity) => entity.kind === "module" && entity.scope === "first-party")
+    .map((entity) => entity.name)
+    .slice(0, 12);
+  const coverage = manifest.coverage.complete
+    ? "complete"
+    : `partial (${manifest.coverage.scanned}/${manifest.coverage.discovered} files)`;
+  return [
+    "CURRENT PROJECT MAP (generated, bounded primer)",
+    `Project: ${manifest.project.name}. Coverage: ${coverage}. First-party scripts: ${manifest.coverage.counts.firstPartyScripts}.`,
+    modules.length ? `Modules: ${modules.join(", ")}.` : "Modules: none detected.",
+    "Use unity_query_project_brain for source-backed details; do not infer facts from this compact primer.",
+  ].join("\n");
 }
 
 export {
@@ -139,5 +166,11 @@ export type { ToolContext, ToolDef } from "./registry.js";
 export { ToolGroupController, defaultActiveGroups, groupOf, isKnownGroup, TOOL_GROUPS } from "./groups.js";
 export { toolAnnotations, type ToolAnnotations } from "./annotations.js";
 export { UNITY_PROMPTS, registerPrompts } from "./prompts.js";
-export { registerResources, readSceneHierarchyResource, readConsoleResource, readActionLogResource } from "./resources.js";
+export {
+  registerResources,
+  readSceneHierarchyResource,
+  readConsoleResource,
+  readActionLogResource,
+  readProjectBrainResource,
+} from "./resources.js";
 export { SERVER_INSTRUCTIONS } from "./instructions.js";

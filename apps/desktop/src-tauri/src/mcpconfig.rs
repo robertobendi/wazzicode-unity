@@ -17,6 +17,7 @@
 use crate::error::AppResult;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use tauri::{AppHandle, Manager};
 
 /// The `unity-vibe-os` MCP server as a backend-neutral triple. Rendered to JSON
@@ -93,6 +94,30 @@ pub fn resolve_uvibe(app: &AppHandle) -> (String, Vec<String>) {
     }
     log::warn!("uvibe CLI not found (no bundled sidecar, not in monorepo); falling back to `uvibe` on PATH");
     ("uvibe".into(), Vec::new())
+}
+
+/// Build a subprocess for a previously resolved uvibe command/prefix.
+///
+/// Resolution stays on the Tauri thread because it may use app resources;
+/// callers can then move the returned command into a blocking worker. Absolute
+/// bundled/dev commands and the PATH fallback receive the same augmented PATH
+/// and non-interactive stdin behavior as the rest of Studio's subprocesses.
+pub fn resolved_uvibe_command(
+    command: &str,
+    prefix: &[String],
+    args: &[String],
+) -> AppResult<Command> {
+    let mut cmd = if command.contains('/') || command.contains('\\') {
+        let mut cmd = Command::new(command);
+        cmd.env("PATH", crate::proc::search_path());
+        cmd.stdin(Stdio::null());
+        crate::proc::no_window(&mut cmd);
+        cmd
+    } else {
+        crate::proc::command(command)?
+    };
+    cmd.args(prefix).args(args);
+    Ok(cmd)
 }
 
 /// Source folder of the `UnityVibeOS` UPM package to install into a project:

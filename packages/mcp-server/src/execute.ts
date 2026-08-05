@@ -1,4 +1,5 @@
 import { ToolEnvelope, err } from "@uvibe/core";
+import { markBrainDirty } from "@uvibe/project-brain";
 import { appendAction, createSnapshot, gateTool, loadConfig } from "@uvibe/safety";
 import { AnyToolDef, ToolContext } from "./registry.js";
 
@@ -64,7 +65,46 @@ async function runGatedWrite(
         ? (env.data as { summary: string }).summary
         : undefined,
   });
+  if (env.ok && shouldInvalidateKnowledge(tool, parsed, env.data)) {
+    await safeMarkKnowledgeDirty(ctx.projectPath, describeKnowledgeChange(tool, parsed));
+  }
   return env;
+}
+
+function shouldInvalidateKnowledge(
+  tool: AnyToolDef,
+  args: Record<string, unknown>,
+  data: unknown
+): boolean {
+  if (args.preview === true) {
+    const applied =
+      typeof data === "object" &&
+      data !== null &&
+      (data as { applied?: unknown }).applied === true;
+    if (!applied) return false;
+  }
+  switch (tool.writeTarget) {
+    case "script":
+    case "asset":
+    case "prefab":
+    case "editor":
+    case "code":
+      return true;
+    case "scene":
+      return tool.name === "unity_save_scene";
+    case "console":
+    default:
+      return false;
+  }
+}
+
+function describeKnowledgeChange(
+  tool: AnyToolDef,
+  args: Record<string, unknown>
+): string {
+  const pathValue = [args.path, args.assetPath, args.scenePath, args.prefabPath]
+    .find((value): value is string => typeof value === "string" && value.length > 0);
+  return pathValue ? `${tool.name}: ${pathValue}` : tool.name;
 }
 
 async function safeAppend(projectPath: string, entry: Parameters<typeof appendAction>[1]): Promise<void> {
@@ -72,5 +112,13 @@ async function safeAppend(projectPath: string, entry: Parameters<typeof appendAc
     await appendAction(projectPath, entry);
   } catch {
     // Never let action-logging failure break a tool call.
+  }
+}
+
+async function safeMarkKnowledgeDirty(projectPath: string, change: string): Promise<void> {
+  try {
+    await markBrainDirty(projectPath, change);
+  } catch {
+    // A maintenance failure must not turn a successful Unity edit into a failure.
   }
 }

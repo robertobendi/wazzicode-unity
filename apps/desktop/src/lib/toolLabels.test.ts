@@ -98,6 +98,7 @@ describe("toolLabel", () => {
     "unity_paint_tilemap",
     "unity_project_summary",
     "unity_qa",
+    "unity_query_project_brain",
     "unity_read_script",
     "unity_reflect",
     "unity_refresh_assets",
@@ -138,6 +139,6 @@ describe("toolLabel", () => {
   });
 
   it("covers the expected number of unity tools", () => {
-    expect(UNITY_TOOL_NAMES).toHaveLength(72);
+    expect(UNITY_TOOL_NAMES).toHaveLength(73);
   });
 });

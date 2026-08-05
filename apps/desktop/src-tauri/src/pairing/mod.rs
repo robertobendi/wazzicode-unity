@@ -36,7 +36,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 mod parse;
-pub use parse::verify_probe;
+pub use parse::verify_subscription_status;
 use parse::{
     failure_reason, find_oauth_url, find_token, looks_like_prompt, redact_tokens, strip_ansi, tail,
 };
@@ -52,7 +52,7 @@ const PTY_ROWS: u16 = 50;
 const OVERALL_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// How long after code submission we let `claude setup-token` linger before
-/// killing it on purpose and letting the verify probe decide. The CLI keeps
+/// killing it on purpose and letting the candidate-token check decide. The CLI keeps
 /// its TUI open after a successful login (observed live), so "wait for exit"
 /// alone would hang until OVERALL_TIMEOUT and then wrongly report failure.
 const POST_SUBMIT_GRACE_SECS: u64 = 90;
@@ -393,7 +393,7 @@ impl PairingManager {
             let mut url_seen = false;
             let mut prompt_seen = false;
             let mut token_seen = false;
-            let mut captured_token: Option<String> = None;
+            let mut captured_token: Option<SetupTokenCandidate> = None;
             let mut oauth_url: Option<String> = None;
 
             loop {
@@ -452,7 +452,7 @@ impl PairingManager {
                                 continue;
                             };
                             token_seen = true;
-                            captured_token = Some(token);
+                            captured_token = Some(SetupTokenCandidate::captured(token));
                             log::info!("pairing {id}: exchange succeeded; resolving early");
                             intentional.store(true, Ordering::SeqCst);
                             let mut st = PairingState::idle();
@@ -481,7 +481,7 @@ impl PairingManager {
             let raw_tail = tail(&stripped, RAW_TAIL_BYTES);
             let did_timeout = timed_out.load(Ordering::SeqCst);
             // An intentional kill (token captured, or post-submit grace) is a
-            // success path: the verify probe is the honest arbiter, not the
+            // success path: the candidate-token check is the honest arbiter, not the
             // exit status of a child we killed ourselves.
             let intentional_finish = intentional.load(Ordering::SeqCst);
             let exit_ok = intentional_finish
@@ -489,7 +489,7 @@ impl PairingManager {
 
             let outcome = if exit_ok {
                 captured_token
-                    .as_deref()
+                    .as_ref()
                     .map(|token| resolve_outcome(token, &shared, &id))
                     .unwrap_or_else(|| {
                         Outcome::Failed("Claude finished pairing without returning a token.".into())
@@ -536,16 +536,31 @@ enum Outcome {
     Failed(String),
 }
 
+/// A credential seen only in the stdout of the exact `claude setup-token`
+/// child launched above. Keeping the constructor private makes subscription
+/// provenance a code invariant for the one inference-based token check.
+struct SetupTokenCandidate(String);
+
+impl SetupTokenCandidate {
+    fn captured(token: String) -> Self {
+        Self(token)
+    }
+
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Verify the candidate directly, then promote it. A bad re-pair never
 /// overwrites the last working credential.
-fn resolve_outcome(token: &str, shared: &Shared, pairing_id: &str) -> Outcome {
-    if parse::verify_probe_with_token(token).is_err() {
+fn resolve_outcome(token: &SetupTokenCandidate, shared: &Shared, pairing_id: &str) -> Outcome {
+    if parse::verify_setup_token_candidate(token.expose()).is_err() {
         return Outcome::Failed(
             "Pairing finished but the account check didn't pass. Please try again.".into(),
         );
     }
 
-    match shared.store_token_if_active(pairing_id, token) {
+    match shared.store_token_if_active(pairing_id, token.expose()) {
         Ok(true) => Outcome::Paired,
         Ok(false) => Outcome::Failed("This pairing is no longer active.".into()),
         Err(error) => Outcome::Failed(format!("The token couldn't be saved securely: {error}")),

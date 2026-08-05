@@ -57,7 +57,7 @@ export async function runSetup(g: GlobalOptions, parsed: ParsedArgs): Promise<Co
 
   // Step 3: project brain
   log("");
-  log("[3/5] brain  — .unity-vibe/project_brain.{md,json}, claude_context.md");
+  log("[3/5] brain  — complete source-backed map under .unity-vibe/knowledge/");
   const brainRes = await runBrain(g);
   if (brainRes.exitCode !== 0) return passthrough(brainRes, lines);
   pushIndented(lines, brainRes.stdout);

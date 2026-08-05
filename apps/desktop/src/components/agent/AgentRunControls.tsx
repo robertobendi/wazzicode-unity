@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api";
 import {
+  customModelRunOptions,
   effortLabel,
   effortsForModel,
   repairRunOptions,
@@ -95,11 +96,7 @@ export default function AgentRunControls({
       setCustomMode(true);
       const nextModel = listedModel ? "" : (value.model ?? "");
       setCustomModel(nextModel);
-      onChange({
-        ...value,
-        model: nextModel.trim() || null,
-        effort: value.backend === "codex" ? null : value.effort,
-      });
+      onChange(customModelRunOptions(value, nextModel));
       return;
     }
     setCustomMode(false);
@@ -120,7 +117,7 @@ export default function AgentRunControls({
           onChange={(event) => chooseModel(event.target.value)}
           className="mt-1 w-full rounded-lg border border-ink-700 bg-ink-900 px-2.5 py-2 text-sm text-fg focus:border-ink-600 focus:outline-none disabled:opacity-50"
         >
-          <option value="">Default — let the CLI choose</option>
+          <option value="">CLI-selected model</option>
           {catalog.map((model) => (
             <option key={model.id} value={model.id}>
               {model.label}
@@ -142,11 +139,7 @@ export default function AgentRunControls({
             onChange={(event) => {
               const model = event.target.value;
               setCustomModel(model);
-              onChange({
-                ...value,
-                model: model.trim() || null,
-                effort: value.backend === "codex" ? null : value.effort,
-              });
+              onChange(customModelRunOptions(value, model));
             }}
             className="selectable w-full rounded-lg border border-ink-700 bg-ink-900 px-2.5 py-2 font-mono text-xs text-fg placeholder:text-fg-dim focus:border-ink-600 focus:outline-none disabled:opacity-50"
           />
@@ -156,11 +149,13 @@ export default function AgentRunControls({
       <fieldset disabled={disabled}>
         <legend className="text-xs font-medium text-fg-muted">Thinking</legend>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
-          <EffortButton
-            label="Automatic"
-            selected={!value.effort}
-            onClick={() => onChange({ ...value, effort: null })}
-          />
+          {customMode && (
+            <EffortButton
+              label="CLI-selected"
+              selected={!value.effort}
+              onClick={() => onChange({ ...value, effort: null })}
+            />
+          )}
           {efforts.map((effort) => (
             <EffortButton
               key={effort}

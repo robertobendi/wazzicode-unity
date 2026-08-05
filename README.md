@@ -56,7 +56,7 @@ Write a PlayerController that moves with WASD and jumps. Verify it compiles and 
 ```
 
 ```
-Generate the project brain so future Claude sessions understand this game.
+Refresh the project map, then show me its coverage and main systems.
 ```
 
 ```
@@ -74,7 +74,7 @@ The MCP server already briefs Claude on the full toolset when it connects (see `
 ```text
 This project has the unity-vibe-os MCP server connected — live unity_* tools over the running Unity Editor. The server briefs you on the full toolset on connect, so follow that; this is just my house style.
 
-- Start every task with unity_orient (one call: summary, open scenes, selection, compile status, errors, git). UNITY_NOT_CONNECTED → tell me to open the Unity Editor and stop. UNITY_RELOADING → just retry, it's mid-compile.
+- Start every task with unity_orient and pass the current request as `task` (one call: project-map matches, summary, open scenes, selection, compile status, errors, git). Use unity_query_project_brain for deeper project questions. UNITY_NOT_CONNECTED → tell me to open the Unity Editor and stop. UNITY_RELOADING → just retry, it's mid-compile.
 - Before writing C# against any Unity/package API, confirm it exists with unity_reflect. You can author code directly (unity_create_script / unity_apply_text_edits / unity_script_edit) — don't hand me code to paste.
 - After ANY C# change, run unity_verify (compile → console → tests, one verdict). Don't claim it works until it passes.
 - "this object" / "the selected one" → unity_inspect_selected first.
@@ -125,7 +125,7 @@ Enter play mode, press jump a few times, capture the game view, and tell me if i
 
 ## 🛠 What ships
 
-- **MCP server** with **66 tools** across groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`):
+- **MCP server** with **73 tools** across groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`):
   - **Orientation & inspection** — `unity_orient` (one-call status), `unity_get_scene_hierarchy`, `unity_inspect_selected`, `unity_get_console_logs`, `unity_wait_for_compile`, `unity_check_git_status`.
   - **See it** — multimodal screenshots `unity_capture_game_view` / `unity_capture_scene_view` / `unity_capture_selected` / `unity_capture_editor_window` return real images.
   - **Write & edit C#** — `unity_read_script`, `unity_find_in_file`, `unity_create_script`, `unity_apply_text_edits`, `unity_script_edit`; verify with `unity_verify` (compile → console → tests in one call).
@@ -136,7 +136,7 @@ Enter play mode, press jump a few times, capture the game view, and tell me if i
 - **Claude Code native** — server instructions teach the toolset on connect, MCP slash commands (`/mcp__unity-vibe-os__orient | analyze_scene | diagnose_scene | verify | new_script | play_test`), `@`-mentionable resources (`unity://project-brain | conventions | action-log | scene-hierarchy | console`), and tool annotations so reads auto-run and risky writes are flagged.
 - **Unity Editor package** (`unity/UnityVibeOS`) — localhost HTTP JSON-RPC bridge, scene/selection inspectors, console + compile watch, screenshots, scene/prefab/asset mutators, script editor, reflection, in-Editor C# execution, test runner, play-mode control. Survives domain reloads; keeps working when the Editor is unfocused.
 - **CLI** (`uvibe`) — `setup`, `init`, `serve`, `brain`, `doctor`, `verify`, `mcp-config`, `install-unity-package`, `gsd-auto`.
-- **Project brain** — filesystem scan (no Unity needed) → `.unity-vibe/project_brain.{md,json}`, `claude_context.md`, `conventions.md`, `config.json`.
+- **Project map** — automatically refreshed, source-backed entity/relationship graph under `.unity-vibe/knowledge/`, bounded MCP queries, and a searchable Studio visualizer; no running Unity Editor required to scan.
 - **Mock bridge** — every MCP tool works without Unity for testing.
 - **Recovery layer** — app-managed access is ready by default, with pre-task git checkpoints, Unity Undo, automatic snapshots, and an action log.
 

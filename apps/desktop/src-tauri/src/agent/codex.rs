@@ -1,7 +1,7 @@
 //! Build the argument vector for a headless `codex exec` run, plus the capture
 //! rules for its JSONL event stream.
 //!
-//! Shape (verified against codex-cli 0.144.4 — every flag below was checked
+//! Shape (verified against codex-cli 0.145.0 — every flag below was checked
 //! against the real binary, not the docs):
 //!
 //! ```text
@@ -79,11 +79,13 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     // Unity projects aren't necessarily git repos; Codex otherwise refuses to run.
     args.push("--skip-git-repo-check".into());
 
-    // A user may previously have logged the CLI in with an API key. Force the
-    // ChatGPT mechanism for every run so the app's "never API credits" promise
-    // is enforced even when auth.json predates this app session.
-    args.push("-c".into());
-    args.push("forced_login_method='chatgpt'".into());
+    // Ignore-user-config removes custom providers; these explicit overrides
+    // also pin the built-in OpenAI provider to its ChatGPT subscription route.
+    // They are emitted after `resume`, so both command forms receive them.
+    for value in crate::codexauth::SUBSCRIPTION_CONFIG_OVERRIDES {
+        args.push("-c".into());
+        args.push((*value).into());
+    }
 
     // A headless approval prompt has no usable UI and would look like a frozen
     // task. Studio owns recovery through checkpoints, Unity Undo, snapshots and
@@ -350,9 +352,9 @@ mod tests {
                     .count(),
                 1
             );
-            assert!(args
-                .iter()
-                .any(|arg| arg == "forced_login_method='chatgpt'"));
+            for value in crate::codexauth::SUBSCRIPTION_CONFIG_OVERRIDES {
+                assert!(args.iter().any(|arg| arg == value), "missing {value}");
+            }
             if resume.is_some() {
                 let resume_at = args.iter().position(|arg| arg == "resume").unwrap();
                 let ignore_at = args

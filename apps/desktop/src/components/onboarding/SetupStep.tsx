@@ -12,6 +12,7 @@ import { PrimaryButton, SecondaryButton, Spinner, StepHeading } from "./_shared"
 const KNOWN = [
   { id: "init", label: "Setting up Unity Vibe OS" },
   { id: "install_package", label: "Installing the Unity package" },
+  { id: "brain", label: "Mapping your project" },
   { id: "access", label: "Finishing AI setup" },
   { id: "mcp_config", label: "Connecting your agent to Unity" },
   { id: "gitignore", label: "Tidying project settings" },
@@ -82,6 +83,7 @@ export default function SetupStep({
     (result?.steps ?? []).map((s) => [s.id, s]),
   );
   const allOk = result !== null && result.steps.every((s) => s.ok);
+  const brainReady = byId.get("brain")?.ok === true;
 
   function rowState(id: string): RowState {
     const done = byId.get(id);
@@ -153,7 +155,7 @@ export default function SetupStep({
         </div>
       </div>
 
-      {result && !allOk && (
+      {result && !allOk && brainReady && (
         <button
           onClick={onDone}
           className="mt-3 w-full text-center text-xs text-fg-dim transition-colors hover:text-fg-muted"

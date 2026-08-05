@@ -5,6 +5,7 @@ pub mod loops;
 pub mod onboarding;
 pub mod pairing;
 pub mod project;
+pub mod project_map;
 pub mod quick_actions;
 pub mod resources;
 pub mod revert;

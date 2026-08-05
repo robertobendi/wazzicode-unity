@@ -15,12 +15,15 @@ interface UiState {
   debugOpen: boolean;
   /** Settings popover open? */
   settingsOpen: boolean;
+  /** Project knowledge map drawer open? */
+  projectMapOpen: boolean;
   /** Admin "Re-pair account" chosen — force the pairing screen back up. */
   repairing: boolean;
   toggleActivity: () => void;
   toggleSessionRail: () => void;
   toggleDebug: () => void;
   setSettingsOpen: (open: boolean) => void;
+  setProjectMapOpen: (open: boolean) => void;
   setRepairing: (v: boolean) => void;
   setMode: (mode: AppMode) => void;
 }
@@ -51,6 +54,7 @@ export const useUiStore = create<UiState>((set) => ({
   sessionRailOpen: loadRailOpen(),
   debugOpen: false,
   settingsOpen: false,
+  projectMapOpen: false,
   repairing: false,
   toggleActivity: () => set((s) => ({ activityOpen: !s.activityOpen })),
   toggleSessionRail: () =>
@@ -61,6 +65,7 @@ export const useUiStore = create<UiState>((set) => ({
     }),
   toggleDebug: () => set((s) => ({ debugOpen: !s.debugOpen })),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+  setProjectMapOpen: (open) => set({ projectMapOpen: open }),
   setRepairing: (v) => set({ repairing: v }),
   setMode: (mode) => set({ mode }),
 }));

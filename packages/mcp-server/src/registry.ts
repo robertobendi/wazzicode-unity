@@ -13,6 +13,8 @@ export interface ToolContext {
   tools?: AnyToolDef[];
   /** Live tool-group toggle controller; set by createServer (absent in direct/test contexts). */
   toolGroups?: ToolGroupController;
+  /** Compact generated project-map context appended to the MCP server primer. */
+  projectKnowledgePrimer?: string;
 }
 
 export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unknown> {

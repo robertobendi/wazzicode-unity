@@ -33,6 +33,7 @@ const UNITY_LABELS: Record<string, string> = {
   batch: "Making several changes",
   project_summary: "Looking over the project",
   generate_project_brain: "Studying the project",
+  query_project_brain: "Consulting the project map",
   get_open_scenes: "Checking which scenes are open",
   get_scene_hierarchy: "Looking at the scene",
   inspect_selected: "Inspecting the selected object",

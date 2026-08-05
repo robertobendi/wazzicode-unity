@@ -43,6 +43,17 @@ describe("cli/brain", () => {
     await fs.access(path.join(workDir, ".unity-vibe", "claude_context.md"));
     expect(r.stdout).toContain("scenes:");
   });
+
+  it("reconciles freshness without rebuilding an unchanged map", async () => {
+    const r = await runBrain(g(), {
+      command: "brain",
+      positional: [],
+      flags: { ensure: true },
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("freshness:current");
+    expect(r.stdout).toContain("refreshed:no");
+  });
 });
 
 describe("cli/doctor", () => {

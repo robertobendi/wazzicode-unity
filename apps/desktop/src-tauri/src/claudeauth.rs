@@ -2,7 +2,9 @@
 
 use crate::error::{AppError, AppResult};
 use portable_pty::CommandBuilder;
+use serde::Deserialize;
 use std::process::Command;
+use std::time::Duration;
 
 const CREDENTIAL_SERVICE: &str = "com.wazzicode.unityvibestudio";
 const CREDENTIAL_ACCOUNT: &str = "claude-oauth-token";
@@ -10,15 +12,21 @@ const OAUTH_TOKEN_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 const OAUTH_TOKEN_FD_ENV: &str = "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR";
 const EFFORT_ENV: &str = "CLAUDE_CODE_EFFORT_LEVEL";
 const OFFICIAL_API_BASE: &str = "https://api.anthropic.com";
+const AUTH_STATUS_TIMEOUT: Duration = Duration::from_secs(10);
 const INHERITED_AUTH_ENV_VARS: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_ORGANIZATION_ID",
     "ANTHROPIC_AWS_API_KEY",
     "ANTHROPIC_BEDROCK_MANTLE_API_KEY",
     "ANTHROPIC_FOUNDRY_API_KEY",
     "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
     "ANTHROPIC_IDENTITY_TOKEN",
     "ANTHROPIC_IDENTITY_TOKEN_FILE",
+    "CLAUDE_API_KEY",
+    "CLAUDE_BRIDGE_OAUTH_TOKEN",
+    "CLAUDE_SESSION_INGRESS_TOKEN_FILE",
+    "CLAUDE_TRUSTED_DEVICE_TOKEN",
     OAUTH_TOKEN_ENV,
     "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
     "CLAUDE_CODE_OAUTH_SCOPES",
@@ -33,6 +41,8 @@ const INHERITED_AUTH_ENV_VARS: &[&str] = &[
 ];
 const INHERITED_ROUTING_ENV_VARS: &[&str] = &[
     "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_CONFIG_DIR",
+    "ANTHROPIC_MODEL",
     "ANTHROPIC_DEFAULT_FABLE_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "ANTHROPIC_DEFAULT_OPUS_MODEL",
@@ -56,6 +66,7 @@ const INHERITED_ROUTING_ENV_VARS: &[&str] = &[
     "CLAUDE_CODE_MANAGED_SETTINGS_PATH",
     "CLAUDE_CODE_REMOTE_SETTINGS_PATH",
     "CLAUDE_CODE_MOCK_REMOTE_SETTINGS",
+    "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
     "CLAUDE_CODE_CLIENT_CERT",
     "CLAUDE_CODE_CLIENT_KEY",
     "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE",
@@ -83,7 +94,25 @@ const INHERITED_ROUTING_ENV_VARS: &[&str] = &[
     "CLAUDE_CODE_USE_ANTHROPIC_AWS",
     "CLAUDE_CODE_USE_GATEWAY",
     "CLAUDE_CODE_USE_MANTLE",
+    "CLAUDE_AI_AUTHORIZE_URL",
+    "CLAUDE_BASE",
+    "CLAUDE_BRIDGE_BASE_URL",
+    "CLAUDE_BRIDGE_SESSION_INGRESS_URL",
+    "CLAUDE_CONFIG_DIR",
+    "CLAUDE_LOCAL_OAUTH_API_BASE",
+    "CLAUDE_LOCAL_OAUTH_APPS_BASE",
+    "CLAUDE_LOCAL_OAUTH_CONSOLE_BASE",
+    "CLAUDE_SECURESTORAGE_CONFIG_DIR",
 ];
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CliAuthStatus {
+    logged_in: bool,
+    auth_method: Option<String>,
+    api_provider: Option<String>,
+    subscription_type: Option<String>,
+}
 
 /// Keeps the parent side of a token descriptor alive until the child has
 /// spawned. The descriptor is inherited by the child but never written to
@@ -116,7 +145,68 @@ pub fn is_isolated_var(name: &str) -> bool {
 /// other platforms). Keep the returned guard alive until `spawn()` returns.
 pub fn configure_child(cmd: &mut Command) -> AppResult<CredentialGuard> {
     let token = load_oauth_token()?;
+    if token.is_none() {
+        verify_cli_subscription()?;
+    }
     configure_child_with_token(cmd, token.as_deref())
+}
+
+/// Verify that Studio has a subscription credential without making an
+/// inference request. A stored app token has already passed the private
+/// `claude setup-token` candidate check before this module will persist it.
+pub fn verify_subscription_access() -> AppResult<()> {
+    if load_oauth_token()?.is_some() {
+        Ok(())
+    } else {
+        verify_cli_subscription()
+    }
+}
+
+/// Fail closed unless Claude's own local status identifies a first-party
+/// Claude subscription. App-managed tokens are admitted separately because
+/// this app obtains them only from `claude setup-token`, whose CLI contract is
+/// subscription-only.
+pub fn verify_cli_subscription() -> AppResult<()> {
+    let mut cmd = crate::proc::command("claude")?;
+    scrub_inherited_credentials(&mut cmd);
+    let settings = serde_json::to_string(&settings_document(None, false))?;
+    cmd.args([
+        "--setting-sources",
+        "",
+        "--settings",
+        &settings,
+        "auth",
+        "status",
+        "--json",
+    ]);
+    let output = crate::proc::output_with_timeout(cmd, AUTH_STATUS_TIMEOUT)?;
+    validate_cli_auth_status(output.status.success(), &output.stdout)
+}
+
+fn validate_cli_auth_status(success: bool, stdout: &[u8]) -> AppResult<()> {
+    let status: CliAuthStatus = serde_json::from_slice(stdout).map_err(|_| {
+        AppError::Other(
+            "Claude sign-in status could not be verified. Sign in with a Claude subscription and try again."
+                .into(),
+        )
+    })?;
+    let subscription = status
+        .subscription_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if success
+        && status.logged_in
+        && status.auth_method.as_deref() == Some("claude.ai")
+        && status.api_provider.as_deref() == Some("firstParty")
+        && subscription.is_some()
+    {
+        return Ok(());
+    }
+    Err(AppError::Other(
+        "Claude is not signed in with a verified Claude subscription. Use `claude auth login --claudeai` or pair a subscription token in Settings."
+            .into(),
+    ))
 }
 
 pub(crate) fn configure_child_with_token(
@@ -181,7 +271,7 @@ pub fn prefer_cli_effort(cmd: &mut Command) {
     cmd.env_remove(EFFORT_ENV);
 }
 
-pub fn store_oauth_token(token: &str) -> AppResult<()> {
+pub(crate) fn store_oauth_token(token: &str) -> AppResult<()> {
     let entry = credential_entry()?;
     store_oauth_token_in(&entry, token)
 }
@@ -329,6 +419,7 @@ fn settings_document(oauth_fd: Option<&str>, preserve_oauth_env: bool) -> serde_
     serde_json::json!({
         "disableAllHooks": true,
         "disableSkillShellExecution": true,
+        "forceLoginMethod": "claudeai",
         "apiKeyHelper": "",
         "proxyAuthHelper": "",
         "awsCredentialExport": "",
@@ -353,6 +444,16 @@ mod tests {
 
     #[test]
     fn recognizes_all_isolated_credentials_and_routing_case_insensitively() {
+        for required in [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_CONFIG_DIR",
+            "CLAUDE_CONFIG_DIR",
+            "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+            "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
+        ] {
+            assert!(is_isolated_var(required), "missing {required}");
+        }
         for name in INHERITED_AUTH_ENV_VARS
             .iter()
             .chain(INHERITED_ROUTING_ENV_VARS)
@@ -360,7 +461,7 @@ mod tests {
             assert!(is_isolated_var(name), "{name}");
             assert!(is_isolated_var(&name.to_ascii_lowercase()), "{name}");
         }
-        assert!(!is_isolated_var("CLAUDE_CONFIG_DIR"));
+        assert!(!is_isolated_var("PATH"));
     }
 
     #[test]
@@ -374,6 +475,7 @@ mod tests {
                 "CLAUDE_CODE_ARTIFACTS_API_BASE_URL",
                 "https://untrusted.invalid",
             )
+            .env("CLAUDE_CONFIG_DIR", "/tmp/untrusted-claude")
             .env("CLAUDE_CODE_USE_BEDROCK", "1")
             .env("SAFE_FOR_CHILD", "kept");
 
@@ -386,6 +488,7 @@ mod tests {
             OAUTH_TOKEN_ENV,
             "ANTHROPIC_BASE_URL",
             "CLAUDE_CODE_ARTIFACTS_API_BASE_URL",
+            "CLAUDE_CONFIG_DIR",
             "CLAUDE_CODE_USE_BEDROCK",
         ] {
             assert!(envs
@@ -402,6 +505,7 @@ mod tests {
             serde_json::from_str(&args[args.len() - 1].to_string_lossy()).unwrap();
         assert_eq!(settings["disableAllHooks"], true);
         assert_eq!(settings["disableSkillShellExecution"], true);
+        assert_eq!(settings["forceLoginMethod"], "claudeai");
         assert_eq!(settings["apiKeyHelper"], "");
         assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], OFFICIAL_API_BASE);
         assert_eq!(settings["env"]["CLAUDE_CODE_SUBPROCESS_ENV_SCRUB"], "1");
@@ -510,6 +614,30 @@ mod tests {
         let pairing = settings_document(None, false);
         assert_eq!(pairing["env"][OAUTH_TOKEN_ENV], "");
         assert_eq!(pairing["env"][OAUTH_TOKEN_FD_ENV], "");
+    }
+
+    #[test]
+    fn accepts_only_complete_first_party_subscription_status() {
+        let valid = br#"{
+            "loggedIn": true,
+            "authMethod": "claude.ai",
+            "apiProvider": "firstParty",
+            "subscriptionType": "max",
+            "email": "ignored@example.invalid"
+        }"#;
+        assert!(validate_cli_auth_status(true, valid).is_ok());
+
+        for invalid in [
+            br#"{"loggedIn":false,"authMethod":"claude.ai","apiProvider":"firstParty","subscriptionType":"max"}"#.as_slice(),
+            br#"{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty","subscriptionType":"max"}"#.as_slice(),
+            br#"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"thirdParty","subscriptionType":"max"}"#.as_slice(),
+            br#"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","subscriptionType":"  "}"#.as_slice(),
+            br#"{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}"#.as_slice(),
+            b"not json".as_slice(),
+        ] {
+            assert!(validate_cli_auth_status(true, invalid).is_err());
+        }
+        assert!(validate_cli_auth_status(false, valid).is_err());
     }
 
     #[test]

@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { ToolEnvelope } from "@uvibe/core";
-import { brainAgeMs } from "@uvibe/project-brain";
+import {
+  ensureBrainCurrent,
+  queryBrain,
+  readKnowledgeBase,
+} from "@uvibe/project-brain";
+import {
+  projectBrainQuery,
+  projectKnowledgeManifest,
+} from "../knowledgeProjection.js";
 import { ToolDef } from "../registry.js";
 import { BRIDGE_METHODS, bridgeCall, ok } from "./_helpers.js";
 import { unityCheckGitStatus } from "./unityCheckGitStatus.js";
@@ -15,12 +23,18 @@ import { unityCheckGitStatus } from "./unityCheckGitStatus.js";
 
 const InputShape = {
   problemLimit: z.number().int().min(0).max(200).optional().describe("Max recent warning/error logs to include (default 20)."),
+  task: z
+    .string()
+    .min(1)
+    .max(1_000)
+    .optional()
+    .describe("The user's current request. When provided, orientation includes bounded relevant matches from the maintained project map."),
 };
 
 export const unityOrient: ToolDef<typeof InputShape, unknown> = {
   name: "unity_orient",
   description:
-    "Session bootstrap: returns project summary, open scenes, current selection, compile status, recent warnings/errors, git status, and project-brain age in ONE call. Call this first when starting work in a Unity project instead of issuing those reads separately. Read-only.",
+    "Session bootstrap: refreshes the maintained project map and returns live Unity summary, open scenes, selection, compile status, recent problems, git status, knowledge coverage/freshness, and task-relevant map matches in ONE call. Pass the user's current request as task and call this first. Read-only.",
   requires: ["unity_bridge", "git", "project_brain"],
   inputShape: InputShape,
   async run(args, ctx) {
@@ -32,19 +46,42 @@ export const unityOrient: ToolDef<typeof InputShape, unknown> = {
       return { unavailable: env.error.code };
     };
 
-    const [summary, scenes, selection, compile, problems, git, ageMs, health] = await Promise.all([
+    const knowledgePromise = (async () => {
+      await ensureBrainCurrent(ctx.projectPath);
+      const knowledge = await readKnowledgeBase(ctx.projectPath);
+      if (!knowledge) throw new Error("project map is unavailable after refresh");
+      const relevantQuery = args.task
+        ? await queryBrain(ctx.projectPath, { query: args.task, limit: 6 })
+        : undefined;
+      const manifest = projectKnowledgeManifest(knowledge.manifest);
+      return {
+        exists: true as const,
+        ageMs: Math.max(0, Date.now() - knowledge.manifest.generatedAt),
+        stale: knowledge.manifest.dirty.value,
+        manifest,
+        relevant: relevantQuery
+          ? projectBrainQuery(relevantQuery, { knowledge, queryLimit: 6 })
+          : undefined,
+      };
+    })().catch((error: unknown) => ({
+      exists: false as const,
+      unavailable: error instanceof Error ? error.message : String(error),
+    }));
+
+    const [summary, scenes, selection, compile, problems, git, knowledge, health] = await Promise.all([
       bridgeCall(ctx.bridge, BRIDGE_METHODS.systemSummary),
       bridgeCall(ctx.bridge, BRIDGE_METHODS.sceneGetOpenScenes),
       bridgeCall(ctx.bridge, BRIDGE_METHODS.selectionInspect, { includeFields: false }),
       bridgeCall(ctx.bridge, BRIDGE_METHODS.compileStatus),
       bridgeCall(ctx.bridge, BRIDGE_METHODS.consoleGetLogs, { level: "warning_or_error", limit: problemLimit }),
       unityCheckGitStatus.run({}, ctx),
-      brainAgeMs(ctx.projectPath).catch(() => null),
+      knowledgePromise,
       ctx.bridge.health?.() ?? Promise.resolve(null),
     ]);
 
     const bridgeReachable = summary.ok;
     if (!bridgeReachable) warnings.push("Unity bridge not reachable — open the Editor for live state.");
+    if (!knowledge.exists) warnings.push(`Project map unavailable — ${knowledge.unavailable}`);
 
     // Catch the #1 footgun up front: an editor that will freeze (and hang every tool call) the
     // moment the user focuses another window. Warn now, not after a 30-minute stall.
@@ -68,7 +105,7 @@ export const unityOrient: ToolDef<typeof InputShape, unknown> = {
       compile: section("compile", compile),
       recentProblems: section("recentProblems", problems),
       git: section("git", git),
-      brain: { exists: ageMs !== null, ageMs: ageMs ?? undefined, stale: ageMs !== null && ageMs > 24 * 3_600_000 },
+      brain: knowledge,
     };
 
     return ok(data, { source: ctx.bridge.source, durationMs: 0 }, warnings);

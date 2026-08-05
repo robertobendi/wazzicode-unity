@@ -8,7 +8,7 @@ import type { BridgeState } from "@/types/status";
 import { formatTokens } from "@/lib/formatTokens";
 import { useCliInstallActive } from "@/hooks/useOnboarding";
 import { createPortal } from "react-dom";
-import { GearIcon, PanelIcon, SidebarIcon } from "./icons";
+import { GearIcon, MapIcon, PanelIcon, SidebarIcon } from "./icons";
 import Logo from "./Logo";
 import RevertControl from "./RevertControl";
 import SettingsPopover from "./SettingsPopover";
@@ -33,6 +33,8 @@ export default function TopBar() {
     toggleSessionRail,
     settingsOpen,
     setSettingsOpen,
+    projectMapOpen,
+    setProjectMapOpen,
     mode,
     setMode,
   } = useUiStore();
@@ -65,7 +67,10 @@ export default function TopBar() {
         <Logo />
         <span className="truncate text-sm font-medium text-fg">{name}</span>
         <button
-          onClick={() => void update({ currentProject: null })}
+          onClick={() => {
+            setProjectMapOpen(false);
+            void update({ currentProject: null });
+          }}
           disabled={navigationLocked}
           title={
             navigationLocked
@@ -101,6 +106,18 @@ export default function TopBar() {
           </span>
         )}
         <RevertControl />
+        <IconButton
+          label={projectMapOpen ? "Close project map" : "Open project map"}
+          active={projectMapOpen}
+          expanded={projectMapOpen}
+          controls="project-map-drawer"
+          onClick={() => {
+            setSettingsOpen(false);
+            setProjectMapOpen(!projectMapOpen);
+          }}
+        >
+          <MapIcon />
+        </IconButton>
         {mode === "chat" && (
           <div className="activity-toggle">
             <IconButton
@@ -118,7 +135,10 @@ export default function TopBar() {
           active={settingsOpen}
           expanded={settingsOpen}
           controls="settings-popover"
-          onClick={() => setSettingsOpen(!settingsOpen)}
+          onClick={() => {
+            setProjectMapOpen(false);
+            setSettingsOpen(!settingsOpen);
+          }}
         >
           <GearIcon />
         </IconButton>

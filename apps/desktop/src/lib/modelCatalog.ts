@@ -12,6 +12,23 @@ export const CLAUDE_DEFAULT_EFFORTS = [
   "max",
 ];
 
+const EFFORT_STRENGTH = [
+  "ultra",
+  "max",
+  "xhigh",
+  "high",
+  "medium",
+  "low",
+];
+
+const MODEL_LABELS: Record<string, string> = {
+  fable: "Fable (latest)",
+  opus: "Opus (latest)",
+  sonnet: "Sonnet",
+  haiku: "Haiku",
+  "gpt-5.6-sol": "GPT-5.6-Sol",
+};
+
 export function effortsForModel(
   backend: AgentBackend,
   catalog: AgentModelOption[],
@@ -32,10 +49,35 @@ export function repairRunOptions(
   const model = options.model?.trim() || null;
   const efforts = effortsForModel(options.backend, catalog, model);
   const effort = options.effort?.trim() || null;
+  const listed = catalog.find((option) => option.id === model);
+  const repairedEffort = listed
+    ? effort && listed.efforts.includes(effort)
+      ? effort
+      : strongestEffort(listed.efforts)
+    : effort && efforts.includes(effort)
+      ? effort
+      : null;
   return {
     backend: options.backend,
     model,
-    effort: effort && efforts.includes(effort) ? effort : null,
+    effort: repairedEffort,
+  };
+}
+
+export function strongestEffort(efforts: readonly string[]): string | null {
+  return EFFORT_STRENGTH.find((effort) => efforts.includes(effort)) ?? null;
+}
+
+export function customModelRunOptions(
+  options: AgentRunOptions,
+  model: string,
+): AgentRunOptions {
+  return {
+    ...options,
+    model: model.trim() || null,
+    // A full provider id can have different capabilities from its alias. Let
+    // the installed CLI choose unless the user explicitly selects an effort.
+    effort: null,
   };
 }
 
@@ -51,8 +93,14 @@ export function effortLabel(effort: string): string {
   return labels[effort] ?? effort.replaceAll("_", " ");
 }
 
+export function modelLabel(model: string): string {
+  return MODEL_LABELS[model] ?? model;
+}
+
 export function runOptionsSummary(options: AgentRunOptions): string {
-  const model = options.model || "Default model";
-  const effort = options.effort ? effortLabel(options.effort) : "Automatic thinking";
+  const model = options.model ? modelLabel(options.model) : "CLI-selected model";
+  const effort = options.effort
+    ? effortLabel(options.effort)
+    : "CLI-selected thinking";
   return `${model} · ${effort}`;
 }

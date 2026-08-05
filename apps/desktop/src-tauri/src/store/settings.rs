@@ -1,12 +1,19 @@
-use crate::agent::Backend;
+use crate::agent::{AgentModelOption, Backend};
 use crate::error::AppResult;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Bump when the on-disk shape changes in a way that needs migration.
-/// v2 added backend/model selection; v3 adds per-backend reasoning defaults.
+/// v2 added backend/model selection; v3 added per-backend reasoning defaults;
+/// v4 made strong defaults explicit; v5 tracks which choices should continue
+/// following each installed CLI's preferred model and strongest effort; v6
+/// moves the managed Claude preference from the Fable alias to the Opus alias.
 /// Older files deserialize cleanly because every added field has a default.
-const CURRENT_SCHEMA_VERSION: u32 = 3;
+const CURRENT_SCHEMA_VERSION: u32 = 6;
+const DEFAULT_CLAUDE_MODEL: &str = "opus";
+const DEFAULT_CLAUDE_EFFORT: &str = "max";
+const DEFAULT_CODEX_MODEL: &str = "gpt-5.6-sol";
+const DEFAULT_CODEX_EFFORT: &str = "ultra";
 
 /// Persistent user settings. Lives at `<config_dir>/settings.json`.
 ///
@@ -42,6 +49,15 @@ pub struct Settings {
     /// model-specific and can differ from Claude's accepted values.
     #[serde(default)]
     pub codex_effort: Option<String>,
+    /// App-managed defaults follow catalog changes; explicit user choices do not.
+    #[serde(default)]
+    pub model_follows_catalog: bool,
+    #[serde(default)]
+    pub effort_follows_model: bool,
+    #[serde(default)]
+    pub codex_model_follows_catalog: bool,
+    #[serde(default)]
+    pub codex_effort_follows_model: bool,
     /// Show the raw stream / debug drawer in the UI.
     #[serde(default)]
     pub debug_drawer: bool,
@@ -87,10 +103,14 @@ impl Default for Settings {
             recent_projects: Vec::new(),
             current_project: None,
             agent_backend: Backend::default(),
-            model: None,
-            codex_model: None,
-            effort: None,
-            codex_effort: None,
+            model: Some(DEFAULT_CLAUDE_MODEL.into()),
+            codex_model: Some(DEFAULT_CODEX_MODEL.into()),
+            effort: Some(DEFAULT_CLAUDE_EFFORT.into()),
+            codex_effort: Some(DEFAULT_CODEX_EFFORT.into()),
+            model_follows_catalog: true,
+            effort_follows_model: true,
+            codex_model_follows_catalog: true,
+            codex_effort_follows_model: true,
             debug_drawer: false,
             paired_ok: false,
             onboarded: false,
@@ -103,15 +123,16 @@ const FILE_NAME: &str = "settings.json";
 pub fn load(config_dir: &Path) -> AppResult<Settings> {
     let path = config_dir.join(FILE_NAME);
     if !path.exists() {
-        let s = Settings::default();
+        let mut s = Settings::default();
+        reconcile_runtime_defaults(&mut s);
         save(config_dir, &s)?;
         return Ok(s);
     }
     let bytes = std::fs::read(&path)?;
     match serde_json::from_slice::<Settings>(&bytes) {
         Ok(mut s) => {
-            if s.schema_version < CURRENT_SCHEMA_VERSION {
-                s.schema_version = CURRENT_SCHEMA_VERSION;
+            let changed = migrate_legacy_defaults(&mut s);
+            if reconcile_runtime_defaults(&mut s) || changed {
                 save(config_dir, &s)?;
             }
             Ok(s)
@@ -121,11 +142,128 @@ pub fn load(config_dir: &Path) -> AppResult<Settings> {
             // never bricks startup.
             let backup = path.with_extension("json.corrupt");
             let _ = std::fs::rename(&path, &backup);
-            let s = Settings::default();
+            let mut s = Settings::default();
+            reconcile_runtime_defaults(&mut s);
             save(config_dir, &s)?;
             Ok(s)
         }
     }
+}
+
+fn migrate_legacy_defaults(settings: &mut Settings) -> bool {
+    if settings.schema_version >= CURRENT_SCHEMA_VERSION {
+        return false;
+    }
+
+    if settings.schema_version < 4 {
+        settings.model_follows_catalog = is_blank(&settings.model);
+        settings.effort_follows_model = is_blank(&settings.effort);
+        settings.codex_model_follows_catalog = is_blank(&settings.codex_model);
+        settings.codex_effort_follows_model = is_blank(&settings.codex_effort);
+
+        if settings.model_follows_catalog {
+            settings.model = Some(DEFAULT_CLAUDE_MODEL.into());
+        }
+        if settings.codex_model_follows_catalog {
+            settings.codex_model = Some(DEFAULT_CODEX_MODEL.into());
+        }
+        if settings.effort_follows_model {
+            settings.effort = settings
+                .model_follows_catalog
+                .then(|| DEFAULT_CLAUDE_EFFORT.into());
+        }
+        if settings.codex_effort_follows_model {
+            settings.codex_effort = settings
+                .codex_model_follows_catalog
+                .then(|| DEFAULT_CODEX_EFFORT.into());
+        }
+    } else if settings.schema_version == 4 {
+        // v4 had no provenance markers. Each generated fallback can be
+        // recognized independently without reclassifying lower explicit choices.
+        settings.model_follows_catalog = trimmed(&settings.model) == Some("fable");
+        settings.effort_follows_model = trimmed(&settings.effort) == Some(DEFAULT_CLAUDE_EFFORT);
+        settings.codex_model_follows_catalog =
+            trimmed(&settings.codex_model) == Some(DEFAULT_CODEX_MODEL);
+        settings.codex_effort_follows_model =
+            trimmed(&settings.codex_effort) == Some(DEFAULT_CODEX_EFFORT);
+    }
+    if settings.model_follows_catalog {
+        settings.model = Some(DEFAULT_CLAUDE_MODEL.into());
+        if settings.effort_follows_model {
+            settings.effort = Some(DEFAULT_CLAUDE_EFFORT.into());
+        }
+    }
+    settings.schema_version = CURRENT_SCHEMA_VERSION;
+    true
+}
+
+fn reconcile_runtime_defaults(settings: &mut Settings) -> bool {
+    let mut changed = false;
+    if let Ok(catalog) = crate::commands::agent_options::model_catalog_blocking(Backend::Claude) {
+        changed |= reconcile_backend(
+            &mut settings.model,
+            &mut settings.effort,
+            settings.model_follows_catalog,
+            settings.effort_follows_model,
+            &catalog,
+        );
+    }
+    if let Ok(catalog) = crate::commands::agent_options::model_catalog_blocking(Backend::Codex) {
+        changed |= reconcile_backend(
+            &mut settings.codex_model,
+            &mut settings.codex_effort,
+            settings.codex_model_follows_catalog,
+            settings.codex_effort_follows_model,
+            &catalog,
+        );
+    }
+    changed
+}
+
+fn reconcile_backend(
+    model: &mut Option<String>,
+    effort: &mut Option<String>,
+    model_follows_catalog: bool,
+    effort_follows_model: bool,
+    catalog: &[AgentModelOption],
+) -> bool {
+    if catalog.is_empty() {
+        return false;
+    }
+
+    let before = (model.clone(), effort.clone());
+    if model_follows_catalog {
+        *model = Some(catalog[0].id.clone());
+    } else {
+        *model = trimmed(model).map(str::to_string);
+    }
+
+    let listed = trimmed(model).and_then(|id| catalog.iter().find(|entry| entry.id == id));
+    let current_effort = trimmed(effort);
+    *effort = match listed {
+        Some(entry)
+            if !effort_follows_model
+                && current_effort.is_some_and(|value| entry.efforts.iter().any(|e| e == value)) =>
+        {
+            current_effort.map(str::to_string)
+        }
+        Some(entry) => crate::commands::agent_options::strongest_effort(&entry.efforts),
+        None if effort_follows_model => None,
+        None => current_effort.map(str::to_string),
+    };
+
+    before != (model.clone(), effort.clone())
+}
+
+fn trimmed(value: &Option<String>) -> Option<&str> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn is_blank(value: &Option<String>) -> bool {
+    trimmed(value).is_none()
 }
 
 /// Atomic write: serialize to a temp file, then rename over the target so a
@@ -145,7 +283,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_v1_file_without_agent_backend_still_loads_as_claude() {
+    fn a_v1_file_keeps_its_explicit_claude_model_during_migration() {
         // Exactly what schema v1 wrote — no `agentBackend`, no `codexModel`.
         let v1 = r#"{
             "schemaVersion": 1,
@@ -157,12 +295,17 @@ mod tests {
             "pairedOk": true,
             "onboarded": true
         }"#;
-        let s: Settings = serde_json::from_str(v1).expect("v1 settings must still deserialize");
+        let mut s: Settings = serde_json::from_str(v1).expect("v1 settings must deserialize");
+        assert!(migrate_legacy_defaults(&mut s));
         assert_eq!(s.agent_backend, Backend::Claude);
-        assert_eq!(s.codex_model, None);
-        assert_eq!(s.effort, None);
-        assert_eq!(s.codex_effort, None);
         assert_eq!(s.model.as_deref(), Some("claude-opus-4-8"));
+        assert_eq!(s.effort, None);
+        assert!(!s.model_follows_catalog);
+        assert!(s.effort_follows_model);
+        assert_eq!(s.codex_model.as_deref(), Some("gpt-5.6-sol"));
+        assert_eq!(s.codex_effort.as_deref(), Some("ultra"));
+        assert!(s.codex_model_follows_catalog);
+        assert!(s.codex_effort_follows_model);
     }
 
     #[test]
@@ -186,5 +329,209 @@ mod tests {
         };
         assert_eq!(s.effort_for(Backend::Claude), Some("high"));
         assert_eq!(s.effort_for(Backend::Codex), None);
+    }
+
+    #[test]
+    fn fresh_settings_use_the_preferred_verified_defaults() {
+        let s = Settings::default();
+        assert_eq!(s.schema_version, 6);
+        assert_eq!(s.model.as_deref(), Some("opus"));
+        assert_eq!(s.effort.as_deref(), Some("max"));
+        assert_eq!(s.codex_model.as_deref(), Some("gpt-5.6-sol"));
+        assert_eq!(s.codex_effort.as_deref(), Some("ultra"));
+        assert!(s.model_follows_catalog);
+        assert!(s.effort_follows_model);
+        assert!(s.codex_model_follows_catalog);
+        assert!(s.codex_effort_follows_model);
+    }
+
+    #[test]
+    fn v6_migration_fills_all_blank_legacy_choices() {
+        let mut s = Settings {
+            schema_version: 3,
+            model: None,
+            effort: Some("  ".into()),
+            codex_model: Some("".into()),
+            codex_effort: None,
+            ..Settings::default()
+        };
+
+        assert!(migrate_legacy_defaults(&mut s));
+        assert_eq!(s.schema_version, 6);
+        assert_eq!(s.model.as_deref(), Some("opus"));
+        assert_eq!(s.effort.as_deref(), Some("max"));
+        assert_eq!(s.codex_model.as_deref(), Some("gpt-5.6-sol"));
+        assert_eq!(s.codex_effort.as_deref(), Some("ultra"));
+        assert!(s.model_follows_catalog);
+        assert!(s.effort_follows_model);
+        assert!(s.codex_model_follows_catalog);
+        assert!(s.codex_effort_follows_model);
+        assert!(!migrate_legacy_defaults(&mut s));
+    }
+
+    #[test]
+    fn v6_migration_preserves_explicit_lower_choices() {
+        let mut s = Settings {
+            schema_version: 3,
+            model: Some("opus".into()),
+            effort: Some("low".into()),
+            codex_model: Some("gpt-5.2".into()),
+            codex_effort: Some("low".into()),
+            ..Settings::default()
+        };
+
+        assert!(migrate_legacy_defaults(&mut s));
+        assert_eq!(s.model.as_deref(), Some("opus"));
+        assert_eq!(s.effort.as_deref(), Some("low"));
+        assert_eq!(s.codex_model.as_deref(), Some("gpt-5.2"));
+        assert_eq!(s.codex_effort.as_deref(), Some("low"));
+        assert!(!s.model_follows_catalog);
+        assert!(!s.effort_follows_model);
+        assert!(!s.codex_model_follows_catalog);
+        assert!(!s.codex_effort_follows_model);
+    }
+
+    #[test]
+    fn v6_migration_moves_only_the_managed_fable_default_to_opus() {
+        let mut managed = Settings {
+            schema_version: 5,
+            model: Some("fable".into()),
+            effort: Some("max".into()),
+            model_follows_catalog: true,
+            effort_follows_model: true,
+            ..Settings::default()
+        };
+        assert!(migrate_legacy_defaults(&mut managed));
+        assert_eq!(managed.schema_version, 6);
+        assert_eq!(managed.model.as_deref(), Some("opus"));
+        assert_eq!(managed.effort.as_deref(), Some("max"));
+
+        let mut explicit = Settings {
+            schema_version: 5,
+            model: Some("fable".into()),
+            effort: Some("max".into()),
+            model_follows_catalog: false,
+            effort_follows_model: false,
+            ..Settings::default()
+        };
+        assert!(migrate_legacy_defaults(&mut explicit));
+        assert_eq!(explicit.model.as_deref(), Some("fable"));
+    }
+
+    #[test]
+    fn v4_generated_fields_keep_independent_catalog_provenance() {
+        let mut s = Settings {
+            schema_version: 4,
+            model: Some("fable".into()),
+            effort: Some("low".into()),
+            codex_model: Some("gpt-5.2".into()),
+            codex_effort: Some("ultra".into()),
+            ..Settings::default()
+        };
+
+        assert!(migrate_legacy_defaults(&mut s));
+        assert_eq!(s.model.as_deref(), Some("opus"));
+        assert!(s.model_follows_catalog);
+        assert!(!s.effort_follows_model);
+        assert!(!s.codex_model_follows_catalog);
+        assert!(s.codex_effort_follows_model);
+    }
+
+    #[test]
+    fn v4_explicit_opus_choice_does_not_become_catalog_managed() {
+        let mut s = Settings {
+            schema_version: 4,
+            model: Some("opus".into()),
+            effort: Some("low".into()),
+            ..Settings::default()
+        };
+
+        assert!(migrate_legacy_defaults(&mut s));
+        assert_eq!(s.model.as_deref(), Some("opus"));
+        assert_eq!(s.effort.as_deref(), Some("low"));
+        assert!(!s.model_follows_catalog);
+        assert!(!s.effort_follows_model);
+    }
+
+    #[test]
+    fn runtime_catalog_replaces_only_managed_models() {
+        let catalog = [
+            model("gpt-new", &["low", "ultra"]),
+            model("gpt-old", &["max"]),
+        ];
+        let mut selected_model = Some("gpt-hard-coded".into());
+        let mut selected_effort = Some("ultra".into());
+
+        assert!(reconcile_backend(
+            &mut selected_model,
+            &mut selected_effort,
+            true,
+            true,
+            &catalog,
+        ));
+        assert_eq!(selected_model.as_deref(), Some("gpt-new"));
+        assert_eq!(selected_effort.as_deref(), Some("ultra"));
+
+        selected_model = Some("gpt-old".into());
+        selected_effort = Some("max".into());
+        assert!(!reconcile_backend(
+            &mut selected_model,
+            &mut selected_effort,
+            false,
+            false,
+            &catalog,
+        ));
+        assert_eq!(selected_model.as_deref(), Some("gpt-old"));
+    }
+
+    #[test]
+    fn migration_resolves_blank_effort_against_the_explicit_model() {
+        let mut claude = Settings {
+            schema_version: 3,
+            model: Some("haiku".into()),
+            effort: None,
+            codex_model: Some("gpt-old".into()),
+            codex_effort: None,
+            ..Settings::default()
+        };
+        assert!(migrate_legacy_defaults(&mut claude));
+        assert!(!claude.model_follows_catalog);
+        assert!(claude.effort_follows_model);
+        assert!(!claude.codex_model_follows_catalog);
+        assert!(claude.codex_effort_follows_model);
+
+        let claude_catalog = [model("fable", &["low", "max"]), model("haiku", &[])];
+        assert!(!reconcile_backend(
+            &mut claude.model,
+            &mut claude.effort,
+            claude.model_follows_catalog,
+            claude.effort_follows_model,
+            &claude_catalog,
+        ));
+        assert_eq!(claude.effort, None);
+
+        let codex_catalog = [
+            model("gpt-new", &["ultra"]),
+            model("gpt-old", &["low", "xhigh"]),
+        ];
+        assert!(reconcile_backend(
+            &mut claude.codex_model,
+            &mut claude.codex_effort,
+            claude.codex_model_follows_catalog,
+            claude.codex_effort_follows_model,
+            &codex_catalog,
+        ));
+        assert_eq!(claude.codex_model.as_deref(), Some("gpt-old"));
+        assert_eq!(claude.codex_effort.as_deref(), Some("xhigh"));
+    }
+
+    fn model(id: &str, efforts: &[&str]) -> AgentModelOption {
+        AgentModelOption {
+            id: id.into(),
+            label: id.into(),
+            description: None,
+            default_effort: None,
+            efforts: efforts.iter().map(|effort| (*effort).into()).collect(),
+        }
     }
 }

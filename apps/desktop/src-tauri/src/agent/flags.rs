@@ -178,6 +178,10 @@ mod tests {
         // App-managed runs never stop for an invisible permission prompt.
         let i = args.iter().position(|a| a == "--permission-mode").unwrap();
         assert_eq!(args[i + 1], "bypassPermissions");
+        let model = args.iter().position(|a| a == "--model").unwrap();
+        assert_eq!(args[model + 1], "opus");
+        let effort = args.iter().position(|a| a == "--effort").unwrap();
+        assert_eq!(args[effort + 1], "max");
         // No resume / turn cap when unset.
         assert!(!args.contains(&"--resume".to_string()));
         assert!(!args.contains(&"--max-turns".to_string()));

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.2 — 2026-08-05
+
 - Consolidate the per-file RPC param parsers (`Str`/`Int`/`GetInt`/`GetBool`/`GetFloat`/`TryFloat`, ~18 duplicate definitions across 10 handler files) into a shared `BridgeParams` static class, pulled in via `using static`; call sites unchanged (`BridgeRouter`'s `GetString`→`Str` and `BridgeServer`'s `GetParam*` renamed to the shared names). `GetBool` now uniformly tolerates string/number-encoded bools everywhere.
 - `BridgeServer.DeleteDiscovery` now logs a warning when removing `bridge.json` fails (a stale discovery file makes clients dial a dead port and misreport `UNITY_RELOADING`).
 

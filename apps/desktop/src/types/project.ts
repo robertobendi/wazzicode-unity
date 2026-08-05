@@ -9,5 +9,7 @@ export interface ProjectInfo {
   hasAssets: boolean;
   hasProjectSettings: boolean;
   uvibeInitialized: boolean;
+  /** `.unity-vibe/knowledge/manifest.json` exists. */
+  brainReady: boolean;
   safetyMode: string | null;
 }

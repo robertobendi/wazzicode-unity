@@ -46,8 +46,8 @@ pub async fn pairing_state(state: State<'_, AppState>) -> AppResult<Option<Pairi
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatus {
-    /// This machine has connected at least once (persisted flag). Cheap read —
-    /// no probe (a probe costs ~$0.13 and ~15s; the app-level gate uses this).
+    /// This machine has connected at least once (persisted flag). The app-level
+    /// gate uses this cheap read and verifies the local auth status on demand.
     pub paired_ok: bool,
 }
 
@@ -66,13 +66,12 @@ pub struct AuthVerify {
     pub error: Option<String>,
 }
 
-/// Live "is this machine authenticated" check — a cheap `claude -p "…OK"` probe
-/// against the app-managed OAuth token or the CLI's own login. On success, persist
-/// `paired_ok=true` so the gate skips pairing next launch. Runs the subprocess
-/// on a blocking thread with a hard timeout.
+/// Live subscription-credential check: use the already-validated app-managed
+/// setup token when present, otherwise require `claude auth status` to report a
+/// first-party subscription. This makes no inference request.
 #[tauri::command]
 pub async fn auth_verify(state: State<'_, AppState>) -> AppResult<AuthVerify> {
-    let res = tokio::task::spawn_blocking(crate::pairing::verify_probe)
+    let res = tokio::task::spawn_blocking(crate::pairing::verify_subscription_status)
         .await
         .map_err(|e| crate::error::AppError::Other(format!("verify task failed: {e}")))?;
 

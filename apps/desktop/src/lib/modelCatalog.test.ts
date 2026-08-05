@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { AgentModelOption } from "@/types/agent";
 import {
   CLAUDE_DEFAULT_EFFORTS,
+  customModelRunOptions,
   effortsForModel,
   repairRunOptions,
   runOptionsSummary,
+  strongestEffort,
 } from "./modelCatalog";
 
 const catalog: AgentModelOption[] = [
@@ -27,7 +29,7 @@ const catalog: AgentModelOption[] = [
 const claudeCatalog: AgentModelOption[] = [
   {
     id: "opus",
-    label: "Opus",
+    label: "Opus (latest)",
     description: null,
     defaultEffort: null,
     efforts: ["low", "medium", "high", "xhigh", "max"],
@@ -41,7 +43,7 @@ const claudeCatalog: AgentModelOption[] = [
   },
   {
     id: "fable",
-    label: "Fable",
+    label: "Fable (latest)",
     description: null,
     defaultEffort: null,
     efforts: ["low", "medium", "high", "xhigh", "max"],
@@ -89,13 +91,19 @@ describe("model catalog controls", () => {
     ]);
   });
 
-  it("repairs an effort that the new model does not support", () => {
+  it("uses the strongest supported effort when a listed model needs repair", () => {
     expect(
       repairRunOptions(
         { backend: "codex", model: " gpt-a ", effort: "xhigh" },
         catalog,
       ),
-    ).toEqual({ backend: "codex", model: "gpt-a", effort: null });
+    ).toEqual({ backend: "codex", model: "gpt-a", effort: "high" });
+    expect(
+      repairRunOptions(
+        { backend: "codex", model: "gpt-b", effort: null },
+        catalog,
+      ),
+    ).toEqual({ backend: "codex", model: "gpt-b", effort: "max" });
     expect(
       repairRunOptions(
         { backend: "claude", model: "haiku", effort: "xhigh" },
@@ -114,10 +122,59 @@ describe("model catalog controls", () => {
     });
   });
 
-  it("summarizes automatic and explicit controls", () => {
+  it("preserves an explicitly selected lower supported effort", () => {
+    expect(
+      repairRunOptions(
+        { backend: "codex", model: "gpt-b", effort: "high" },
+        catalog,
+      ),
+    ).toEqual({ backend: "codex", model: "gpt-b", effort: "high" });
+  });
+
+  it("clears inherited thinking when entering an unverified custom model", () => {
+    expect(
+      customModelRunOptions(
+        { backend: "claude", model: "fable", effort: "max" },
+        " claude-haiku-future ",
+      ),
+    ).toEqual({
+      backend: "claude",
+      model: "claude-haiku-future",
+      effort: null,
+    });
+    expect(
+      customModelRunOptions(
+        { backend: "codex", model: "gpt-a", effort: "high" },
+        "",
+      ),
+    ).toEqual({ backend: "codex", model: null, effort: null });
+  });
+
+  it("ranks verified effort names independently of catalog order", () => {
+    expect(strongestEffort(["max", "low", "ultra", "xhigh"])).toBe(
+      "ultra",
+    );
+    expect(strongestEffort(["low", "medium", "xhigh"])).toBe("xhigh");
+    expect(strongestEffort([])).toBeNull();
+  });
+
+  it("summarizes concrete defaults with friendly names", () => {
     expect(
       runOptionsSummary({ backend: "claude", model: null, effort: null }),
-    ).toBe("Default model · Automatic thinking");
+    ).toBe("CLI-selected model · CLI-selected thinking");
+    expect(
+      runOptionsSummary({ backend: "claude", model: "opus", effort: "max" }),
+    ).toBe("Opus (latest) · Maximum");
+    expect(
+      runOptionsSummary({ backend: "claude", model: "fable", effort: "max" }),
+    ).toBe("Fable (latest) · Maximum");
+    expect(
+      runOptionsSummary({
+        backend: "codex",
+        model: "gpt-5.6-sol",
+        effort: "ultra",
+      }),
+    ).toBe("GPT-5.6-Sol · Ultra");
     expect(
       runOptionsSummary({ backend: "codex", model: "gpt-a", effort: "high" }),
     ).toBe("gpt-a · High");

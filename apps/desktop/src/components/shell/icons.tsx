@@ -29,6 +29,17 @@ export function PanelIcon({ className }: IconProps) {
   );
 }
 
+export function MapIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="16" height="16">
+      <circle cx="6" cy="7" r="2" />
+      <circle cx="18" cy="6" r="2" />
+      <circle cx="12" cy="18" r="2" />
+      <path d="m7.8 7.7 8.3-1M7.1 8.7l3.8 7.6m5.7-8.5-3.7 8.4" />
+    </svg>
+  );
+}
+
 export function RefreshIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} width="15" height="15">

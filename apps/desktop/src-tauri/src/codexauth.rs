@@ -20,6 +20,8 @@
 //! not one this product wants to spend from by accident. We therefore don't
 //! expose that path at all, scrub inherited API/access-token variables, and pin
 //! login commands to the CLI's official ChatGPT endpoint and auth method.
+//! These controls cover Codex's inference transport; tools run by the agent
+//! retain the project environment Studio intentionally gives them.
 //!
 //! At most one login runs at a time.
 
@@ -37,9 +39,15 @@ use tokio::sync::Mutex as AsyncMutex;
 /// tokens. App runs use only the CLI's persisted login and official endpoints.
 pub const ISOLATED_ENV_VARS: &[&str] = &[
     "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_ORGANIZATION",
+    "OPENAI_PROJECT",
     "CODEX_API_KEY",
     "CODEX_ACCESS_TOKEN",
+    "CODEX_AUTH",
     "CODEX_HOME",
+    "CODEX_OSS_BASE_URL",
+    "CODEX_OSS_PORT",
     "CODEX_REFRESH_TOKEN_URL_OVERRIDE",
     "CODEX_REVOKE_TOKEN_URL_OVERRIDE",
     "CODEX_AUTHAPI_BASE_URL",
@@ -51,6 +59,7 @@ pub const ISOLATED_ENV_VARS: &[&str] = &[
     "CODEX_EXEC_SERVER_NOISE_CHATGPT_ACCOUNT_ID",
     "CODEX_CONNECTORS_TOKEN",
     "CODEX_GITHUB_PERSONAL_ACCESS_TOKEN",
+    "CODEX_URL",
     "CODEX_CA_CERTIFICATE",
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
@@ -71,7 +80,11 @@ pub const ISOLATED_ENV_VARS: &[&str] = &[
     "all_proxy",
     "no_proxy",
 ];
-const OFFICIAL_CHATGPT_BASE_OVERRIDE: &str = "chatgpt_base_url='https://chatgpt.com/backend-api/'";
+pub const SUBSCRIPTION_CONFIG_OVERRIDES: &[&str] = &[
+    "forced_login_method='chatgpt'",
+    "model_provider='openai'",
+    "chatgpt_base_url='https://chatgpt.com/backend-api/'",
+];
 
 /// Strip one-shot credentials, token endpoints, and remote execution routing
 /// so the child uses the persisted ChatGPT login and local project environment.
@@ -85,12 +98,9 @@ pub fn isolate_child_environment(cmd: &mut Command) {
 /// user-config keys that can change the account flow or redirect it.
 fn configure_subscription_auth(cmd: &mut Command) {
     isolate_child_environment(cmd);
-    cmd.args([
-        "-c",
-        OFFICIAL_CHATGPT_BASE_OVERRIDE,
-        "-c",
-        "forced_login_method='chatgpt'",
-    ]);
+    for value in SUBSCRIPTION_CONFIG_OVERRIDES {
+        cmd.args(["-c", value]);
+    }
 }
 
 /// How long we let a browser sign-in run before giving up. The user has to
@@ -490,6 +500,17 @@ mod tests {
     /// the CLI's persisted ChatGPT login.
     #[test]
     fn inherited_codex_overrides_are_scrubbed_from_children() {
+        for required in [
+            "OPENAI_API_KEY",
+            "OPENAI_BASE_URL",
+            "OPENAI_ORGANIZATION",
+            "OPENAI_PROJECT",
+            "CODEX_HOME",
+            "CODEX_OSS_BASE_URL",
+            "CODEX_OSS_PORT",
+        ] {
+            assert!(ISOLATED_ENV_VARS.contains(&required), "missing {required}");
+        }
         let mut cmd = Command::new("codex");
         for var in ISOLATED_ENV_VARS {
             cmd.env(var, "untrusted");
@@ -515,6 +536,14 @@ mod tests {
 
     #[test]
     fn login_commands_pin_the_official_subscription_flow() {
+        assert_eq!(
+            SUBSCRIPTION_CONFIG_OVERRIDES,
+            [
+                "forced_login_method='chatgpt'",
+                "model_provider='openai'",
+                "chatgpt_base_url='https://chatgpt.com/backend-api/'",
+            ]
+        );
         let mut cmd = Command::new("codex");
         cmd.arg("login");
         configure_subscription_auth(&mut cmd);
@@ -522,12 +551,9 @@ mod tests {
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
-        assert_eq!(
-            OFFICIAL_CHATGPT_BASE_OVERRIDE,
-            "chatgpt_base_url='https://chatgpt.com/backend-api/'"
-        );
-        assert!(args.contains(&OFFICIAL_CHATGPT_BASE_OVERRIDE.to_string()));
-        assert!(args.contains(&"forced_login_method='chatgpt'".to_string()));
+        for value in SUBSCRIPTION_CONFIG_OVERRIDES {
+            assert!(args.contains(&value.to_string()), "missing {value}");
+        }
     }
 
     #[cfg(unix)]

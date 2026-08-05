@@ -18,7 +18,7 @@ Failure:
 
 Stable error codes: `UNITY_NOT_CONNECTED`, `UNITY_COMPILING`, `UNITY_RELOADING`, `TEST_FRAMEWORK_MISSING`, `PLAY_MODE_REQUIRED`, `PROJECT_IDENTITY_MISMATCH`, `FEATURE_UNAVAILABLE`, `OBJECT_NOT_FOUND`, `ASSET_NOT_FOUND`, `INVALID_ARGUMENT`, `SAFETY_MODE_BLOCKED`, `WRITE_REQUIRES_SNAPSHOT`, `UNSUPPORTED_UNITY_VERSION`, `INTERNAL_ERROR`, `MOCK_MODE_ACTIVE`, `BRIDGE_TIMEOUT`, `MALFORMED_BRIDGE_RESPONSE`, `TOOL_NOT_IMPLEMENTED`, `PROJECT_NOT_FOUND`, `GIT_NOT_AVAILABLE`.
 
-## Implemented (34 tools)
+## Implemented (73 tools)
 
 ### Context & inspection
 
@@ -31,7 +31,9 @@ Stable error codes: `UNITY_NOT_CONNECTED`, `UNITY_COMPILING`, `UNITY_RELOADING`,
 | `unity_get_console_logs` | `unity_bridge` | Logs captured since package load (Application.logMessageReceivedThreaded) |
 | `unity_wait_for_compile` | `unity_bridge` | Waits server-side (`compile.await` long-poll) until idle or timeout; falls back to client-side `compile.status` polling on older Unity packages |
 | `unity_check_git_status` | `git` | Runs `git status --porcelain=v2` in the project dir |
-| `unity_generate_project_brain` | `project_brain` | Filesystem scan + writes 5 brain files |
+| `unity_orient` | mixed | One-call live Unity/git bootstrap plus freshness reconciliation and task-relevant project-map matches |
+| `unity_query_project_brain` | `project_brain` | Bounded search over source-backed entities, facts, provenance, and graph neighbors; refreshes first |
+| `unity_generate_project_brain` | `project_brain` | Explicit filesystem rebuild of `.unity-vibe/knowledge/` and compatibility summaries |
 
 ### Visual
 

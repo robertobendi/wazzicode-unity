@@ -10,34 +10,59 @@ pub async fn agent_model_catalog(backend: Backend) -> AppResult<Vec<AgentModelOp
         .map_err(|e| AppError::Other(format!("model catalog task failed: {e}")))?
 }
 
-fn model_catalog_blocking(backend: Backend) -> AppResult<Vec<AgentModelOption>> {
+pub(crate) fn model_catalog_blocking(backend: Backend) -> AppResult<Vec<AgentModelOption>> {
     match backend {
-        // Claude has no machine-readable model catalog. These are its documented
-        // stable aliases; full provider-specific model ids remain available via Custom.
-        Backend::Claude => Ok(vec![
-            AgentModelOption::claude(
-                "sonnet",
-                "Sonnet",
-                crate::agent::options::claude_efforts_for(Some("sonnet")),
-            ),
-            AgentModelOption::claude(
-                "opus",
-                "Opus",
-                crate::agent::options::claude_efforts_for(Some("opus")),
-            ),
-            AgentModelOption::claude(
-                "fable",
-                "Fable",
-                crate::agent::options::claude_efforts_for(Some("fable")),
-            ),
-            AgentModelOption::claude(
-                "haiku",
-                "Haiku",
-                crate::agent::options::claude_efforts_for(Some("haiku")),
-            ),
-        ]),
+        Backend::Claude => claude_catalog(),
         Backend::Codex => codex_catalog(),
     }
+}
+
+fn claude_catalog() -> AppResult<Vec<AgentModelOption>> {
+    let mut cmd = crate::proc::command("claude")?;
+    cmd.arg("--help");
+    let out = crate::proc::output_with_timeout(cmd, Duration::from_secs(10))?;
+    if !out.status.success() {
+        return Err(AppError::Other(
+            "Claude rejected the model capability probe.".into(),
+        ));
+    }
+    let help = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    Ok(claude_catalog_from_help(&help))
+}
+
+fn claude_catalog_from_help(help: &str) -> Vec<AgentModelOption> {
+    // Claude has no machine-readable catalog. Opus is intentionally first as
+    // Studio's preferred default; aliases stay version-neutral because the CLI
+    // can retarget them without exposing the resolved model in `--help`.
+    let mut models = vec![AgentModelOption::claude(
+        "opus",
+        "Opus (latest)",
+        crate::agent::options::claude_efforts_for(Some("opus")),
+    )];
+    if help.contains("'fable'") || help.contains("claude-fable-") {
+        models.push(AgentModelOption::claude(
+            "fable",
+            "Fable (latest)",
+            crate::agent::options::claude_efforts_for(Some("fable")),
+        ));
+    }
+    models.extend([
+        AgentModelOption::claude(
+            "sonnet",
+            "Sonnet",
+            crate::agent::options::claude_efforts_for(Some("sonnet")),
+        ),
+        AgentModelOption::claude(
+            "haiku",
+            "Haiku",
+            crate::agent::options::claude_efforts_for(Some("haiku")),
+        ),
+    ]);
+    models
 }
 
 fn codex_catalog() -> AppResult<Vec<AgentModelOption>> {
@@ -86,6 +111,7 @@ struct RawModel {
     #[serde(default)]
     supported_reasoning_levels: Vec<RawEffort>,
     visibility: Option<String>,
+    priority: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -94,8 +120,10 @@ struct RawEffort {
 }
 
 fn parse_codex_catalog(bytes: &[u8]) -> AppResult<Vec<AgentModelOption>> {
-    let raw: RawCatalog = serde_json::from_slice(bytes)
+    let mut raw: RawCatalog = serde_json::from_slice(bytes)
         .map_err(|e| AppError::Other(format!("Codex returned an unreadable model catalog: {e}")))?;
+    raw.models
+        .sort_by_key(|model| model.priority.unwrap_or(u32::MAX));
     Ok(raw
         .models
         .into_iter()
@@ -114,6 +142,13 @@ fn parse_codex_catalog(bytes: &[u8]) -> AppResult<Vec<AgentModelOption>> {
         .collect())
 }
 
+pub(crate) fn strongest_effort(efforts: &[String]) -> Option<String> {
+    ["ultra", "max", "xhigh", "high", "medium", "low"]
+        .into_iter()
+        .find(|candidate| efforts.iter().any(|effort| effort == candidate))
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,6 +161,7 @@ mod tests {
                     "slug": "gpt-visible",
                     "display_name": "GPT Visible",
                     "description": "Useful",
+                    "priority": 2,
                     "default_reasoning_level": "medium",
                     "supported_reasoning_levels": [
                         {"effort": "low"}, {"effort": "medium"}, {"effort": "max"}
@@ -134,6 +170,7 @@ mod tests {
                 },
                 {
                     "slug": "internal-review",
+                    "priority": 1,
                     "supported_reasoning_levels": [{"effort": "high"}],
                     "visibility": "hide"
                 }
@@ -148,8 +185,38 @@ mod tests {
     }
 
     #[test]
+    fn codex_catalog_orders_visible_models_by_verified_priority() {
+        let fixture = br#"{
+            "models": [
+                {
+                    "slug": "gpt-terra",
+                    "priority": 2,
+                    "supported_reasoning_levels": [{"effort": "max"}],
+                    "visibility": "list"
+                },
+                {
+                    "slug": "gpt-sol",
+                    "priority": 1,
+                    "supported_reasoning_levels": [{"effort": "ultra"}],
+                    "visibility": "list"
+                }
+            ]
+        }"#;
+        let models = parse_codex_catalog(fixture).unwrap();
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["gpt-sol", "gpt-terra"]
+        );
+    }
+
+    #[test]
     fn claude_catalog_exposes_only_verified_efforts() {
-        let models = model_catalog_blocking(Backend::Claude).unwrap();
+        let models = claude_catalog_from_help(
+            "--model <model> aliases include 'fable', 'opus', or 'sonnet'; full name claude-fable-5",
+        );
         let efforts = |id: &str| {
             models
                 .iter()
@@ -162,5 +229,31 @@ mod tests {
         assert_eq!(efforts("sonnet"), ["low", "medium", "high", "xhigh", "max"]);
         assert_eq!(efforts("fable"), ["low", "medium", "high", "xhigh", "max"]);
         assert!(efforts("haiku").is_empty());
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| (model.id.as_str(), model.label.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("opus", "Opus (latest)"),
+                ("fable", "Fable (latest)"),
+                ("sonnet", "Sonnet"),
+                ("haiku", "Haiku"),
+            ]
+        );
+    }
+
+    #[test]
+    fn claude_catalog_uses_opus_when_the_installed_cli_predates_fable() {
+        let models = claude_catalog_from_help("--model <model> aliases include 'opus' or 'sonnet'");
+        assert_eq!(models[0].id, "opus");
+        assert!(!models.iter().any(|model| model.id == "fable"));
+    }
+
+    #[test]
+    fn strongest_effort_uses_capability_not_catalog_order() {
+        let efforts = ["max", "low", "ultra", "xhigh"].map(str::to_string);
+        assert_eq!(strongest_effort(&efforts).as_deref(), Some("ultra"));
+        assert_eq!(strongest_effort(&[]), None);
     }
 }

@@ -19,7 +19,7 @@ Commands:
   setup                      One-shot: init + install-unity-package + brain + write .mcp.json + doctor.
   init                       Create .unity-vibe/ scaffold plus Claude (CLAUDE.md) and Codex (AGENTS.md) guidance.
   serve                      Start the MCP server over stdio (use this in Claude Code MCP config).
-  brain                      Generate the project brain (.unity-vibe/project_brain.{md,json}, claude_context.md).
+  brain [--ensure]           Build the project map; --ensure reuses it when the source fingerprint is current.
   doctor                     Health check: MCP server, Unity bridge, brain, git, config.
   verify [--mock]            Run MVP acceptance checks against the mock bridge.
   mcp-config [--write]       Print or write .mcp.json. Use --write for the project-local file Claude Code auto-discovers.

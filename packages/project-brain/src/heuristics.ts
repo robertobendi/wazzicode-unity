@@ -30,9 +30,9 @@ export async function analyzeScripts(projectPath: string, scripts: string[]): Pr
     hasAudioManager: false,
   };
 
-  // Sample up to 400 scripts to keep this fast on big projects.
-  const sample = scripts.slice(0, 400);
-  for (const rel of sample) {
+  // The scanner applies and reports the project-wide cap. Never take a second,
+  // silent sample here: totalScripts and every derived count cover the same set.
+  for (const rel of scripts) {
     const abs = path.join(projectPath, rel);
     let text: string;
     try {

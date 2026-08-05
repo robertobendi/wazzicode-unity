@@ -5,8 +5,9 @@
 //!   selected agent's CLI, Claude or Codex (streaming progress on
 //!   `onboarding:progress`).
 //! - `onboarding_setup_project` — one app-managed "prepare this project"
-//!   sequence: initialize, install the Unity package, configure access and the
-//!   agent connection, tidy scratch paths, then verify.
+//!   sequence: initialize, install the Unity package, build the project
+//!   knowledge base, configure access and the agent connection, tidy scratch paths,
+//!   then verify.
 //!
 //! Sub-processes reuse `mcpconfig::resolve_uvibe` so the wizard runs the SAME
 //! uvibe binary the chat/loop MCP server will (bundled sidecar in release, the
@@ -449,19 +450,28 @@ fn setup_blocking(
         &["init", "--project", &proj, "--json"],
     ));
 
-    // (b) Install the Unity Editor package unless it's already there.
-    if unity_package_installed(&project) {
+    // (b) Install the Unity Editor package when missing, or replace an older
+    // embedded copy with the version bundled with this Studio release.
+    let package_installed = unity_package_installed(&project);
+    let package_needs_install = pkg_source
+        .as_deref()
+        .map(|source| unity_package_needs_install(&project, source))
+        .unwrap_or(!package_installed);
+    if !package_needs_install {
         emit_line(
             &app,
             "install_package",
-            "Unity package already installed — skipping.",
+            "Unity package is current — skipping.",
         );
         steps.push(SetupStep {
             id: "install_package".into(),
             ok: true,
-            detail: "already installed".into(),
+            detail: "already current".into(),
         });
     } else if let Some(src) = pkg_source.as_deref() {
+        if package_installed {
+            emit_line(&app, "install_package", "Updating the Unity package…");
+        }
         let src_str = src.to_string_lossy().to_string();
         steps.push(run_uvibe_step(
             &app,
@@ -491,7 +501,17 @@ fn setup_blocking(
         });
     }
 
-    // (c) Repair access internally. This is intentionally not a CLI task in
+    // (c) Build the canonical project knowledge store after package setup so
+    // the initial map includes the exact embedded Unity Vibe OS sources too.
+    steps.push(run_uvibe_step(
+        &app,
+        "brain",
+        &uvibe_cmd,
+        &uvibe_prefix,
+        &["brain", "--project", &proj],
+    ));
+
+    // (d) Repair access internally. This is intentionally not a CLI task in
     // the UI: users should only see that Studio is finishing setup.
     emit_line(&app, "access", "Finishing AI setup…");
     match crate::commands::project::ensure_project_access(&project) {
@@ -507,7 +527,7 @@ fn setup_blocking(
         }),
     }
 
-    // (d) App-managed MCP config (so the chat/loop runs get the unity server).
+    // (e) App-managed MCP config (so the chat/loop runs get the unity server).
     emit_line(&app, "mcp_config", "Writing the agent connection…");
     match crate::mcpconfig::ensure_mcp_config(&app, &config_dir, &project) {
         Ok(p) => steps.push(SetupStep {
@@ -522,7 +542,7 @@ fn setup_blocking(
         }),
     }
 
-    // (e) .gitignore the app's scratch dirs (the loop does `git add -A`).
+    // (f) .gitignore the app's scratch dirs (the loop does `git add -A`).
     emit_line(&app, "gitignore", "Updating .gitignore…");
     match patch_gitignore_file(&project) {
         Ok(true) => steps.push(SetupStep {
@@ -542,7 +562,7 @@ fn setup_blocking(
         }),
     }
 
-    // (f) Verify with doctor --json.
+    // (g) Verify with doctor --json.
     let summary = run_doctor_summary(&app, &uvibe_cmd, &uvibe_prefix, &proj, &mut steps);
 
     Ok(SetupResult { steps, summary })
@@ -556,9 +576,8 @@ fn run_uvibe_step(
     sub: &[&str],
 ) -> SetupStep {
     emit_line(app, id, &format!("uvibe {}", sub.join(" ")));
-    let mut full = prefix.to_vec();
-    full.extend(sub.iter().map(|s| s.to_string()));
-    let command = match uvibe_command_builder(cmd, &full) {
+    let args = sub.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let command = match crate::mcpconfig::resolved_uvibe_command(cmd, prefix, &args) {
         Ok(c) => c,
         Err(e) => {
             return SetupStep {
@@ -568,7 +587,14 @@ fn run_uvibe_step(
             }
         }
     };
-    match stream_process(app, id, command, Duration::from_secs(120)) {
+    // The deep project scan can take materially longer than the small setup
+    // commands on a production Unity repository.
+    let timeout = if id == "brain" {
+        Duration::from_secs(600)
+    } else {
+        Duration::from_secs(120)
+    };
+    match stream_process(app, id, command, timeout) {
         Ok((ok, tail)) => SetupStep {
             id: id.into(),
             ok,
@@ -596,13 +622,11 @@ fn run_doctor_summary(
     steps: &mut Vec<SetupStep>,
 ) -> Option<DoctorSummary> {
     emit_line(app, "doctor", "Verifying setup…");
-    let mut full = prefix.to_vec();
-    full.extend(
-        ["doctor", "--project", proj, "--json"]
-            .iter()
-            .map(|s| s.to_string()),
-    );
-    let command = match uvibe_command_builder(cmd, &full) {
+    let args = ["doctor", "--project", proj, "--json"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let command = match crate::mcpconfig::resolved_uvibe_command(cmd, prefix, &args) {
         Ok(c) => c,
         Err(e) => {
             steps.push(SetupStep {
@@ -720,6 +744,43 @@ pub fn unity_package_installed(project: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// True when setup should copy the bundled package into this project. Existing
+/// manifest-only installs and package files without a readable version are left
+/// untouched because Studio cannot prove that replacing them is an upgrade.
+pub fn unity_package_needs_install(project: &Path, source: &Path) -> bool {
+    if !unity_package_installed(project) {
+        return true;
+    }
+    match (
+        embedded_unity_package_version(project),
+        package_version(source),
+    ) {
+        (Some(installed), Some(available)) => installed != available,
+        _ => false,
+    }
+}
+
+fn embedded_unity_package_version(project: &Path) -> Option<String> {
+    let packages = project.join("Packages");
+    ["com.uvibe.os", "UnityVibeOS"]
+        .iter()
+        .find_map(|name| package_version(&packages.join(name)))
+}
+
+fn package_version(package: &Path) -> Option<String> {
+    std::fs::read_to_string(package.join("package.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|value| {
+            value
+                .get("version")?
+                .as_str()
+                .map(str::trim)
+                .map(str::to_owned)
+        })
+        .filter(|version| !version.is_empty())
+}
+
 /// Whether a Packages/manifest.json string references `com.uvibe.os`.
 pub fn manifest_str_has_uvibe(raw: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(raw)
@@ -733,24 +794,6 @@ pub fn manifest_str_has_uvibe(raw: &str) -> bool {
 }
 
 // --- Process plumbing ---
-
-/// Build a `Command` for the resolved uvibe invocation. `cmd` is either an
-/// absolute path (bundled/dev node, or the cjs host) — used directly with the
-/// augmented PATH exported so uvibe's own subprocesses (e.g. doctor's `git`)
-/// resolve — or the bare `uvibe` name, resolved on PATH via `proc::command`.
-fn uvibe_command_builder(cmd: &str, args: &[String]) -> AppResult<Command> {
-    let mut c = if cmd.contains('/') || cmd.contains('\\') {
-        let mut c = Command::new(cmd);
-        c.env("PATH", proc::search_path());
-        c.stdin(Stdio::null());
-        proc::no_window(&mut c);
-        c
-    } else {
-        proc::command(cmd)?
-    };
-    c.args(args);
-    Ok(c)
-}
 
 /// Run `cmd` to completion with a deadline, emitting each stdout/stderr line as
 /// `onboarding:progress` {step, line}. Returns `(success, tail)` where `tail` is
@@ -952,6 +995,61 @@ mod tests {
         assert!(manifest_str_has_uvibe(with));
         assert!(!manifest_str_has_uvibe(without));
         assert!(!manifest_str_has_uvibe("not json"));
+    }
+
+    #[test]
+    fn package_install_replaces_only_an_older_versioned_embedded_copy() {
+        let root = std::env::temp_dir().join(format!(
+            "unity-vibe-package-upgrade-{}",
+            nanoid::nanoid!(10)
+        ));
+        let project = root.join("project");
+        let installed = project.join("Packages").join("com.uvibe.os");
+        let source = root.join("source");
+        std::fs::create_dir_all(&installed).unwrap();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(
+            installed.join("package.json"),
+            r#"{"name":"com.uvibe.os","version":"0.5.1"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            source.join("package.json"),
+            r#"{"name":"com.uvibe.os","version":"0.5.2"}"#,
+        )
+        .unwrap();
+
+        assert!(unity_package_needs_install(&project, &source));
+        std::fs::write(
+            installed.join("package.json"),
+            r#"{"name":"com.uvibe.os","version":"0.5.2"}"#,
+        )
+        .unwrap();
+        assert!(!unity_package_needs_install(&project, &source));
+
+        std::fs::write(installed.join("package.json"), "not json").unwrap();
+        assert!(!unity_package_needs_install(&project, &source));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn package_install_runs_when_the_project_has_no_uvibe_package() {
+        let root = std::env::temp_dir().join(format!(
+            "unity-vibe-package-missing-{}",
+            nanoid::nanoid!(10)
+        ));
+        let project = root.join("project");
+        let source = root.join("source");
+        std::fs::create_dir_all(project.join("Packages")).unwrap();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(
+            source.join("package.json"),
+            r#"{"name":"com.uvibe.os","version":"0.5.2"}"#,
+        )
+        .unwrap();
+
+        assert!(unity_package_needs_install(&project, &source));
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

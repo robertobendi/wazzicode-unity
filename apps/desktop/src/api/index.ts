@@ -19,6 +19,10 @@ import type { RevertResult } from "@/types/revert";
 import type { SessionIndexEntry, SessionPayload } from "@/types/session";
 import type { QuickAction } from "@/lib/quickActions";
 import type {
+  ProjectMapData,
+  ProjectMapQueryResult,
+} from "@/types/projectMap";
+import type {
   CliStatus,
   OnboardingStatus,
   SetupResult,
@@ -36,6 +40,16 @@ export const api = {
     invoke<ProjectInfo>("validate_unity_project", { path }),
   setCurrentProject: (path: string) =>
     invoke<Settings>("set_current_project", { path }),
+  readProjectMap: (project: string) =>
+    invoke<ProjectMapData | null>("read_project_map", { project }),
+  queryProjectMap: (project: string, query: string, limit = 50) =>
+    invoke<ProjectMapQueryResult>("query_project_map", {
+      project,
+      query,
+      limit,
+    }),
+  refreshProjectMap: (project: string) =>
+    invoke<ProjectMapData>("refresh_project_map", { project }),
 
   // Chat: returns the runId to subscribe to (agent:stream/done/error:<runId>).
   chatSend: (

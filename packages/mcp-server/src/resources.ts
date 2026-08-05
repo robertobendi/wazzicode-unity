@@ -1,12 +1,13 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ensureBrainCurrent } from "@uvibe/project-brain";
 import { readActions } from "@uvibe/safety";
 import { ToolContext } from "./registry.js";
 
 /**
  * MCP resources. Claude Code lets the user @-mention these (and the model can read them on demand),
- * so Unity state becomes first-class context: the generated project brain & conventions, the action
+ * so Unity state becomes first-class context: the generated project map & conventions, the action
  * log of what's been changed, and live snapshots of the scene hierarchy and console. The file-backed
  * ones degrade to a friendly note when absent; the live ones go through the bridge.
  */
@@ -32,6 +33,25 @@ export async function readActionLogResource(ctx: ToolContext, uri = "unity://act
   return { contents: [{ uri, mimeType: "application/x-ndjson", text }] };
 }
 
+export async function readProjectBrainResource(
+  ctx: ToolContext,
+  uri = "unity://project-brain"
+): Promise<ResourceContents> {
+  try {
+    await ensureBrainCurrent(ctx.projectPath);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      contents: [{
+        uri,
+        mimeType: "text/plain",
+        text: `(project map refresh failed: ${message.slice(0, 500)})`,
+      }],
+    };
+  }
+  return readTextFile(ctx, ".unity-vibe/knowledge/index.md", uri, "text/markdown");
+}
+
 export async function readSceneHierarchyResource(ctx: ToolContext, uri = "unity://scene-hierarchy"): Promise<ResourceContents> {
   const res = await ctx.bridge.call("scene.getHierarchy", { maxDepth: 32, includeComponents: true, maxNodes: 2000 });
   const text = JSON.stringify(res.ok ? res.result : { error: res.error }, null, 2);
@@ -48,8 +68,8 @@ export function registerResources(server: McpServer, ctx: ToolContext): void {
   server.registerResource(
     "project-brain",
     "unity://project-brain",
-    { title: "Unity project brain", description: "Generated summary of the project (engine, packages, assets, architecture).", mimeType: "text/markdown" },
-    (uri) => readTextFile(ctx, ".unity-vibe/project_brain.md", uri.href, "text/markdown")
+    { title: "Unity project map", description: "Generated, source-backed index of the project's engine, packages, assets, scripts, types, modules, and relationships.", mimeType: "text/markdown" },
+    (uri) => readProjectBrainResource(ctx, uri.href)
   );
   server.registerResource(
     "conventions",

@@ -25,6 +25,11 @@ export interface Settings {
   /** Preferred Codex reasoning effort, kept separate because its supported
    *  values are model-specific. */
   codexEffort: string | null;
+  /** Internal provenance for defaults that track installed CLI catalogs. */
+  modelFollowsCatalog?: boolean;
+  effortFollowsModel?: boolean;
+  codexModelFollowsCatalog?: boolean;
+  codexEffortFollowsModel?: boolean;
   /** Show the raw stream / debug drawer in the UI. */
   debugDrawer: boolean;
   /** Set true after the first successful Claude pair/verify (skips the gate). */

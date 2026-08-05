@@ -12,6 +12,20 @@ use std::time::Duration;
 
 use regex::Regex;
 
+const SETUP_TOKEN_PROBE_ARGS: &[&str] = &[
+    "--setting-sources",
+    "",
+    "-p",
+    "Reply with exactly OK",
+    "--output-format",
+    "json",
+    "--max-turns",
+    "1",
+    "--tools",
+    "",
+    "--no-session-persistence",
+];
+
 /// Hosts we accept an OAuth URL from. Observed real host is `claude.com`
 /// (redirecting via `platform.claude.com`); `claude.ai` / `anthropic.com`
 /// (e.g. `console.anthropic.com`) are kept as belt-and-suspenders for CLI
@@ -160,38 +174,21 @@ pub fn failure_reason(stripped: &str) -> Option<String> {
         })
 }
 
-/// Cheap "is this machine actually authenticated" probe: ask Claude to reply
-/// `OK` using the app-managed OAuth token when present, otherwise the CLI's
-/// stored login. `ok` requires a zero exit and a non-error JSON result.
-pub fn verify_probe() -> Result<(), String> {
-    verify_probe_inner(None)
+/// Verify Studio's stored subscription credential without making an inference
+/// request.
+pub fn verify_subscription_status() -> Result<(), String> {
+    crate::claudeauth::verify_subscription_access().map_err(|error| error.to_string())
 }
 
-pub fn verify_probe_with_token(token: &str) -> Result<(), String> {
-    verify_probe_inner(Some(token))
-}
-
-fn verify_probe_inner(candidate_token: Option<&str>) -> Result<(), String> {
-    let mut cmd = crate::proc::command("claude").map_err(|e| e.to_string())?;
-    cmd.args([
-        "-p",
-        "Reply with exactly OK",
-        "--output-format",
-        "json",
-        "--max-turns",
-        "1",
-    ]);
-    let _credential_guard = match candidate_token {
-        Some(token) => crate::claudeauth::configure_child_with_token(&mut cmd, Some(token)),
-        None => crate::claudeauth::configure_child(&mut cmd),
-    }
-    .map_err(|e| e.to_string())?;
-    if let Some(home) = dirs::home_dir() {
-        cmd.current_dir(home);
-    }
-
+/// Validate the one-time candidate captured from this module's
+/// `claude setup-token` child. That command is subscription-only, but its opaque
+/// token cannot be remotely validated by `auth status`, so this is the sole
+/// minimal inference check before the candidate replaces a working credential.
+pub(super) fn verify_setup_token_candidate(token: &str) -> Result<(), String> {
+    let (cmd, credential_guard) = setup_token_probe_command(token)?;
     let out = crate::proc::output_with_timeout(cmd, Duration::from_secs(60))
         .map_err(|e| e.to_string())?;
+    drop(credential_guard);
     if !out.status.success() {
         let tail = tail(&String::from_utf8_lossy(&out.stderr), 200);
         let tail = tail.trim();
@@ -203,10 +200,32 @@ fn verify_probe_inner(candidate_token: Option<&str>) -> Result<(), String> {
     }
     let v: serde_json::Value = serde_json::from_slice(&out.stdout)
         .map_err(|_| "the check reply couldn't be read".to_string())?;
-    if v.get("is_error").and_then(|b| b.as_bool()).unwrap_or(true) {
+    if v.get("is_error").and_then(|b| b.as_bool()).unwrap_or(true)
+        || v.get("result").and_then(|value| value.as_str()) != Some("OK")
+    {
         return Err("the account check returned an error".into());
     }
     Ok(())
+}
+
+fn setup_token_probe_command(
+    token: &str,
+) -> Result<(std::process::Command, crate::claudeauth::CredentialGuard), String> {
+    let cmd = crate::proc::command("claude").map_err(|e| e.to_string())?;
+    configure_setup_token_probe(cmd, token)
+}
+
+fn configure_setup_token_probe(
+    mut cmd: std::process::Command,
+    token: &str,
+) -> Result<(std::process::Command, crate::claudeauth::CredentialGuard), String> {
+    cmd.args(SETUP_TOKEN_PROBE_ARGS);
+    let credential_guard = crate::claudeauth::configure_child_with_token(&mut cmd, Some(token))
+        .map_err(|e| e.to_string())?;
+    if let Some(home) = dirs::home_dir() {
+        cmd.current_dir(home);
+    }
+    Ok((cmd, credential_guard))
 }
 
 #[cfg(test)]
@@ -311,5 +330,35 @@ mod tests {
         let t = tail(&s, 51); // 51 is mid-codepoint
         assert!(t.len() <= 51);
         assert!(t.chars().all(|c| c == 'α'));
+    }
+
+    #[test]
+    fn setup_token_probe_is_one_turn_without_tools_or_persistence() {
+        assert!(SETUP_TOKEN_PROBE_ARGS
+            .windows(2)
+            .any(|pair| pair == ["--max-turns", "1"]));
+        assert!(SETUP_TOKEN_PROBE_ARGS
+            .windows(2)
+            .any(|pair| pair == ["--tools", ""]));
+        assert!(SETUP_TOKEN_PROBE_ARGS
+            .windows(2)
+            .any(|pair| pair == ["--setting-sources", ""]));
+        assert!(SETUP_TOKEN_PROBE_ARGS.contains(&"--no-session-persistence"));
+
+        let token = "sk-ant-oat01-AbCd1234EfGh5678IjKl9012MnOp";
+        let (cmd, _guard) =
+            configure_setup_token_probe(std::process::Command::new("claude"), token).unwrap();
+        let args = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(!args.iter().any(|arg| arg.contains(token)));
+        assert!(cmd
+            .get_envs()
+            .any(|(name, value)| { name == "ANTHROPIC_API_KEY" && value.is_none() }));
+        let settings_at = args.iter().position(|arg| arg == "--settings").unwrap();
+        let settings: serde_json::Value = serde_json::from_str(&args[settings_at + 1]).unwrap();
+        assert_eq!(settings["forceLoginMethod"], "claudeai");
+        assert_eq!(settings["apiKeyHelper"], "");
     }
 }

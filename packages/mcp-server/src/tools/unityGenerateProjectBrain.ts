@@ -11,7 +11,7 @@ const InputShape = {
 export const unityGenerateProjectBrain: ToolDef<typeof InputShape, BrainGenerationResult> = {
   name: "unity_generate_project_brain",
   description:
-    "Generates the Unity Vibe OS project brain by scanning the project filesystem (Unity version, packages, render pipeline, scenes, prefabs, ScriptableObjects, scripts). Writes .unity-vibe/project_brain.{md,json}, claude_context.md, conventions.md, config.json. Does not require Unity to be running. Source: project_brain.",
+    "Rebuilds the maintained Unity project map from the filesystem: engine and package metadata, scenes, prefabs, scripts, declared types, modules, and source-backed relationships. Writes the canonical .unity-vibe/knowledge store plus compact compatibility summaries. Does not require Unity to be running. Source: project_brain.",
   requires: ["filesystem", "project_brain"],
   inputShape: InputShape,
   async run(args, ctx) {
