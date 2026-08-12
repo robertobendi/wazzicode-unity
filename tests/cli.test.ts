@@ -349,9 +349,10 @@ describe("cli/install-unity-package", () => {
       await fs.mkdir(path.join(tmp, "Assets"), { recursive: true });
       await fs.mkdir(path.join(tmp, "ProjectSettings"), { recursive: true });
       await fs.mkdir(path.join(tmp, "Packages"), { recursive: true });
+      const manifestPath = path.join(tmp, "Packages", "manifest.json");
       await fs.writeFile(
-        path.join(tmp, "Packages", "manifest.json"),
-        JSON.stringify({ dependencies: { "com.unity.textmeshpro": "3.0.6" } }, null, 2)
+        manifestPath,
+        JSON.stringify({ dependencies: { "com.unity.textmeshpro": "3.0.6" } }) + "\n"
       );
       const r = await runInstallUnityPackage(g({ project: tmp, json: true }), {
         command: "install-unity-package",
@@ -359,10 +360,89 @@ describe("cli/install-unity-package", () => {
         flags: { mode: "manifest" },
       });
       expect(r.exitCode).toBe(0);
-      const after = JSON.parse(await fs.readFile(path.join(tmp, "Packages", "manifest.json"), "utf8"));
+      const afterRaw = await fs.readFile(manifestPath, "utf8");
+      const after = JSON.parse(afterRaw);
       expect(after.dependencies["com.uvibe.os"]).toMatch(/^file:.*UnityVibeOS$/);
       expect(after.dependencies["com.unity.textmeshpro"]).toBe("3.0.6");
+      expect(after.testables).toEqual(["com.uvibe.os"]);
+      expect(afterRaw.split("\n")).toHaveLength(2);
     } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves manifest testables and formatting when re-run", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-install-testable-"));
+    try {
+      await fs.mkdir(path.join(tmp, "Assets"), { recursive: true });
+      await fs.mkdir(path.join(tmp, "ProjectSettings"), { recursive: true });
+      await fs.mkdir(path.join(tmp, "Packages"), { recursive: true });
+      const manifestPath = path.join(tmp, "Packages", "manifest.json");
+      await fs.writeFile(
+        manifestPath,
+        JSON.stringify(
+          {
+            dependencies: { "com.unity.textmeshpro": "3.0.6" },
+            testables: ["com.example.tools"],
+          },
+          null,
+          4
+        ) + "\n"
+      );
+
+      const args = {
+        command: "install-unity-package",
+        positional: [],
+        flags: { mode: "manifest" },
+      };
+      const first = await runInstallUnityPackage(g({ project: tmp, json: true }), args);
+      expect(first.exitCode).toBe(0);
+      const afterFirst = await fs.readFile(manifestPath, "utf8");
+      const manifest = JSON.parse(afterFirst);
+      expect(manifest.dependencies["com.unity.textmeshpro"]).toBe("3.0.6");
+      expect(manifest.testables).toEqual(["com.example.tools", "com.uvibe.os"]);
+      expect(afterFirst).toContain('\n    "dependencies"');
+
+      const second = await runInstallUnityPackage(g({ project: tmp, json: true }), args);
+      expect(second.exitCode).toBe(0);
+      expect(await fs.readFile(manifestPath, "utf8")).toBe(afterFirst);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves manifest paths from the canonical project location", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-install-canonical-"));
+    const alias = `${tmp}-alias`;
+    try {
+      const realRoot = path.join(tmp, "nested", "real");
+      const realProject = path.join(realRoot, "Project");
+      const realSource = path.join(realRoot, "UnityVibeOS");
+      await fs.mkdir(path.join(realProject, "Assets"), { recursive: true });
+      await fs.mkdir(path.join(realProject, "ProjectSettings"), { recursive: true });
+      await fs.mkdir(path.join(realProject, "Packages"), { recursive: true });
+      await fs.mkdir(realSource, { recursive: true });
+      await fs.writeFile(path.join(realSource, "package.json"), "{}\n");
+      await fs.writeFile(path.join(realProject, "Packages", "manifest.json"), '{"dependencies":{}}\n');
+      await fs.symlink(realRoot, alias, "dir");
+
+      const projectThroughAlias = path.join(alias, "Project");
+      const result = await runInstallUnityPackage(g({ project: projectThroughAlias, json: true }), {
+        command: "install-unity-package",
+        positional: [],
+        flags: { mode: "manifest", source: realSource },
+      });
+      expect(result.exitCode).toBe(0);
+
+      const manifestPath = path.join(projectThroughAlias, "Packages", "manifest.json");
+      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      const ref = manifest.dependencies["com.uvibe.os"] as string;
+      expect(ref).toMatch(/^file:/);
+      const canonicalPackages = await fs.realpath(path.join(projectThroughAlias, "Packages"));
+      const resolvedSource = path.resolve(canonicalPackages, ref.slice("file:".length));
+      expect(await fs.realpath(resolvedSource)).toBe(await fs.realpath(realSource));
+    } finally {
+      await fs.rm(alias, { force: true });
       await fs.rm(tmp, { recursive: true, force: true });
     }
   });

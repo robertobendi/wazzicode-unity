@@ -49,6 +49,15 @@ export function RefreshIcon({ className }: IconProps) {
   );
 }
 
+export function SearchIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} width="15" height="15">
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4 4" />
+    </svg>
+  );
+}
+
 export function ChevronIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className} width="16" height="16">

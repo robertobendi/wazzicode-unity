@@ -221,7 +221,7 @@ export default function App() {
       <TopBar />
       <ProjectMapDrawer project={project} />
       <ConnectionBanner />
-      <div className="relative flex min-h-0 flex-1">
+      <div className="workspace-shell relative flex min-h-0 flex-1">
         {mode === "auto" ? (
           <LoopPanel />
         ) : (

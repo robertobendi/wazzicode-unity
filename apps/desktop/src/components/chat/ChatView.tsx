@@ -12,7 +12,10 @@ export default function ChatView() {
   const dragActive = useResourceDnd(project, columnRef);
 
   return (
-    <div ref={columnRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+    <div
+      ref={columnRef}
+      className="chat-view relative flex min-h-0 min-w-0 flex-1 flex-col"
+    >
       <MessageList />
       <TaskFeedback />
       <Composer />

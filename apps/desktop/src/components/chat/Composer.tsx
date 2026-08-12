@@ -181,7 +181,7 @@ export default function Composer() {
   }
 
   return (
-    <div className="glass-bar mx-3 mb-3 shrink-0 rounded-2xl border px-4 py-3">
+    <div className="composer-shell glass-bar mx-3 mb-3 shrink-0 rounded-xl border px-4 py-3">
       <div className="mx-auto max-w-2xl">
         {showQuickActions && (
           <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5">
@@ -209,7 +209,7 @@ export default function Composer() {
           </div>
         )}
 
-        <div className="command-dock relative rounded-2xl border border-white/10 bg-black/25 p-2 shadow-inner shadow-white/[0.025]">
+        <div className="command-dock relative rounded-lg border border-white/10 bg-black/25 p-2 shadow-inner shadow-white/[0.025]">
           <textarea
             ref={ref}
             value={value}

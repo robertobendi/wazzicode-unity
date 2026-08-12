@@ -1,143 +1,400 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
+import { join } from "@tauri-apps/api/path";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api } from "@/api";
 import {
   formatKnowledgeFactValue,
   formatKnowledgeKind,
+  formatProjectMapRelation,
+  groupProjectMapFacts,
+  groupProjectMapHits,
+  localProjectMapHits,
+  projectMapBreadcrumbs,
+  projectMapChildren,
   projectMapConnections,
-  projectMapCoveragePercent,
+  projectMapFacetCounts,
+  pushProjectMapHistory,
+  reconcileProjectMapHistory,
   type ProjectMapConnection,
+  type ProjectMapFacet,
 } from "@/lib/projectMap";
 import { relativeTime } from "@/lib/relativeTime";
 import { useUiStore } from "@/stores/useUiStore";
 import type {
   KnowledgeEntity,
+  KnowledgeEntityKind,
   KnowledgeFact,
+  KnowledgeRelationKind,
   ProjectMapData,
   ProjectMapSearchHit,
 } from "@/types/projectMap";
-import { CloseIcon, MapIcon, RefreshIcon } from "@/components/shell/icons";
+import {
+  ChevronIcon,
+  CloseIcon,
+  MapIcon,
+  RefreshIcon,
+  SearchIcon,
+} from "@/components/shell/icons";
+
+const FACETS: Array<{ id: ProjectMapFacet; label: string }> = [
+  { id: "all", label: "Overview" },
+  { id: "module", label: "Folders" },
+  { id: "scene", label: "Scenes" },
+  { id: "prefab", label: "Prefabs" },
+  { id: "script", label: "Scripts" },
+  { id: "type", label: "Types" },
+  { id: "package", label: "Packages" },
+];
+
+const SEARCH_EXAMPLES = [
+  "what handles saving?",
+  "types derived from MonoBehaviour",
+  "what handles player input?",
+];
+
+interface NavigationState {
+  history: string[];
+  index: number;
+}
 
 export default function ProjectMapDrawer({ project }: { project: string }) {
   const open = useUiStore((state) => state.projectMapOpen);
   const setOpen = useUiStore((state) => state.setProjectMapOpen);
   const [data, setData] = useState<ProjectMapData | null>(null);
-  const [hits, setHits] = useState<ProjectMapSearchHit[]>([]);
+  const [remoteHits, setRemoteHits] = useState<ProjectMapSearchHit[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  const [navigation, setNavigation] = useState<NavigationState>({
+    history: [],
+    index: -1,
+  });
   const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
+  const [facet, setFacet] = useState<ProjectMapFacet>("all");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [querying, setQuerying] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
+  const [revealError, setRevealError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const queryRequest = useRef(0);
-  const hasData = data !== null;
+  const inspectorHeadingRef = useRef<HTMLHeadingElement>(null);
+  const readEpoch = useRef(0);
+  const searchEpoch = useRef(0);
+  const refreshEpoch = useRef(0);
+  const revealEpoch = useRef(0);
+  const projectOperationQueue = useRef<Promise<void>>(Promise.resolve());
+  const mapLoadInFlight = useRef<{
+    project: string;
+    promise: Promise<ProjectMapData | null>;
+  } | null>(null);
 
-  function adoptData(next: ProjectMapData | null) {
-    setData(next);
-    setSelectedId((current) => {
-      if (current && next?.entities.some((entity) => entity.id === current)) {
-        return current;
-      }
-      return (
-        next?.entities.find((entity) => entity.kind === "project")?.id ??
-        next?.entities[0]?.id ??
-        null
-      );
-    });
+  function enqueueProjectOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = projectOperationQueue.current.then(
+      () => operation(),
+      () => operation(),
+    );
+    projectOperationQueue.current = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
-  function adopt(next: ProjectMapData | null) {
-    adoptData(next);
-    setHits(
-      (next?.entities ?? []).slice(0, 50).map((entity) => ({
-        entity,
-        score: 0,
-      })),
+  function trackMapLoad(
+    nextProject: string,
+    promise: Promise<ProjectMapData | null>,
+  ): Promise<ProjectMapData | null> {
+    const tracked = { project: nextProject, promise };
+    mapLoadInFlight.current = tracked;
+    void promise.then(
+      () => {
+        if (mapLoadInFlight.current === tracked) mapLoadInFlight.current = null;
+      },
+      () => {
+        if (mapLoadInFlight.current === tracked) mapLoadInFlight.current = null;
+      },
     );
+    return promise;
+  }
+
+  function readMap(nextProject: string): Promise<ProjectMapData | null> {
+    const current = mapLoadInFlight.current;
+    if (current?.project === nextProject) return current.promise;
+    return trackMapLoad(
+      nextProject,
+      enqueueProjectOperation(() => api.readProjectMap(nextProject)),
+    );
+  }
+
+  function setSelection(id: string | null) {
+    selectedIdRef.current = id;
+    setSelectedId(id);
+  }
+
+  function adoptData(next: ProjectMapData | null, resetNavigation = false) {
+    const current = selectedIdRef.current;
+    const nextId =
+      (current && next?.entities.some((entity) => entity.id === current)
+        ? current
+        : null) ??
+      next?.entities.find((entity) => entity.kind === "project")?.id ??
+      next?.entities[0]?.id ??
+      null;
+
+    setData(next);
+    setSelection(nextId);
+    if (resetNavigation || !nextId) {
+      setNavigation({
+        history: nextId ? [nextId] : [],
+        index: nextId ? 0 : -1,
+      });
+      const scriptsRoot = next?.entities.find(
+        (entity) => entity.kind === "module" && entity.path === "Assets/Scripts",
+      );
+      setExpandedIds(new Set(scriptsRoot ? [scriptsRoot.id] : []));
+    } else {
+      setNavigation((currentNavigation) =>
+        reconcileProjectMapHistory(
+          currentNavigation.history,
+          currentNavigation.index,
+          next?.entities.map((entity) => entity.id) ?? [],
+          nextId,
+        ),
+      );
+    }
   }
 
   useEffect(() => {
     if (!open) return;
+    const request = ++readEpoch.current;
+    searchEpoch.current += 1;
+    refreshEpoch.current += 1;
+    revealEpoch.current += 1;
     let alive = true;
     setLoading(true);
     setError(null);
     setQuery("");
-    void api
-      .readProjectMap(project)
+    setQuerying(false);
+    setRefreshing(false);
+    setSubmittedQuery(null);
+    setRemoteHits([]);
+    setQueryError(null);
+    setRevealError(null);
+    setFacet("all");
+    void readMap(project)
       .then((next) => {
-        if (alive) adopt(next);
+        if (alive && request === readEpoch.current) {
+          adoptData(next, true);
+        }
       })
       .catch((nextError) => {
-        if (alive) {
-          adopt(null);
+        if (alive && request === readEpoch.current) {
+          adoptData(null, true);
           setError(String(nextError));
         }
       })
       .finally(() => {
-        if (alive) setLoading(false);
+        if (alive && request === readEpoch.current) setLoading(false);
       });
-    requestAnimationFrame(() => searchRef.current?.focus());
     return () => {
       alive = false;
     };
   }, [open, project]);
 
-  useEffect(() => {
-    if (!open || !data) return;
-    if (!query.trim()) {
-      queryRequest.current += 1;
-      setHits(
-        data.entities.slice(0, 50).map((entity) => ({ entity, score: 0 })),
-      );
-      setQueryError(null);
-      setQuerying(false);
-      return;
-    }
-    const request = ++queryRequest.current;
-    const timer = window.setTimeout(() => {
-      setQuerying(true);
-      setQueryError(null);
-      void api
-        .queryProjectMap(project, query, 50)
-        .then((next) => {
-          if (next.refreshedMap) adoptData(next.refreshedMap);
-          if (request === queryRequest.current) setHits(next.hits);
-        })
-        .catch((nextError) => {
-          if (request === queryRequest.current) {
-            setHits([]);
-            setQueryError(String(nextError));
-          }
-        })
-        .finally(() => {
-          if (request === queryRequest.current) setQuerying(false);
-        });
-    }, 140);
-    return () => window.clearTimeout(timer);
-  }, [hasData, open, project, query]);
+  function closeMap() {
+    readEpoch.current += 1;
+    searchEpoch.current += 1;
+    refreshEpoch.current += 1;
+    revealEpoch.current += 1;
+    setLoading(false);
+    setQuerying(false);
+    setRefreshing(false);
+    setOpen(false);
+    requestAnimationFrame(() =>
+      document.getElementById("project-map-trigger")?.focus(),
+    );
+  }
 
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+    const frame = requestAnimationFrame(() => dialogRef.current?.focus());
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMap();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), summary, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.offsetParent !== null);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (
+        event.shiftKey &&
+        (document.activeElement === first ||
+          document.activeElement === dialogRef.current)
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, setOpen]);
 
+  useEffect(() => {
+    if (!open || loading || !data) return;
+    const frame = requestAnimationFrame(() => {
+      if (
+        document.activeElement === dialogRef.current ||
+        document.activeElement === document.body
+      ) {
+        searchRef.current?.focus();
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [data, loading, open]);
+
+  function changeQuery(next: string) {
+    searchEpoch.current += 1;
+    setQuery(next);
+    setQuerying(false);
+    setSubmittedQuery(null);
+    setRemoteHits([]);
+    setQueryError(null);
+  }
+
+  async function searchMap(value = query) {
+    const nextQuery = value.trim();
+    if (!nextQuery || !data || loading || querying || refreshing) return;
+    const request = ++searchEpoch.current;
+    setQuery(nextQuery);
+    setFacet("all");
+    setSubmittedQuery(nextQuery);
+    setRemoteHits([]);
+    setQueryError(null);
+    setQuerying(true);
+    try {
+      const next = await enqueueProjectOperation(() =>
+        api.queryProjectMap(project, nextQuery, 50),
+      );
+      if (request !== searchEpoch.current) return;
+      if (next.refreshedMap) adoptData(next.refreshedMap);
+      setRemoteHits(next.hits);
+    } catch (nextError) {
+      if (request === searchEpoch.current) {
+        setRemoteHits([]);
+        setQueryError(String(nextError));
+      }
+    } finally {
+      if (request === searchEpoch.current) setQuerying(false);
+    }
+  }
+
   async function refresh() {
+    if (loading || querying || refreshing) return;
+    const request = ++refreshEpoch.current;
     setRefreshing(true);
     setError(null);
     try {
-      const next = await api.refreshProjectMap(project);
-      adopt(next);
+      const next = await trackMapLoad(
+        project,
+        enqueueProjectOperation(() => api.refreshProjectMap(project)),
+      );
+      if (request !== refreshEpoch.current || !next) return;
+      adoptData(next, true);
       setQuery("");
+      setSubmittedQuery(null);
+      setRemoteHits([]);
+      setQueryError(null);
+      setFacet("all");
     } catch (nextError) {
-      setError(String(nextError));
+      if (request === refreshEpoch.current) setError(String(nextError));
     } finally {
-      setRefreshing(false);
+      if (request === refreshEpoch.current) setRefreshing(false);
+    }
+  }
+
+  function navigateTo(id: string, focusInspector = false) {
+    if (selectedIdRef.current === id) return;
+    revealEpoch.current += 1;
+    setRevealError(null);
+    setSelection(id);
+    setNavigation((current) =>
+      pushProjectMapHistory(current.history, current.index, id),
+    );
+    if (focusInspector) {
+      requestAnimationFrame(() => inspectorHeadingRef.current?.focus());
+    }
+  }
+
+  function navigateBack() {
+    setNavigation((current) => {
+      if (current.index <= 0) return current;
+      const index = current.index - 1;
+      revealEpoch.current += 1;
+      setRevealError(null);
+      setSelection(current.history[index]);
+      requestAnimationFrame(() => inspectorHeadingRef.current?.focus());
+      return { ...current, index };
+    });
+  }
+
+  function showFacet(next: ProjectMapFacet) {
+    setFacet(next);
+    setQuery("");
+    setSubmittedQuery(null);
+    setRemoteHits([]);
+    setQueryError(null);
+  }
+
+  function selectFacet(next: ProjectMapFacet) {
+    setFacet(next);
+    setSubmittedQuery(null);
+    setRemoteHits([]);
+    setQueryError(null);
+  }
+
+  async function reveal(entity: KnowledgeEntity) {
+    if (!entity.path || entity.scope === "external") return;
+    const request = ++revealEpoch.current;
+    setRevealError(null);
+    try {
+      const target =
+        entity.path === "." ? project : await join(project, entity.path);
+      await revealItemInDir(target);
+    } catch (nextError) {
+      if (
+        request === revealEpoch.current &&
+        selectedIdRef.current === entity.id
+      ) {
+        setRevealError(String(nextError));
+      }
     }
   }
 
@@ -152,51 +409,70 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
         : { inbound: [], outbound: [] },
     [data, selected],
   );
+  const facetCounts = useMemo(
+    () => (data ? projectMapFacetCounts(data.entities) : null),
+    [data],
+  );
+  const localHits = useMemo(() => {
+    if (!data) return [];
+    const entities =
+      facet === "all"
+        ? data.entities
+        : data.entities.filter((entity) => entity.kind === facet);
+    return localProjectMapHits(entities, query, 80);
+  }, [data, facet, query]);
+  const semanticActive =
+    submittedQuery !== null && submittedQuery === query.trim();
+  const visibleHits = semanticActive ? remoteHits : localHits;
+  const hitGroups = useMemo(
+    () => groupProjectMapHits(visibleHits),
+    [visibleHits],
+  );
 
   if (!open) return null;
 
   return createPortal(
     <div
       className="project-map-backdrop fixed inset-0 z-[70] flex justify-end p-3"
-      onMouseDown={() => setOpen(false)}
+      onMouseDown={closeMap}
     >
       <section
+        ref={dialogRef}
         id="project-map-drawer"
         role="dialog"
         aria-modal="true"
         aria-labelledby="project-map-title"
-        className="project-map-surface flex h-full w-[min(1080px,calc(100vw-1.5rem))] min-w-0 flex-col overflow-hidden rounded-2xl border"
+        aria-busy={loading || refreshing}
+        tabIndex={-1}
+        className="project-map-surface flex h-full w-[min(1180px,calc(100vw-1.5rem))] min-w-0 flex-col overflow-hidden rounded-xl border focus:outline-none"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <header className="flex shrink-0 items-start gap-3 border-b border-white/[0.08] px-5 py-4">
-          <span className="project-map-mark mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 text-accent">
+        <header className="flex shrink-0 items-center gap-3 border-b border-white/[0.08] px-5 py-3.5">
+          <span className="project-map-mark flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 text-accent">
             <MapIcon className="h-[18px] w-[18px]" />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h2 id="project-map-title" className="text-base font-semibold text-fg">
-                Project Map
-              </h2>
-              {data && <MapHealth data={data} />}
-            </div>
+            <h2 id="project-map-title" className="text-base font-semibold text-fg">
+              Project Map
+            </h2>
             <p className="mt-0.5 truncate text-xs text-fg-dim">
-              Searchable architecture and provenance for {projectName(project)}
+              Find code, assets, and dependencies in {projectName(project)}
             </p>
           </div>
           <button
             type="button"
             onClick={() => void refresh()}
-            disabled={refreshing || loading}
-            className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.035] px-2.5 py-1.5 text-xs text-fg-muted hover:border-white/20 hover:bg-white/[0.07] hover:text-fg disabled:cursor-wait disabled:opacity-50"
+            disabled={refreshing || loading || querying}
+            className="flex items-center gap-1.5 rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-xs font-medium text-fg-muted hover:border-ink-600 hover:bg-ink-800 hover:text-fg disabled:cursor-wait disabled:opacity-50"
           >
             <RefreshIcon className={refreshing ? "animate-spin" : undefined} />
-            {refreshing ? "Scanning…" : "Refresh"}
+            {refreshing ? "Rescanning…" : "Rescan"}
           </button>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={closeMap}
             aria-label="Close project map"
-            className="rounded-lg p-2 text-fg-dim hover:bg-white/5 hover:text-fg"
+            className="icon-button rounded-lg text-fg-dim hover:text-fg"
           >
             <CloseIcon />
           </button>
@@ -214,9 +490,12 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
           <EmptyState onBuild={() => void refresh()} refreshing={refreshing} />
         ) : (
           <>
-            <MapSummary data={data} />
+            <MapStatus data={data} />
             {error && (
-              <div className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-lg border border-danger/25 bg-danger/[0.06] px-3 py-2 text-xs text-fg-muted">
+              <div
+                role="alert"
+                className="mx-4 mt-3 flex items-start justify-between gap-3 rounded-lg border border-danger/25 bg-danger/[0.06] px-3 py-2 text-xs text-fg-muted"
+              >
                 <span className="selectable min-w-0 break-words">{error}</span>
                 <button
                   type="button"
@@ -227,23 +506,47 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
                 </button>
               </div>
             )}
-            <div className="project-map-grid min-h-0 flex-1">
-              <EntityIndex
-                hits={hits}
+            <div className="project-map-layout min-h-0 flex-1">
+              <EntityBrowser
+                data={data}
+                facet={facet}
+                facetCounts={facetCounts!}
                 query={query}
+                mapBusy={loading || refreshing}
                 querying={querying}
                 queryError={queryError}
+                semanticActive={semanticActive}
+                hits={visibleHits}
+                groups={hitGroups}
                 selectedId={selectedId}
+                expandedIds={expandedIds}
                 searchRef={searchRef}
-                onQuery={setQuery}
-                onSelect={setSelectedId}
+                onQuery={changeQuery}
+                onSearch={(value) => void searchMap(value)}
+                onFacet={selectFacet}
+                onShowFacet={showFacet}
+                onSelect={(id) => navigateTo(id)}
+                onToggle={(id) =>
+                  setExpandedIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
               />
-              <EntityFacts entity={selected} />
-              <EntityConnections
+              <EntityInspector
+                data={data}
                 entity={selected}
                 inbound={connections.inbound}
                 outbound={connections.outbound}
-                onSelect={setSelectedId}
+                canGoBack={navigation.index > 0}
+                revealError={revealError}
+                headingRef={inspectorHeadingRef}
+                onBack={navigateBack}
+                onSelect={(id) => navigateTo(id, true)}
+                onFacet={showFacet}
+                onReveal={(entity) => void reveal(entity)}
               />
             </div>
           </>
@@ -254,395 +557,981 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
   );
 }
 
-function MapHealth({ data }: { data: ProjectMapData }) {
+function MapStatus({ data }: { data: ProjectMapData }) {
   const { manifest } = data;
-  const coverage = manifest.coverage;
-  const coverageComplete =
-    coverage.complete && !coverage.truncated && coverage.errors.length === 0;
-  return (
-    <div className="flex flex-wrap gap-1.5 text-[10px] font-medium uppercase tracking-[0.09em]">
-      <span
-        className={`rounded-full border px-2 py-0.5 ${
-          manifest.dirty.value
-            ? "border-warning/30 bg-warning/[0.08] text-warning"
-            : "border-success/25 bg-success/[0.07] text-success"
-        }`}
-        title={
-          manifest.dirty.value
-            ? manifest.dirty.reasons.map((reason) => reason.change).join("\n")
-            : "No project changes have been recorded since this scan"
-        }
-      >
-        {manifest.dirty.value ? "Changes pending" : "Recorded clean"}
-      </span>
-      <span className="rounded-full border border-white/10 px-2 py-0.5 text-fg-dim">
-        scanned {relativeTime(manifest.generatedAt)}
-      </span>
-      <span
-        className={`rounded-full border px-2 py-0.5 ${
-          coverageComplete
-            ? "border-white/10 text-fg-dim"
-            : "border-warning/25 text-warning"
-        }`}
-      >
-        {coverageComplete
-          ? "complete coverage"
-          : `${projectMapCoveragePercent(data)}% coverage`}
-      </span>
-    </div>
-  );
-}
-
-function MapSummary({ data }: { data: ProjectMapData }) {
-  const counts = data.manifest.coverage.counts;
-  const coverage = data.manifest.coverage;
-  const latestDirtyReason = data.manifest.dirty.reasons.at(-1);
   const partial =
-    !coverage.complete || coverage.truncated || coverage.errors.length > 0;
-  return (
-    <div className="shrink-0 border-b border-white/[0.07] px-4 py-3">
-      <div className="grid grid-cols-5 gap-2">
-        <Stat label="Entities" value={data.entities.length} />
-        <Stat label="Relations" value={data.relations.length} />
-        <Stat
-          label="Scripts"
-          value={counts.firstPartyScripts + counts.packageScripts}
-          detail={`${counts.firstPartyScripts} first-party`}
-        />
-        <Stat label="Scenes" value={counts.scenes} detail={`${counts.prefabs} prefabs`} />
-        <Stat
-          label="Files scanned"
-          value={coverage.scanned}
-          detail={`of ${coverage.discovered}`}
-          warning={partial}
-        />
+    !manifest.coverage.complete ||
+    manifest.coverage.truncated ||
+    manifest.coverage.errors.length > 0;
+  const warning = manifest.dirty.value || partial;
+  const label = manifest.dirty.value
+    ? "Rescan recommended"
+    : partial
+      ? "Partial map"
+      : "Up to date";
+  const detail = `${manifest.coverage.scanned.toLocaleString()} files · scanned ${relativeTime(manifest.generatedAt)}`;
+
+  if (!warning) {
+    return (
+      <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.07] bg-ink-850 px-5 py-2 text-[11px] text-fg-dim">
+        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+        <span className="font-medium text-fg-muted">{label}</span>
+        <span aria-hidden>·</span>
+        <span>{detail}</span>
       </div>
-      {data.manifest.dirty.value && (
-        <div className="mt-2 flex items-center gap-2 text-[11px] text-warning">
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
-          <span className="selectable truncate">
-            Project changes were recorded after this scan
-            {latestDirtyReason ? `: ${latestDirtyReason.change}` : "."}
-          </span>
-        </div>
-      )}
-      {partial && (
-        <div className="mt-2 flex items-center gap-2 text-[11px] text-warning">
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
-          <span>
-            This map is partial
-            {coverage.truncated ? ` — scan cap ${coverage.cap} reached` : ""}
-            {coverage.errors.length > 0
-              ? ` — ${coverage.errors.length} scan ${coverage.errors.length === 1 ? "error" : "errors"}`
-              : ""}
-            .
-          </span>
-        </div>
-      )}
-    </div>
+    );
+  }
+
+  return (
+    <details className="group shrink-0 border-b border-warning/20 bg-warning/[0.05] px-5 py-2 text-[11px]">
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-warning marker:hidden">
+        <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+        <span className="font-medium">{label}</span>
+        <span aria-hidden>·</span>
+        <span className="text-fg-dim">{detail}</span>
+        <ChevronIcon className="ml-auto h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-2 grid gap-2 pb-1 text-fg-muted sm:grid-cols-2">
+        {manifest.dirty.value && (
+          <div className="rounded-lg border border-warning/15 bg-white px-3 py-2">
+            <div className="font-medium text-fg">Project changed after this scan</div>
+            <ul className="mt-1 space-y-1 text-fg-dim">
+              {manifest.dirty.reasons.slice(-5).map((reason, index) => (
+                <li key={`${reason.at}:${index}`}>{humanize(reason.change)}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {partial && (
+          <div className="rounded-lg border border-warning/15 bg-white px-3 py-2">
+            <div className="font-medium text-fg">
+              {manifest.coverage.errors.length > 0
+                ? `${manifest.coverage.errors.length} ${manifest.coverage.errors.length === 1 ? "file was" : "files were"} not indexed`
+                : "The scan did not cover every file"}
+            </div>
+            <ul className="mt-1 space-y-1 text-fg-dim">
+              {manifest.coverage.errors.slice(0, 5).map((item) => (
+                <li key={item.path} className="selectable break-words">
+                  {item.path}: {item.message}
+                </li>
+              ))}
+              {manifest.coverage.truncated && (
+                <li>Scan limit of {manifest.coverage.cap.toLocaleString()} files reached.</li>
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 
-function Stat({
-  label,
-  value,
-  detail,
-  warning,
-}: {
-  label: string;
-  value: number;
-  detail?: string;
-  warning?: boolean;
-}) {
-  return (
-    <div className="rounded-lg border border-white/[0.07] bg-black/15 px-3 py-2">
-      <div className={`text-lg font-semibold tabular-nums ${warning ? "text-warning" : "text-fg"}`}>
-        {value.toLocaleString()}
-      </div>
-      <div className="text-[10px] uppercase tracking-[0.1em] text-fg-dim">
-        {label}
-      </div>
-      {detail && <div className="mt-0.5 text-[10px] text-fg-dim">{detail}</div>}
-    </div>
-  );
-}
-
-function EntityIndex({
-  hits,
+function EntityBrowser({
+  data,
+  facet,
+  facetCounts,
   query,
+  mapBusy,
   querying,
   queryError,
+  semanticActive,
+  hits,
+  groups,
   selectedId,
+  expandedIds,
   searchRef,
   onQuery,
+  onSearch,
+  onFacet,
+  onShowFacet,
   onSelect,
+  onToggle,
 }: {
-  hits: ProjectMapSearchHit[];
+  data: ProjectMapData;
+  facet: ProjectMapFacet;
+  facetCounts: Record<ProjectMapFacet, number>;
   query: string;
+  mapBusy: boolean;
   querying: boolean;
   queryError: string | null;
+  semanticActive: boolean;
+  hits: ProjectMapSearchHit[];
+  groups: ReturnType<typeof groupProjectMapHits>;
   selectedId: string | null;
-  searchRef: React.RefObject<HTMLInputElement>;
+  expandedIds: Set<string>;
+  searchRef: RefObject<HTMLInputElement>;
   onQuery: (query: string) => void;
+  onSearch: (query?: string) => void;
+  onFacet: (facet: ProjectMapFacet) => void;
+  onShowFacet: (facet: ProjectMapFacet) => void;
   onSelect: (id: string) => void;
+  onToggle: (id: string) => void;
 }) {
+  const browsingStructure = !query.trim() && facet === "all";
+  const totalForFacet = facetCounts[facet];
+  const resultCopy = querying
+    ? "Searching the project map…"
+    : semanticActive
+      ? `${hits.length}${hits.length === 50 ? "+" : ""} project-wide ranked ${hits.length === 1 ? "result" : "results"}`
+      : query.trim()
+        ? `${hits.length} quick ${hits.length === 1 ? "match" : "matches"} · Enter searches dependencies too`
+        : hits.length < totalForFacet
+          ? `Showing ${hits.length} of ${totalForFacet.toLocaleString()}`
+          : `${totalForFacet.toLocaleString()} ${totalForFacet === 1 ? "item" : "items"}`;
+
   return (
-    <aside className="project-map-column min-h-0 border-r border-white/[0.07]">
-      <div className="shrink-0 border-b border-white/[0.06] p-3">
+    <aside
+      className="project-map-browser flex min-h-0 flex-col border-r border-white/[0.07]"
+      aria-labelledby="project-map-browse-title"
+    >
+      <div className="shrink-0 border-b border-white/[0.07] p-3">
+        <h3 id="project-map-browse-title" className="sr-only">
+          Browse project map
+        </h3>
         <label htmlFor="project-map-search" className="sr-only">
-          Search project entities
+          Find code, assets, or dependencies
         </label>
-        <div className="relative">
-          <input
-            ref={searchRef}
-            id="project-map-search"
-            type="search"
-            value={query}
-            onChange={(event) => onQuery(event.target.value)}
-            placeholder="Find scripts, systems, facts…"
-            className="w-full rounded-lg border border-white/10 bg-black/25 py-2 pl-3 pr-8 text-xs text-fg outline-none placeholder:text-fg-dim/70 focus:border-accent/40"
-          />
-          {querying && (
-            <span className="absolute right-3 top-1/2 h-3 w-3 -translate-y-1/2 animate-spin rounded-full border border-fg-dim/30 border-t-fg-muted" />
-          )}
-        </div>
-        <div className="mt-2 text-[10px] uppercase tracking-[0.1em] text-fg-dim">
-          {hits.length} {hits.length === 1 ? "match" : "matches"}
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {queryError ? (
-          <p className="selectable p-3 text-xs leading-relaxed text-danger">
-            {queryError}
-          </p>
-        ) : hits.length === 0 ? (
-          <div className="p-5 text-center text-xs leading-relaxed text-fg-dim">
-            No entities match this query.
+        <div className="flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-dim" />
+            <input
+              ref={searchRef}
+              id="project-map-search"
+              type="search"
+              value={query}
+              disabled={mapBusy}
+              onChange={(event) => onQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                onSearch();
+              }}
+              placeholder="Name, path, or question…"
+              className="w-full rounded-lg border border-ink-700 bg-white py-2.5 pl-9 pr-3 text-xs text-fg outline-none placeholder:text-fg-dim focus:border-accent/40"
+            />
           </div>
-        ) : (
-          <div className="space-y-1">
-            {hits.map(({ entity }) => (
+          <button
+            type="button"
+            onClick={() => onSearch()}
+            disabled={!query.trim() || querying || mapBusy}
+            className="rounded-lg bg-accent px-3 text-xs font-medium text-white disabled:opacity-40"
+          >
+            {querying ? "Searching…" : "Search"}
+          </button>
+        </div>
+        <div
+          className="mt-3 grid grid-cols-4 gap-1.5"
+          role="group"
+          aria-label="Filter project map"
+        >
+          {FACETS.map((item) => {
+            const active = facet === item.id;
+            const count = facetCounts[item.id];
+            return (
               <button
-                key={entity.id}
+                key={item.id}
                 type="button"
-                onClick={() => onSelect(entity.id)}
-                aria-pressed={selectedId === entity.id}
-                className={`project-map-entity-row w-full rounded-lg border px-3 py-2.5 text-left ${
-                  selectedId === entity.id
-                    ? "border-accent/25 bg-accent/[0.08]"
-                    : "border-transparent hover:border-white/[0.07] hover:bg-white/[0.035]"
+                aria-pressed={active}
+                disabled={mapBusy || (count === 0 && !active)}
+                onClick={() => onFacet(item.id)}
+                className={`flex min-w-0 items-center justify-center gap-1 rounded-lg border px-1.5 py-1.5 text-[10px] font-medium disabled:opacity-35 ${
+                  active
+                    ? "border-accent bg-accent text-fg"
+                    : "border-ink-700 bg-white text-fg-muted hover:border-ink-600 hover:bg-ink-800"
                 }`}
               >
-                <div className="flex items-start gap-2">
-                  <KindGlyph kind={entity.kind} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium text-fg">
-                      {entity.name}
-                    </div>
-                    <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-fg-dim">
-                      <span className="uppercase tracking-[0.08em]">
-                        {formatKnowledgeKind(entity.kind)}
-                      </span>
-                      {entity.path && (
-                        <>
-                          <span aria-hidden>·</span>
-                          <span className="truncate">{entity.path}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                {item.label}
+                <span
+                  className={`rounded px-1 text-[9px] tabular-nums ${
+                    active ? "bg-white/60 text-fg" : "bg-ink-850 text-fg-dim"
+                  }`}
+                >
+                  {count.toLocaleString()}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {!query.trim() && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <span className="py-1 text-[10px] font-medium uppercase tracking-[0.1em] text-fg-dim">
+              Ask
+            </span>
+            {SEARCH_EXAMPLES.map((example) => (
+              <button
+                key={example}
+                type="button"
+                disabled={mapBusy}
+                onClick={() => onSearch(example)}
+                className="rounded-md bg-ink-800 px-2 py-1 text-[10px] text-fg-muted hover:bg-accent hover:text-fg disabled:opacity-40"
+              >
+                {example}
               </button>
             ))}
           </div>
+        )}
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-3 text-[10px] uppercase tracking-[0.08em] text-fg-dim"
+        >
+          {resultCopy}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-2.5">
+        {queryError ? (
+          <div role="alert" className="rounded-lg border border-danger/20 bg-danger/5 p-3">
+            <div className="text-xs font-medium text-danger">Search failed</div>
+            <p className="selectable mt-1 break-words text-[11px] leading-relaxed text-fg-dim">
+              {queryError}
+            </p>
+          </div>
+        ) : browsingStructure ? (
+          <StructureBrowse
+            data={data}
+            counts={facetCounts}
+            selectedId={selectedId}
+            expandedIds={expandedIds}
+            onSelect={onSelect}
+            onToggle={onToggle}
+            onFacet={onShowFacet}
+          />
+        ) : hits.length === 0 && !querying ? (
+          <div className="p-6 text-center">
+            <div className="text-xs font-medium text-fg">Nothing matched</div>
+            <p className="mt-1 text-[11px] leading-relaxed text-fg-dim">
+              {query.trim() && !semanticActive
+                ? "Press Enter or Search to check names, code details, and dependencies."
+                : "Try another phrase or choose a different category."}
+            </p>
+          </div>
+        ) : (
+          <ResultGroups
+            groups={groups}
+            selectedId={selectedId}
+            onSelect={onSelect}
+          />
         )}
       </div>
     </aside>
   );
 }
 
-function EntityFacts({ entity }: { entity: KnowledgeEntity | null }) {
+function StructureBrowse({
+  data,
+  counts,
+  selectedId,
+  expandedIds,
+  onSelect,
+  onToggle,
+  onFacet,
+}: {
+  data: ProjectMapData;
+  counts: Record<ProjectMapFacet, number>;
+  selectedId: string | null;
+  expandedIds: Set<string>;
+  onSelect: (id: string) => void;
+  onToggle: (id: string) => void;
+  onFacet: (facet: ProjectMapFacet) => void;
+}) {
+  const root =
+    data.entities.find((entity) => entity.kind === "project") ??
+    data.entities[0] ??
+    null;
+  const rootChildren = root ? projectMapChildren(data, root.id) : [];
+  const modules = rootChildren.filter(
+    (entity) => entity.kind === "module" && entity.scope !== "package",
+  );
+
   return (
-    <main className="project-map-column min-h-0 border-r border-white/[0.07]">
-      {!entity ? (
-        <ColumnEmpty>Select an entity to inspect its facts.</ColumnEmpty>
+    <div>
+      {root && (
+        <EntityRow
+          entity={root}
+          selected={selectedId === root.id}
+          onSelect={() => onSelect(root.id)}
+          prominent
+        />
+      )}
+
+      <SectionLabel className="mb-2 mt-4">Project folders</SectionLabel>
+      {modules.length > 0 ? (
+        <ul className="space-y-0.5">
+          {modules.map((module) => (
+            <TreeNode
+              key={module.id}
+              data={data}
+              entity={module}
+              selectedId={selectedId}
+              expandedIds={expandedIds}
+              ancestors={new Set()}
+              onSelect={onSelect}
+              onToggle={onToggle}
+            />
+          ))}
+        </ul>
       ) : (
-        <>
-          <div className="shrink-0 border-b border-white/[0.06] px-4 py-3.5">
-            <div className="flex items-center gap-2">
-              <KindGlyph kind={entity.kind} large />
-              <div className="min-w-0">
-                <h3 className="selectable truncate text-sm font-semibold text-fg">
-                  {entity.name}
-                </h3>
-                <div className="mt-0.5 text-[10px] uppercase tracking-[0.1em] text-fg-dim">
-                  {formatKnowledgeKind(entity.kind)} · {entity.scope}
-                </div>
-              </div>
+        <p className="rounded-lg border border-dashed border-ink-700 p-3 text-[11px] text-fg-dim">
+          No indexed project folders.
+        </p>
+      )}
+
+      <SectionLabel className="mb-2 mt-5">Browse by asset</SectionLabel>
+      <div className="grid grid-cols-2 gap-2">
+        {(
+          [
+            ["scene", "Scenes"],
+            ["prefab", "Prefabs"],
+            ["script", "Scripts"],
+            ["package", "Packages"],
+          ] as Array<[ProjectMapFacet, string]>
+        ).map(([kind, label]) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => onFacet(kind)}
+            className="rounded-lg border border-ink-700 bg-white p-3 text-left hover:border-ink-600 hover:bg-ink-800"
+          >
+            <div className="text-base font-semibold tabular-nums text-fg">
+              {counts[kind].toLocaleString()}
             </div>
-            {entity.path && (
-              <div className="selectable mt-2 break-all font-mono text-[10px] leading-relaxed text-fg-dim">
-                {entity.path}
-              </div>
-            )}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            <SectionLabel>Facts · {entity.facts.length}</SectionLabel>
-            {entity.facts.length === 0 ? (
-              <p className="mt-3 rounded-lg border border-dashed border-white/10 p-4 text-xs leading-relaxed text-fg-dim">
-                No structured facts were recorded for this entity. Its path and
-                relationships are still part of the map.
-              </p>
-            ) : (
-              <div className="mt-2 space-y-2">
-                {entity.facts.map((fact, index) => (
-                  <FactCard key={`${fact.key}:${index}`} fact={fact} />
-                ))}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </main>
+            <div className="mt-0.5 text-[10px] uppercase tracking-[0.1em] text-fg-dim">
+              {label}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
-function FactCard({ fact }: { fact: KnowledgeFact }) {
-  const source = `${fact.provenance.path}${
-    fact.provenance.line ? `:${fact.provenance.line}` : ""
-  }`;
+function TreeNode({
+  data,
+  entity,
+  selectedId,
+  expandedIds,
+  ancestors,
+  onSelect,
+  onToggle,
+}: {
+  data: ProjectMapData;
+  entity: KnowledgeEntity;
+  selectedId: string | null;
+  expandedIds: Set<string>;
+  ancestors: Set<string>;
+  onSelect: (id: string) => void;
+  onToggle: (id: string) => void;
+}) {
+  if (ancestors.has(entity.id)) return null;
+  const children = projectMapChildren(data, entity.id).filter(
+    (child) => child.scope !== "external",
+  );
+  const expanded = expandedIds.has(entity.id);
+  const nextAncestors = new Set(ancestors).add(entity.id);
   return (
-    <article className="rounded-lg border border-white/[0.07] bg-white/[0.018] p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] font-medium uppercase tracking-[0.09em] text-fg-dim">
-          {humanize(fact.key)}
-        </div>
-        {fact.provenance.heuristic && (
-          <span className="rounded-full border border-warning/20 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-warning">
-            heuristic
-            {fact.confidence !== undefined
-              ? ` · ${Math.round(fact.confidence * 100)}%`
-              : ""}
-          </span>
+    <li>
+      <div
+        className={`project-map-tree-row flex items-center rounded-lg ${
+          selectedId === entity.id ? "bg-accent" : "hover:bg-ink-800"
+        }`}
+      >
+        {children.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => onToggle(entity.id)}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${entity.name}`}
+            aria-expanded={expanded}
+            className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center text-fg-dim hover:text-fg"
+          >
+            <ChevronIcon
+              className={`h-3.5 w-3.5 transition-transform ${
+                expanded ? "" : "-rotate-90"
+              }`}
+            />
+          </button>
+        ) : (
+          <span className="ml-1 h-7 w-7 shrink-0" />
         )}
+        <button
+          type="button"
+          aria-current={selectedId === entity.id ? "true" : undefined}
+          onClick={() => onSelect(entity.id)}
+          className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-2 text-left"
+        >
+          <KindGlyph kind={entity.kind} />
+          <span className="min-w-0 flex-1 truncate text-xs text-fg">
+            {entity.name}
+          </span>
+          {children.length > 0 && (
+            <span className="text-[9px] tabular-nums text-fg-dim">
+              {children.length}
+            </span>
+          )}
+        </button>
       </div>
-      <div className="selectable mt-1 break-words text-xs leading-relaxed text-fg">
-        {formatKnowledgeFactValue(fact.value)}
-      </div>
-      {fact.provenance.evidence && (
-        <div className="selectable mt-2 break-words border-l border-white/10 pl-2 font-mono text-[10px] leading-relaxed text-fg-dim">
-          {fact.provenance.evidence}
-        </div>
+      {expanded && children.length > 0 && (
+        <ul className="ml-[18px] border-l border-ink-700 pl-2">
+          {children.map((child) => (
+            <TreeNode
+              key={child.id}
+              data={data}
+              entity={child}
+              selectedId={selectedId}
+              expandedIds={expandedIds}
+              ancestors={nextAncestors}
+              onSelect={onSelect}
+              onToggle={onToggle}
+            />
+          ))}
+        </ul>
       )}
-      <div className="selectable mt-2 truncate font-mono text-[9px] text-fg-dim/80" title={source}>
-        {fact.provenance.source} · {source}
-      </div>
-    </article>
+    </li>
   );
 }
 
-function EntityConnections({
+function ResultGroups({
+  groups,
+  selectedId,
+  onSelect,
+}: {
+  groups: ReturnType<typeof groupProjectMapHits>;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      {groups.map((group) => (
+        <section key={group.kind} aria-labelledby={`map-results-${group.kind}`}>
+          <div className="mb-1.5 flex items-center justify-between px-1">
+            <h4
+              id={`map-results-${group.kind}`}
+              className="text-[10px] font-medium uppercase tracking-[0.1em] text-fg-dim"
+            >
+              {pluralKind(group.kind)}
+            </h4>
+            <span className="text-[10px] tabular-nums text-fg-dim">
+              {group.hits.length}
+            </span>
+          </div>
+          <ul className="space-y-0.5">
+            {group.hits.map(({ entity }) => (
+              <li key={entity.id}>
+                <EntityRow
+                  entity={entity}
+                  selected={selectedId === entity.id}
+                  onSelect={() => onSelect(entity.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function EntityRow({
+  entity,
+  selected,
+  onSelect,
+  prominent = false,
+}: {
+  entity: KnowledgeEntity;
+  selected: boolean;
+  onSelect: () => void;
+  prominent?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-current={selected ? "true" : undefined}
+      onClick={onSelect}
+      className={`project-map-entity-row w-full rounded-lg border px-3 py-2.5 text-left ${
+        selected
+          ? "border-accent bg-accent"
+          : prominent
+            ? "border-ink-700 bg-white hover:border-ink-600"
+            : "border-transparent hover:border-ink-700 hover:bg-ink-800"
+      }`}
+    >
+      <div className="flex items-start gap-2.5">
+        <KindGlyph kind={entity.kind} large={prominent} />
+        <div className="min-w-0 flex-1">
+          <div className={`${prominent ? "text-sm" : "text-xs"} truncate font-medium text-fg`}>
+            {entity.name}
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-fg-dim">
+            <span className="shrink-0 uppercase tracking-[0.08em]">
+              {formatKnowledgeKind(entity.kind)}
+            </span>
+            {entity.path && entity.path !== "." && (
+              <>
+                <span aria-hidden>·</span>
+                <span className="truncate">{entity.path}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function EntityInspector({
+  data,
+  entity,
+  inbound,
+  outbound,
+  canGoBack,
+  revealError,
+  headingRef,
+  onBack,
+  onSelect,
+  onFacet,
+  onReveal,
+}: {
+  data: ProjectMapData;
+  entity: KnowledgeEntity | null;
+  inbound: ProjectMapConnection[];
+  outbound: ProjectMapConnection[];
+  canGoBack: boolean;
+  revealError: string | null;
+  headingRef: RefObject<HTMLHeadingElement>;
+  onBack: () => void;
+  onSelect: (id: string) => void;
+  onFacet: (facet: ProjectMapFacet) => void;
+  onReveal: (entity: KnowledgeEntity) => void;
+}) {
+  if (!entity) {
+    return (
+      <section className="flex min-h-0 items-center justify-center p-8 text-center text-xs text-fg-dim">
+        Choose something from the project to inspect it.
+      </section>
+    );
+  }
+
+  const breadcrumbs = projectMapBreadcrumbs(data, entity.id);
+  const revealable = Boolean(entity.path && entity.scope !== "external");
+
+  return (
+    <section
+      className="project-map-inspector min-h-0 overflow-y-auto"
+      aria-labelledby="project-map-selection-title"
+    >
+      <div className="sticky top-0 z-10 border-b border-ink-700 bg-white px-5 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            disabled={!canGoBack}
+            className="rounded-md border border-ink-700 px-2 py-1 text-[10px] font-medium text-fg-muted hover:border-ink-600 hover:text-fg disabled:opacity-35"
+          >
+            ← Back
+          </button>
+          <nav aria-label="Selected item path" className="min-w-0 flex-1 overflow-hidden">
+            <ol className="flex min-w-0 items-center gap-1 overflow-hidden text-[10px] text-fg-dim">
+              {breadcrumbs.map((item, index) => (
+                <li key={item.id} className="flex min-w-0 items-center gap-1">
+                  {index > 0 && <span aria-hidden>›</span>}
+                  <button
+                    type="button"
+                    onClick={() => onSelect(item.id)}
+                    aria-current={item.id === entity.id ? "page" : undefined}
+                    className={`truncate rounded px-1 py-0.5 hover:bg-ink-800 hover:text-fg ${
+                      item.id === entity.id ? "font-medium text-fg" : ""
+                    }`}
+                  >
+                    {item.name}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </nav>
+        </div>
+      </div>
+
+      <div className="px-6 py-5">
+        <div className="flex items-start gap-3">
+          <KindGlyph kind={entity.kind} large />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3
+                ref={headingRef}
+                id="project-map-selection-title"
+                tabIndex={-1}
+                className="selectable min-w-0 break-words text-xl font-semibold text-fg focus:outline-none"
+              >
+                {entity.name}
+              </h3>
+              <span className="rounded-md bg-ink-800 px-2 py-1 text-[9px] font-medium uppercase tracking-[0.1em] text-fg-dim">
+                {formatKnowledgeKind(entity.kind)}
+              </span>
+              {entity.scope !== "project" &&
+                !(entity.kind === "package" && entity.scope === "package") && (
+                  <span className="rounded-md border border-ink-700 px-2 py-1 text-[9px] uppercase tracking-[0.1em] text-fg-dim">
+                    {scopeLabel(entity.scope)}
+                  </span>
+                )}
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+              {entityDescription(entity)}
+            </p>
+          </div>
+          {revealable && (
+            <button
+              type="button"
+              onClick={() => onReveal(entity)}
+              className="shrink-0 rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-[11px] font-medium text-fg-muted hover:border-ink-600 hover:bg-ink-800 hover:text-fg"
+            >
+              Reveal in folder
+            </button>
+          )}
+        </div>
+
+        {entity.path && entity.path !== "." && (
+          <div className="selectable mt-4 break-all rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 font-mono text-[10px] leading-relaxed text-fg-dim">
+            {entity.path}
+          </div>
+        )}
+        {revealError && (
+          <p role="alert" className="selectable mt-2 break-words text-xs text-danger">
+            Couldn&apos;t reveal this item: {revealError}
+          </p>
+        )}
+
+        {entity.kind === "project" && (
+          <ProjectOverview data={data} onFacet={onFacet} />
+        )}
+        <RelationshipPanel
+          entity={entity}
+          inbound={inbound}
+          outbound={outbound}
+          onSelect={onSelect}
+        />
+        <EntityDetails entity={entity} />
+      </div>
+    </section>
+  );
+}
+
+function ProjectOverview({
+  data,
+  onFacet,
+}: {
+  data: ProjectMapData;
+  onFacet: (facet: ProjectMapFacet) => void;
+}) {
+  const counts = projectMapFacetCounts(data.entities);
+  return (
+    <section className="mt-6" aria-labelledby="project-overview-title">
+      <SectionHeading id="project-overview-title">Explore the project</SectionHeading>
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {(
+          [
+            ["script", "Scripts"],
+            ["type", "Types"],
+            ["scene", "Scenes"],
+            ["prefab", "Prefabs"],
+          ] as Array<[ProjectMapFacet, string]>
+        ).map(([kind, label]) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => onFacet(kind)}
+            className="rounded-lg border border-ink-700 bg-white px-3 py-3 text-left hover:border-ink-600 hover:bg-ink-800"
+          >
+            <span className="block text-lg font-semibold tabular-nums text-fg">
+              {counts[kind].toLocaleString()}
+            </span>
+            <span className="mt-0.5 block text-[10px] uppercase tracking-[0.1em] text-fg-dim">
+              {label}
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RelationshipPanel({
   entity,
   inbound,
   outbound,
   onSelect,
 }: {
-  entity: KnowledgeEntity | null;
+  entity: KnowledgeEntity;
   inbound: ProjectMapConnection[];
   outbound: ProjectMapConnection[];
   onSelect: (id: string) => void;
 }) {
+  const groups = relationshipGroups(inbound, outbound);
   return (
-    <aside className="project-map-column min-h-0">
-      {!entity ? (
-        <ColumnEmpty>Relationships appear here.</ColumnEmpty>
+    <section className="mt-7" aria-labelledby="project-connections-title">
+      <SectionHeading id="project-connections-title">
+        How it connects
+        <span className="ml-2 font-normal text-fg-dim">
+          {inbound.length + outbound.length}
+        </span>
+      </SectionHeading>
+      {groups.length === 0 ? (
+        <p className="mt-3 rounded-lg border border-dashed border-ink-700 p-4 text-xs leading-relaxed text-fg-dim">
+          No relationships were recorded for {entity.name}.
+        </p>
       ) : (
-        <div className="h-full overflow-y-auto p-3">
-          <SectionLabel>Connections · {inbound.length + outbound.length}</SectionLabel>
-          <div className="project-map-node mt-3 rounded-xl border border-accent/20 bg-accent/[0.07] px-3 py-2 text-center">
-            <div className="truncate text-xs font-medium text-fg">{entity.name}</div>
-            <div className="mt-0.5 text-[9px] uppercase tracking-[0.12em] text-fg-dim">
-              selected
-            </div>
-          </div>
-          <ConnectionGroup
-            title="Feeds into this"
-            direction="inbound"
-            connections={inbound}
-            onSelect={onSelect}
-          />
-          <ConnectionGroup
-            title="Leads out to"
-            direction="outbound"
-            connections={outbound}
-            onSelect={onSelect}
-          />
-          {inbound.length === 0 && outbound.length === 0 && (
-            <p className="mt-4 rounded-lg border border-dashed border-white/10 p-4 text-xs leading-relaxed text-fg-dim">
-              No inbound or outbound relationships were recorded for this
-              entity.
-            </p>
-          )}
+        <div
+          className={`mt-3 grid items-start gap-3 ${
+            groups.length > 1 ? "lg:grid-cols-2" : ""
+          }`}
+        >
+          {groups.map((group) => (
+            <RelationGroup
+              key={`${entity.id}:${group.direction}:${group.kind}`}
+              label={group.label}
+              connections={group.connections}
+              onSelect={onSelect}
+            />
+          ))}
         </div>
       )}
-    </aside>
+    </section>
   );
 }
 
-function ConnectionGroup({
-  title,
-  direction,
+interface RelationshipGroup {
+  kind: KnowledgeRelationKind;
+  direction: "inbound" | "outbound";
+  label: string;
+  connections: ProjectMapConnection[];
+}
+
+function relationshipGroups(
+  inbound: ProjectMapConnection[],
+  outbound: ProjectMapConnection[],
+): RelationshipGroup[] {
+  const order: Array<["inbound" | "outbound", KnowledgeRelationKind]> = [
+    ["inbound", "contains"],
+    ["inbound", "declares"],
+    ["outbound", "contains"],
+    ["outbound", "declares"],
+    ["outbound", "derives"],
+    ["inbound", "derives"],
+    ["outbound", "references"],
+    ["inbound", "references"],
+  ];
+  return order.flatMap(([direction, kind]) => {
+    const source = direction === "inbound" ? inbound : outbound;
+    const connections = source.filter((item) => item.relation.kind === kind);
+    return connections.length > 0
+      ? [
+          {
+            kind,
+            direction,
+            label: formatProjectMapRelation(kind, direction),
+            connections,
+          },
+        ]
+      : [];
+  });
+}
+
+function RelationGroup({
+  label,
   connections,
   onSelect,
 }: {
-  title: string;
-  direction: "inbound" | "outbound";
+  label: string;
   connections: ProjectMapConnection[];
   onSelect: (id: string) => void;
 }) {
-  if (connections.length === 0) return null;
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? connections : connections.slice(0, 8);
   return (
-    <div className="mt-4">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.1em] text-fg-dim">
-        <span>{direction === "inbound" ? "↓" : "↑"}</span>
-        {title}
-      </div>
-      <div className="mt-1.5 space-y-1.5">
-        {connections.slice(0, 60).map(({ relation, neighbor }) => (
-          <button
-            key={relation.id}
-            type="button"
-            disabled={!neighbor}
-            onClick={() => neighbor && onSelect(neighbor.id)}
-            title={`${relation.provenance.path}${
-              relation.provenance.line ? `:${relation.provenance.line}` : ""
-            }`}
-            className="w-full rounded-lg border border-white/[0.07] bg-black/10 px-2.5 py-2 text-left hover:border-white/15 hover:bg-white/[0.035] disabled:cursor-default"
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-accent">
-                {direction === "inbound" ? "→" : "↗"}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-xs text-fg-muted">
-                {neighbor?.name ??
-                  (direction === "inbound" ? relation.from : relation.to)}
-              </span>
-            </div>
-            <div className="mt-1 pl-[18px] text-[9px] uppercase tracking-[0.1em] text-fg-dim">
-              {relation.kind}
-              {relation.confidence !== undefined
-                ? ` · ${Math.round(relation.confidence * 100)}%`
-                : ""}
-            </div>
-          </button>
-        ))}
-      </div>
-      {connections.length > 60 && (
-        <div className="mt-2 text-[10px] text-fg-dim">
-          {connections.length - 60} more connections omitted from this view
+    <div className="overflow-hidden rounded-xl border border-ink-700 bg-white">
+      <div className="flex items-center justify-between border-b border-ink-700 bg-ink-850 px-3 py-2">
+        <div className="text-[10px] font-medium uppercase tracking-[0.1em] text-fg-dim">
+          {label}
         </div>
+        <span className="rounded bg-white px-1.5 py-0.5 text-[9px] tabular-nums text-fg-dim">
+          {connections.length}
+        </span>
+      </div>
+      <ul className="divide-y divide-ink-700">
+        {visible.map(({ relation, neighbor }) => {
+          const source = `${relation.provenance.path}${
+            relation.provenance.line ? `:${relation.provenance.line}` : ""
+          }`;
+          return (
+            <li key={relation.id}>
+              <button
+                type="button"
+                disabled={!neighbor}
+                onClick={() => neighbor && onSelect(neighbor.id)}
+                aria-label={`${label}: ${neighbor?.name ?? "unknown item"}`}
+                className="w-full px-3 py-2.5 text-left hover:bg-ink-800 disabled:cursor-default"
+              >
+                <div className="flex items-center gap-2">
+                  {neighbor && <KindGlyph kind={neighbor.kind} />}
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-fg">
+                    {neighbor?.name ?? relation.id}
+                  </span>
+                  <ChevronIcon
+                    aria-hidden
+                    className="h-3.5 w-3.5 -rotate-90 text-fg-dim"
+                  />
+                </div>
+                <div className="mt-1 truncate pl-7 text-[9px] text-fg-dim">
+                  {neighbor ? formatKnowledgeKind(neighbor.kind) : "Unknown"}
+                  {source ? ` · ${source}` : ""}
+                  {relation.confidence !== undefined
+                    ? ` · ${Math.round(relation.confidence * 100)}% confidence`
+                    : ""}
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {connections.length > 8 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((current) => !current)}
+          className="w-full border-t border-ink-700 px-3 py-2 text-[10px] font-medium text-fg-muted hover:bg-ink-800 hover:text-fg"
+        >
+          {showAll ? "Show fewer" : `Show all ${connections.length}`}
+        </button>
       )}
     </div>
+  );
+}
+
+function EntityDetails({ entity }: { entity: KnowledgeEntity }) {
+  const groups = groupProjectMapFacts(entity.facts);
+  const members = groups.find((group) => group.key === "memberSignature");
+  const details = groups.filter(
+    (group) =>
+      !["memberSignature", "path", "directory"].includes(group.key) &&
+      !(group.key === "memberSignatureCount" && members),
+  );
+  const sources = factSources(entity.facts);
+
+  return (
+    <section className="mt-7" aria-labelledby="project-details-title">
+      <SectionHeading id="project-details-title">Details</SectionHeading>
+      {details.length === 0 && !members ? (
+        <p className="mt-3 rounded-lg border border-dashed border-ink-700 p-4 text-xs leading-relaxed text-fg-dim">
+          No structured details were recorded for this item.
+        </p>
+      ) : (
+        <div className="mt-3 overflow-hidden rounded-xl border border-ink-700 bg-white">
+          {details.map((group) => {
+            const values = [
+              ...new Set(
+                group.facts.map((fact) => formatKnowledgeFactValue(fact.value)),
+              ),
+            ];
+            return (
+              <div
+                key={group.key}
+                className="grid gap-1 border-b border-ink-700 px-4 py-3 last:border-b-0 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-4"
+              >
+                <div className="text-[10px] font-medium uppercase tracking-[0.09em] text-fg-dim">
+                  {factLabel(group.key)}
+                </div>
+                {values.length === 1 ? (
+                  <div className="selectable break-words text-xs leading-relaxed text-fg">
+                    {values[0]}
+                  </div>
+                ) : (
+                  <ul className="selectable space-y-1 text-xs leading-relaxed text-fg">
+                    {values.map((value) => (
+                      <li key={value}>{value}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {members && (
+        <details className="group mt-3 overflow-hidden rounded-xl border border-ink-700 bg-white">
+          <summary className="flex cursor-pointer list-none items-center gap-2 bg-ink-850 px-4 py-3 text-xs font-medium text-fg marker:hidden">
+            Members
+            <span className="rounded bg-white px-1.5 py-0.5 text-[9px] tabular-nums text-fg-dim">
+              {members.facts.length}
+            </span>
+            <ChevronIcon className="ml-auto h-3.5 w-3.5 text-fg-dim transition-transform group-open:rotate-180" />
+          </summary>
+          <ul className="selectable max-h-80 divide-y divide-ink-700 overflow-y-auto font-mono text-[10px] leading-relaxed text-fg-muted">
+            {members.facts.map((fact, index) => (
+              <li key={`${fact.provenance.line ?? index}:${index}`} className="px-4 py-2">
+                {formatKnowledgeFactValue(fact.value)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {sources.length > 0 && (
+        <details className="group mt-3 rounded-xl border border-ink-700 bg-white">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-xs font-medium text-fg-muted marker:hidden hover:text-fg">
+            How this was found
+            <span className="text-[10px] font-normal text-fg-dim">
+              {sources.length} {sources.length === 1 ? "source" : "sources"}
+            </span>
+            <ChevronIcon className="ml-auto h-3.5 w-3.5 text-fg-dim transition-transform group-open:rotate-180" />
+          </summary>
+          <ul className="border-t border-ink-700 px-4 py-3 text-[10px] text-fg-dim">
+            {sources.map((source) => (
+              <li key={source.path} className="selectable mb-2 last:mb-0">
+                <div className="break-all font-mono text-fg-muted">{source.path}</div>
+                <div className="mt-0.5">
+                  {humanize(source.source)}
+                  {source.heuristic ? " · inferred" : ""}
+                  {source.confidence !== undefined
+                    ? ` · ${Math.round(source.confidence * 100)}% confidence`
+                    : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
+interface FactSource {
+  path: string;
+  source: KnowledgeFact["provenance"]["source"];
+  heuristic: boolean;
+  confidence?: number;
+}
+
+function factSources(facts: KnowledgeFact[]): FactSource[] {
+  const sources = new Map<string, FactSource>();
+  for (const fact of facts) {
+    const path = fact.provenance.path;
+    const current = sources.get(path);
+    const confidence = fact.confidence;
+    if (!current) {
+      sources.set(path, {
+        path,
+        source: fact.provenance.source,
+        heuristic: Boolean(fact.provenance.heuristic),
+        confidence,
+      });
+    } else {
+      current.heuristic ||= Boolean(fact.provenance.heuristic);
+      if (confidence !== undefined) {
+        current.confidence = Math.max(current.confidence ?? 0, confidence);
+      }
+    }
+  }
+  return [...sources.values()].sort((left, right) =>
+    left.path.localeCompare(right.path),
   );
 }
 
@@ -665,39 +1554,45 @@ function KindGlyph({
   return (
     <span
       aria-hidden
-      className={`flex shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-black/20 font-mono text-accent ${
-        large ? "h-8 w-8 text-xs" : "mt-0.5 h-5 w-5 text-[9px]"
+      className={`flex shrink-0 items-center justify-center rounded-md border border-ink-700 bg-ink-850 font-mono text-accent ${
+        large ? "h-9 w-9 text-xs" : "h-5 w-5 text-[9px]"
       }`}
     >
-      {glyph[kind]}
+      {glyph[kind] ?? "·"}
     </span>
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-fg-dim">
+    <div
+      className={`text-[10px] font-medium uppercase tracking-[0.12em] text-fg-dim ${className}`}
+    >
       {children}
     </div>
   );
 }
 
-function ColumnEmpty({ children }: { children: React.ReactNode }) {
+function SectionHeading({ children, id }: { children: ReactNode; id: string }) {
   return (
-    <div className="flex h-full items-center justify-center p-6 text-center text-xs leading-relaxed text-fg-dim">
+    <h4 id={id} className="text-sm font-semibold text-fg">
       {children}
-    </div>
+    </h4>
   );
 }
 
 function LoadingState() {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center">
-      <div className="text-center">
-        <span className="mx-auto block h-5 w-5 animate-spin rounded-full border border-fg-dim/30 border-t-accent" />
-        <p className="mt-3 text-xs text-fg-dim">
-          Checking project-map freshness…
-        </p>
+      <div className="text-center" role="status">
+        <span className="mx-auto block h-5 w-5 animate-spin rounded-full border-2 border-ink-700 border-t-fg-muted" />
+        <p className="mt-3 text-xs text-fg-dim">Reading the project map…</p>
       </div>
     </div>
   );
@@ -714,11 +1609,13 @@ function ErrorState({
 }) {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center p-8">
-      <div className="max-w-md text-center">
-        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-danger/25 bg-danger/[0.07] text-danger">
+      <div className="max-w-md text-center" role="alert">
+        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-danger/25 bg-danger/[0.07] text-danger">
           !
         </div>
-        <h3 className="mt-4 text-sm font-medium text-fg">Couldn&apos;t read the project map</h3>
+        <h3 className="mt-4 text-sm font-medium text-fg">
+          Couldn&apos;t read the project map
+        </h3>
         <p className="selectable mt-2 break-words text-xs leading-relaxed text-fg-dim">
           {error}
         </p>
@@ -726,7 +1623,7 @@ function ErrorState({
           type="button"
           onClick={onRetry}
           disabled={refreshing}
-          className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-fg-muted hover:bg-white/[0.08] hover:text-fg"
+          className="mt-4 rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-xs text-fg-muted hover:bg-ink-800 hover:text-fg"
         >
           {refreshing ? "Rebuilding…" : "Rebuild map"}
         </button>
@@ -745,13 +1642,12 @@ function EmptyState({
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center p-8">
       <div className="max-w-sm text-center">
-        <span className="project-map-mark mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 text-accent">
+        <span className="project-map-mark mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 text-accent">
           <MapIcon className="h-5 w-5" />
         </span>
-        <h3 className="mt-4 text-sm font-medium text-fg">No project map yet</h3>
+        <h3 className="mt-4 text-sm font-medium text-fg">Build a project map</h3>
         <p className="mt-2 text-xs leading-relaxed text-fg-dim">
-          Build a searchable map of the project&apos;s scripts, types, scenes,
-          packages, facts, and relationships.
+          Index the project&apos;s code, scenes, prefabs, packages, and dependencies.
         </p>
         <button
           type="button"
@@ -766,8 +1662,76 @@ function EmptyState({
   );
 }
 
+function pluralKind(kind: KnowledgeEntityKind): string {
+  const labels: Record<KnowledgeEntityKind, string> = {
+    project: "Project",
+    module: "Folders",
+    scene: "Scenes",
+    prefab: "Prefabs",
+    script: "C# scripts",
+    type: "Types",
+    package: "Packages",
+  };
+  return labels[kind];
+}
+
+function factLabel(value: string): string {
+  const labels: Record<string, string> = {
+    assetType: "Asset type",
+    baseTypes: "Inherits or implements",
+    bundleIdentifier: "Bundle identifier",
+    companyName: "Company",
+    declarationKind: "Declaration",
+    declaredTypeCount: "Declared types",
+    inputSystem: "Input system",
+    isUnityProject: "Unity project",
+    language: "Language",
+    memberSignatureCount: "Members",
+    name: "Name",
+    namespace: "Namespace",
+    partial: "Partial declaration",
+    productName: "Product",
+    qualifiedName: "Qualified name",
+    renderPipeline: "Render pipeline",
+    scriptingBackend: "Scripting backend",
+    source: "Source",
+    symbol: "Assembly symbol",
+    unityRevision: "Unity revision",
+    unityVersion: "Unity version",
+    version: "Version",
+  };
+  return labels[value] ?? humanize(value);
+}
+
 function humanize(value: string): string {
-  return value.replace(/[._-]+/g, " ");
+  const words = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[._-]+/g, " ")
+    .trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : value;
+}
+
+function entityDescription(entity: KnowledgeEntity): string {
+  const descriptions: Record<KnowledgeEntity["kind"], string> = {
+    project: "Indexed overview of this Unity project.",
+    module: "A project folder that groups related code.",
+    scene: "A Unity scene asset.",
+    prefab: "A reusable Unity prefab asset.",
+    script: "A C# source file and the types it declares.",
+    type: "A C# type with its members, inheritance, and dependencies.",
+    package: "A package available to this Unity project.",
+  };
+  return descriptions[entity.kind];
+}
+
+function scopeLabel(scope: KnowledgeEntity["scope"]): string {
+  const labels: Record<KnowledgeEntity["scope"], string> = {
+    project: "Project",
+    "first-party": "Project code",
+    package: "Package",
+    external: "External",
+  };
+  return labels[scope];
 }
 
 function projectName(project: string): string {

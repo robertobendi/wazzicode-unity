@@ -27,6 +27,10 @@
 import type { ToolActivity } from "@/types/chat";
 import { isCodexEvent, reduceCodex } from "./codexStream";
 import { toolLabel } from "./toolLabels";
+import {
+  boundMcpResultText,
+  isUnityDiagnosticActivity,
+} from "./unityDiagnostics";
 
 export interface StreamDraft {
   /** Accumulated assistant visible text. */
@@ -143,10 +147,14 @@ function applyUser(draft: StreamDraft, v: Raw): StreamDraft {
     }
     const idx = activities.findIndex((a) => a.toolUseId === block.tool_use_id);
     if (idx === -1) continue;
+    const activity = activities[idx];
     const resolved: ToolActivity = {
-      ...activities[idx],
+      ...activity,
       status: block.is_error ? "error" : "ok",
       resultText: extractResultText(block.content),
+      ...(isUnityDiagnosticActivity(activity.name)
+        ? boundMcpResultText(extractRawResultText(block.content))
+        : {}),
       endedAt: Date.now(),
     };
     activities = activities.map((a, i) => (i === idx ? resolved : a));
@@ -193,4 +201,15 @@ function extractResultText(content: unknown): string | undefined {
   const trimmed = text.replace(/\s+/g, " ").trim();
   if (!trimmed) return undefined;
   return trimmed.length > 200 ? trimmed.slice(0, 200) + "…" : trimmed;
+}
+
+function extractRawResultText(content: unknown): string | undefined {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return undefined;
+  const parts = content.flatMap((block) =>
+    block && typeof block === "object" && typeof (block as Raw).text === "string"
+      ? [(block as Raw).text as string]
+      : [],
+  );
+  return parts.length > 0 ? parts.join("\n") : undefined;
 }

@@ -32,6 +32,10 @@
 import type { ToolActivity } from "@/types/chat";
 import type { StreamDraft } from "./streamMapper";
 import { codexItemLabel, codexMcpName, toolLabel } from "./toolLabels";
+import {
+  boundMcpResultText,
+  isUnityDiagnosticActivity,
+} from "./unityDiagnostics";
 
 type Raw = Record<string, any>;
 
@@ -117,7 +121,11 @@ function applyItem(draft: StreamDraft, v: Raw): StreamDraft {
       input: activityInput(item, type),
       startedAt: Date.now(),
       ...(completed
-        ? { resultText: activityResult(item, type), endedAt: Date.now() }
+        ? {
+            resultText: activityResult(item, type),
+            ...activityRawResult(item, type, name),
+            endedAt: Date.now(),
+          }
         : {}),
     };
     return {
@@ -132,6 +140,7 @@ function applyItem(draft: StreamDraft, v: Raw): StreamDraft {
     ...draft.activities[existing],
     status: itemStatus(item),
     resultText: activityResult(item, type),
+    ...activityRawResult(item, type, name),
     endedAt: Date.now(),
   };
   return {
@@ -218,6 +227,11 @@ function activityResult(item: Raw, type: string): string | undefined {
     default:
       return undefined;
   }
+}
+
+function activityRawResult(item: Raw, type: string, name: string) {
+  if (type !== "mcp_tool_call" || !isUnityDiagnosticActivity(name)) return {};
+  return boundMcpResultText(resultText(item.result) ?? errorText(item.error));
 }
 
 /** An MCP result is a string, or MCP content blocks — same shape Claude uses. */

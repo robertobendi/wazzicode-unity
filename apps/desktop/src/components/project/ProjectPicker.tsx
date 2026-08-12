@@ -135,7 +135,7 @@ export default function ProjectPicker({
           <Logo size={26} />
         </div>
         <h1 className="text-2xl font-semibold tracking-tight text-fg">
-          Welcome to Unity Vibe Studio
+          Welcome to foundry-unity
         </h1>
         <p className="mt-2 text-sm text-fg-muted">
           Open the folder that holds your game — the one with{" "}
@@ -178,8 +178,8 @@ export default function ProjectPicker({
             </div>
             {!candidate.brainReady && (
               <p className="mt-3 text-xs leading-relaxed text-fg-muted">
-                Studio will scan the project once and build its searchable map
-                before opening it.
+                foundry-unity will scan the project once and build its
+                searchable map before opening it.
               </p>
             )}
             {preparing && setupLines.length > 0 && (

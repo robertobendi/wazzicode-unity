@@ -47,3 +47,20 @@ export function friendlyError(
 ): string {
   return mapErrorMessage(raw, backend ?? currentBackend()) ?? fallback;
 }
+
+export function screenshotErrorMessage(
+  raw: string,
+  view: "game" | "scene" | "selected",
+): string {
+  const text = raw.toLowerCase();
+  if (view === "selected" && text.includes("no gameobject is selected")) {
+    return "Select a GameObject in Unity's Hierarchy, then try again.";
+  }
+  if (view === "game" && text.includes("no suitable camera")) {
+    return "Add or enable a Camera in the active scene, then try again.";
+  }
+  if (view === "scene" && text.includes("no sceneview is currently open")) {
+    return "Open Unity's Scene view, then try again.";
+  }
+  return friendlyError(raw, `Couldn't capture the ${view} view.`);
+}

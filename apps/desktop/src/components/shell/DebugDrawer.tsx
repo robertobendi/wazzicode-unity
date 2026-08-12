@@ -81,7 +81,7 @@ export default function DebugDrawer() {
             }`}
           />
           <span>Debug log</span>
-          <span className="text-fg-dim/70">({entries.length})</span>
+          <span className="text-fg-dim">({entries.length})</span>
           {errorCount > 0 && (
             <span className="rounded-full bg-danger/15 px-1.5 py-0.5 text-[10px] font-medium text-danger">
               {errorCount}

@@ -53,7 +53,7 @@ export default function TopBar() {
   const statusLabel = `Unity: ${bridgeLabel}${usageLabel ? `. Session usage: ${usageLabel}` : ""}`;
 
   return (
-    <header className="glass-bar relative z-30 mx-3 mt-3 grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center rounded-2xl border px-3">
+    <header className="app-topbar glass-bar relative z-30 mx-3 mt-3 grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center rounded-xl border px-3">
       <div className="flex min-w-0 items-center gap-2 overflow-hidden">
         {mode === "chat" && (
           <IconButton
@@ -64,8 +64,14 @@ export default function TopBar() {
             <SidebarIcon />
           </IconButton>
         )}
-        <Logo />
-        <span className="truncate text-sm font-medium text-fg">{name}</span>
+        <span className="foundry-lockup flex shrink-0 items-center gap-2">
+          <Logo />
+          <span className="foundry-wordmark text-sm font-semibold tracking-tight text-fg">
+            foundry-unity
+          </span>
+        </span>
+        <span aria-hidden className="h-4 w-px shrink-0 bg-ink-700" />
+        <span className="truncate text-sm font-medium text-fg-muted">{name}</span>
         <button
           onClick={() => {
             setProjectMapOpen(false);
@@ -107,6 +113,7 @@ export default function TopBar() {
         )}
         <RevertControl />
         <IconButton
+          id="project-map-trigger"
           label={projectMapOpen ? "Close project map" : "Open project map"}
           active={projectMapOpen}
           expanded={projectMapOpen}
@@ -121,7 +128,11 @@ export default function TopBar() {
         {mode === "chat" && (
           <div className="activity-toggle">
             <IconButton
-              label={activityOpen ? "Hide activity" : "Show activity"}
+              label={
+                activityOpen
+                  ? "Hide Unity checks and activity"
+                  : "Show Unity checks and activity"
+              }
               active={activityOpen}
               onClick={toggleActivity}
             >
@@ -194,7 +205,7 @@ function ModeToggle({
     { value: "auto", label: "Auto" },
   ];
   return (
-    <div className="flex rounded-xl border border-white/10 bg-black/20 p-0.5 shadow-inner shadow-black/30">
+    <div className="mode-toggle flex rounded-lg border border-white/10 bg-black/20 p-0.5 shadow-inner shadow-black/30">
       {options.map((o) => (
         <button
           key={o.value}
@@ -205,7 +216,7 @@ function ModeToggle({
               ? "Finish or clear pending tasks before changing modes"
               : undefined
           }
-          className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
+          className={`rounded-md px-3 py-1 text-xs font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 ${
             mode === o.value
               ? "bg-white/10 text-fg shadow-sm shadow-black/30"
               : "text-fg-dim hover:text-fg-muted"
@@ -243,7 +254,7 @@ function IconButton({
       aria-label={label}
       aria-expanded={expanded}
       aria-controls={controls}
-      className={`rounded-lg p-1.5 transition-colors duration-150 hover:bg-white/5 ${
+      className={`icon-button rounded-lg p-1.5 transition-colors duration-150 hover:bg-white/5 ${
         active ? "text-fg" : "text-fg-dim hover:text-fg-muted"
       }`}
     >

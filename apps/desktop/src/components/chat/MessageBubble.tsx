@@ -92,7 +92,7 @@ function ErrorBanner({ text, detail }: { text: string; detail?: string }) {
         <>
           <button
             onClick={() => setOpen((v) => !v)}
-            className="mt-1 text-xs text-danger/70 underline-offset-2 transition-colors duration-150 hover:text-danger hover:underline"
+            className="mt-1 text-xs text-danger underline-offset-2 transition-colors duration-150 hover:underline"
           >
             {open ? "Hide details" : "Details"}
           </button>

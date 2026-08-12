@@ -1,4 +1,4 @@
-# Unity Vibe Studio
+# foundry-unity
 
 A chat-first desktop app (macOS / Windows / Linux) that lets non-technical
 teammates make Unity changes through an AI assistant — no terminal. It drives
@@ -43,12 +43,12 @@ matrix (macOS arm64 + intel, Windows x86_64, Linux x86_64) that runs the same
 `pnpm build → fetch-node-sidecar → bundle-uvibe → tauri build` steps per leg.
 
 ```bash
-git tag desktop-v0.1.0
-git push --tags
+git tag desktop-v0.2.9
+git push origin desktop-v0.2.9
 ```
 
 The workflow then appears in **Actions**; when it finishes, a **draft** GitHub
-release named `Unity Vibe Studio desktop-v0.1.0` holds all installers. Review it
+release named `foundry-unity desktop-v0.2.9` holds all installers. Review it
 and click **Publish** manually. (You can also start it from the Actions tab via
 **Run workflow** — `workflow_dispatch`.)
 
@@ -69,12 +69,12 @@ notes below cover the resulting first-launch prompts.
 - **macOS** — Gatekeeper blocks unsigned apps on first launch. Right-click the
   app in `/Applications` → **Open** → **Open** on the dialog (only needed once).
   Or from a terminal:
-  `xattr -d com.apple.quarantine "/Applications/Unity Vibe Studio.app"`.
+  `xattr -d com.apple.quarantine "/Applications/foundry-unity.app"`.
 - **Windows** — SmartScreen shows "Windows protected your PC". Click
   **More info → Run anyway**. The installer downloads the WebView2 runtime
   automatically if it's missing.
 - **Linux** — the `.AppImage` is self-contained: `chmod +x` it and run. The
-  `.deb` installs with `sudo apt install ./Unity-Vibe-Studio_*.deb`.
+  `.deb` installs with `sudo apt install ./foundry-unity_*.deb`.
 
 ## Choosing an agent: Claude Code or ChatGPT Codex
 
@@ -101,7 +101,7 @@ Model overrides are stored per backend, so switching agents can't hand a
 
 The composer stays available while an agent is working. Pressing Enter or
 **Queue task** adds the message and its attachments to the current conversation's
-ordered queue. After a successful terminal event, Studio autosaves the finished
+ordered queue. After a successful terminal event, foundry-unity autosaves the finished
 turn before starting the next task. A stopped or failed task pauses the remaining
 queue so it can be reviewed, resumed, trimmed one task at a time, or cleared.
 

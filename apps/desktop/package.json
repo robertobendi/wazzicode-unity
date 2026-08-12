@@ -1,9 +1,9 @@
 {
   "name": "@uvibe/desktop",
   "private": true,
-  "version": "0.2.8",
+  "version": "0.2.9",
   "type": "module",
-  "description": "Unity Vibe Studio — chat-first desktop app for AI-assisted Unity work.",
+  "description": "foundry-unity — chat-first desktop app for AI-assisted Unity work.",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

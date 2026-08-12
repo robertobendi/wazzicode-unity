@@ -47,14 +47,20 @@ export async function runInstallUnityPackage(g: GlobalOptions, parsed: ParsedArg
       return { exitCode: 1, stderr: `Packages/manifest.json missing at ${manifestPath}\n` };
     }
     const raw = await fs.readFile(manifestPath, "utf8");
-    const manifest = JSON.parse(raw) as { dependencies?: Record<string, string> };
+    const manifest = JSON.parse(raw) as { dependencies?: Record<string, string>; testables?: string[] };
     manifest.dependencies = manifest.dependencies ?? {};
     // Prefer a path RELATIVE to Packages/ so the entry resolves on any clone; fall back to an
     // absolute path only when the source lives on a different drive (then it is machine-specific).
-    const rel = relativeFileUrl(projectPackages, sourceArg);
-    const ref = rel ?? pathToFileUrl(sourceArg);
+    const [canonicalPackages, canonicalSource] = await Promise.all([
+      fs.realpath(projectPackages),
+      fs.realpath(sourceArg),
+    ]);
+    const rel = relativeFileUrl(canonicalPackages, canonicalSource);
+    const ref = rel ?? pathToFileUrl(canonicalSource);
     manifest.dependencies[PACKAGE_NAME] = ref;
-    await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+    manifest.testables = manifest.testables ?? [];
+    if (!manifest.testables.includes(PACKAGE_NAME)) manifest.testables.push(PACKAGE_NAME);
+    await fs.writeFile(manifestPath, formatJsonLike(raw, manifest), "utf8");
     lines.push(`Wrote ${manifestPath}`);
     lines.push(`  "${PACKAGE_NAME}": "${ref}"`);
     if (!rel) {
@@ -96,6 +102,14 @@ export async function runInstallUnityPackage(g: GlobalOptions, parsed: ParsedArg
     return { exitCode: 0, stdout: JSON.stringify({ source: sourceArg, target: g.project, mode }, null, 2) + "\n" };
   }
   return { exitCode: 0, stdout: lines.join("\n") + "\n" };
+}
+
+function formatJsonLike(raw: string, value: unknown): string {
+  const body = raw.replace(/\r?\n$/, "");
+  const indent = raw.match(/\r?\n([ \t]+)"/)?.[1] ?? (body.includes("\n") ? 2 : undefined);
+  const trailingNewline = raw.endsWith("\r\n") ? "\r\n" : raw.endsWith("\n") ? "\n" : "";
+  const formatted = JSON.stringify(value, null, indent);
+  return (raw.includes("\r\n") ? formatted.replace(/\n/g, "\r\n") : formatted) + trailingNewline;
 }
 
 async function locateUnityPackageSource(): Promise<string | null> {

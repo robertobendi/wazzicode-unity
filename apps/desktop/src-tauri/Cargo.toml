@@ -1,7 +1,7 @@
 [package]
 name = "unity-vibe-studio"
-version = "0.2.8"
-description = "Unity Vibe Studio — chat-first desktop app for AI-assisted Unity work"
+version = "0.2.9"
+description = "foundry-unity — chat-first desktop app for AI-assisted Unity work"
 authors = ["Roberto Bendinelli"]
 edition = "2021"
 rust-version = "1.77"

@@ -280,4 +280,40 @@ describe("chat run snapshots", () => {
       "/project/.unity-vibe/inbox/review.png",
     );
   });
+
+  it("settles a tool that never returned when its run finishes", async () => {
+    await useChatStore.getState().send("Verify the project");
+    useChatStore.getState().ingest("run-1", {
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "verify-1",
+            name: "mcp__unity-vibe-os__unity_verify",
+            input: {},
+          },
+        ],
+      },
+    });
+
+    useChatStore.getState().finish("run-1", {
+      sessionId: "claude-session",
+      costUsd: 0,
+      tokens: null,
+      isError: true,
+      resultText: "Stopped",
+      numTurns: 1,
+    });
+
+    const activity = useChatStore
+      .getState()
+      .messages.find((message) => message.role === "assistant")
+      ?.activities[0];
+    expect(activity).toMatchObject({
+      status: "error",
+      resultText: "The run ended before this tool returned.",
+    });
+    expect(activity?.endedAt).toBeTypeOf("number");
+  });
 });

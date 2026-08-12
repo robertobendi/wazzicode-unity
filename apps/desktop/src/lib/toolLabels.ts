@@ -28,6 +28,7 @@ const STANDARD_LABELS: Record<string, string> = {
 /** Unity tool short-names (after stripping the MCP prefix). */
 const UNITY_LABELS: Record<string, string> = {
   orient: "Getting oriented in Unity",
+  diagnose_connection: "Diagnosing the Unity connection",
   verify: "Checking everything compiles and tests pass",
   qa: "Running the full Unity QA gate",
   batch: "Making several changes",

@@ -248,7 +248,7 @@ fn check_cli_capabilities(backend: Backend) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "this version is missing features Unity Vibe Studio needs; update the {} CLI",
+            "this version is missing features foundry-unity needs; update the {} CLI",
             backend.label()
         ))
     }
@@ -705,11 +705,12 @@ pub fn patch_gitignore(existing: Option<&str>) -> Option<String> {
     if !out.is_empty() && !out.ends_with('\n') {
         out.push('\n');
     }
-    if !current.contains("Unity Vibe Studio") {
+    if !current.contains("foundry-unity scratch") && !current.contains("Unity Vibe Studio scratch")
+    {
         if !out.is_empty() {
             out.push('\n');
         }
-        out.push_str("# Unity Vibe Studio scratch (safe to ignore)\n");
+        out.push_str("# foundry-unity scratch (safe to ignore)\n");
     }
     for e in missing {
         out.push_str(e);
@@ -958,6 +959,7 @@ mod tests {
     #[test]
     fn gitignore_patch_adds_all_entries_to_empty() {
         let out = patch_gitignore(None).expect("should add entries");
+        assert!(out.contains("# foundry-unity scratch (safe to ignore)"));
         assert!(out.contains(".unity-vibe/inbox/"));
         assert!(out.contains(".unity-vibe/loop/"));
         assert!(out.contains(".unity-vibe/studio/"));
@@ -968,6 +970,14 @@ mod tests {
         let first = patch_gitignore(None).unwrap();
         // Applying again over the produced content is a no-op.
         assert!(patch_gitignore(Some(&first)).is_none());
+    }
+
+    #[test]
+    fn gitignore_patch_preserves_legacy_heading_without_adding_a_second_heading() {
+        let existing = "# Unity Vibe Studio scratch (safe to ignore)\n.unity-vibe/inbox/\n";
+        let out = patch_gitignore(Some(existing)).expect("loop/ still missing");
+        assert!(out.contains("# Unity Vibe Studio scratch (safe to ignore)"));
+        assert!(!out.contains("# foundry-unity scratch (safe to ignore)"));
     }
 
     #[test]

@@ -68,13 +68,13 @@ export function gateWrite(config: UVibeConfig, toolName: string, target: WriteTa
       return {
         allowed: false,
         errorCode: "SAFETY_MODE_BLOCKED",
-        reason: `Project access is temporarily locked, so '${toolName}' could not run. Reopen the project in Unity Vibe Studio to repair access automatically.`,
+        reason: `Project access is temporarily locked, so '${toolName}' could not run. Reopen the project in foundry-unity to repair access automatically.`,
       };
     case "suggest":
       return {
         allowed: false,
         errorCode: "SAFETY_MODE_BLOCKED",
-        reason: `Project access is in preview-only mode, so '${toolName}' could not change ${target} state. Reopen the project in Unity Vibe Studio to repair access automatically.`,
+        reason: `Project access is in preview-only mode, so '${toolName}' could not change ${target} state. Reopen the project in foundry-unity to repair access automatically.`,
       };
     case "confirm":
     case "autopilot": {
@@ -110,14 +110,14 @@ export function gateWrite(config: UVibeConfig, toolName: string, target: WriteTa
         return {
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
-          reason: "Editor commands are temporarily unavailable. Reopen the project in Unity Vibe Studio to repair access automatically.",
+          reason: "Editor commands are temporarily unavailable. Reopen the project in foundry-unity to repair access automatically.",
         };
       }
       if (target === "code" && !config.allowCodeExecution) {
         return {
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
-          reason: "In-Editor automation is temporarily unavailable. Reopen the project in Unity Vibe Studio to repair access automatically.",
+          reason: "In-Editor automation is temporarily unavailable. Reopen the project in foundry-unity to repair access automatically.",
         };
       }
       return { allowed: true };

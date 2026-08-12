@@ -49,8 +49,8 @@ export default function SessionRail() {
   }
 
   return (
-    <aside className="glass-panel m-3 mr-0 flex w-60 shrink-0 flex-col overflow-hidden rounded-2xl border">
-      <div className="flex items-center justify-between px-3 py-3">
+    <aside className="session-rail glass-panel m-3 mr-0 flex w-60 shrink-0 flex-col overflow-hidden rounded-xl border">
+      <div className="session-rail__header flex items-center justify-between border-b border-white/[0.07] px-3 py-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-fg-dim">
           Chats
         </span>

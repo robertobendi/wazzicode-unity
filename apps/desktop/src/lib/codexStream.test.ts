@@ -26,6 +26,12 @@ const mcpStarted = {
     arguments: { filter: "Player" },
   },
 };
+const mcpRawResult = JSON.stringify({
+  ok: true,
+  data: { pass: true, compiled: true, errorCount: 0 },
+  warnings: [],
+  meta: { source: "unity_bridge", durationMs: 8, detailLevel: "normal" },
+});
 const mcpCompleted = {
   type: "item.completed",
   item: {
@@ -34,7 +40,7 @@ const mcpCompleted = {
     server: "unity_vibe_os",
     tool: "unity_verify",
     status: "completed",
-    result: { content: [{ type: "text", text: "pass: true, errors: 0" }] },
+    result: { content: [{ type: "text", text: mcpRawResult }] },
   },
 };
 
@@ -110,7 +116,9 @@ describe("reduceStream over Codex events", () => {
     const done = fold([mcpStarted, mcpCompleted]);
     expect(done.activities).toHaveLength(1); // updated in place, not duplicated
     expect(done.activities[0].status).toBe("ok");
-    expect(done.activities[0].resultText).toContain("pass: true");
+    expect(done.activities[0].resultText).toContain('"pass":true');
+    expect(done.activities[0].resultRaw).toBe(mcpRawResult);
+    expect(done.activities[0].resultRawTruncated).toBeUndefined();
     expect(done.hasUnityTools).toBe(true);
   });
 

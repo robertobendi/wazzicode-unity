@@ -281,7 +281,7 @@ function Stepper({ current }: { current: 1 | 2 | 3 }) {
               {label}
             </span>
             {i < steps.length - 1 && (
-              <span className="ml-1 h-px flex-1 bg-white/5" />
+              <span className="ml-1 h-px flex-1 bg-ink-700" />
             )}
           </div>
         );
@@ -503,7 +503,7 @@ function Spinner({ large }: { large?: boolean }) {
   const size = large ? "h-8 w-8 border-[3px]" : "h-4 w-4 border-2";
   return (
     <span
-      className={`inline-block ${size} animate-spin rounded-full border-white/30 border-t-white`}
+      className={`inline-block ${size} animate-spin rounded-full border-ink-700 border-t-fg-muted`}
       aria-hidden
     />
   );

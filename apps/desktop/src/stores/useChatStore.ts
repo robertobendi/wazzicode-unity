@@ -397,11 +397,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   finish: (runId, done) =>
     set((state) => {
       if (runId !== state.activeRunId) return {};
+      const endedAt = Date.now();
       const messages = state.messages.map((m) =>
         m.id === state.assistantId
           ? {
               ...m,
               streaming: false,
+              activities: settleRunningActivities(m.activities, endedAt),
               text: m.text || done.resultText || "",
               costUsd: done.costUsd ?? undefined,
               tokens: done.tokens ?? undefined,
@@ -438,9 +440,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         err.friendly,
         state.session.backend ?? "claude",
       );
+      const endedAt = Date.now();
       const messages = state.messages.map((m) =>
         m.id === state.assistantId
-          ? { ...m, streaming: false, error: message, errorRaw: err.raw }
+          ? {
+              ...m,
+              streaming: false,
+              activities: settleRunningActivities(m.activities, endedAt),
+              error: message,
+              errorRaw: err.raw,
+            }
           : m,
       );
       return {
@@ -452,5 +461,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
         draft: null,
         session: { ...state.session, activeRunId: null },
       };
-    }),
+  }),
 }));
+
+function settleRunningActivities(
+  activities: ChatMessage["activities"],
+  endedAt: number,
+): ChatMessage["activities"] {
+  return activities.map((activity) =>
+    activity.status === "running"
+      ? {
+          ...activity,
+          status: "error",
+          resultText: "The run ended before this tool returned.",
+          endedAt,
+        }
+      : activity,
+  );
+}

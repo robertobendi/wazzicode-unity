@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { initialDraft, reduceStream, type StreamDraft } from "./streamMapper";
+import { MAX_MCP_RESULT_TEXT_CHARS } from "./unityDiagnostics";
 
 // Fixtures modeled on real Claude Code 2.1.198 `-p --output-format stream-json
 // --verbose --include-partial-messages` lines (fields trimmed to what the
@@ -39,6 +40,21 @@ const toolUseAssistant = {
         id: "toolu_1",
         name: "mcp__unity-vibe-os__unity_orient",
         input: { detail: "summary" },
+      },
+    ],
+  },
+};
+
+const diagnosticToolUseAssistant = {
+  type: "assistant",
+  message: {
+    role: "assistant",
+    content: [
+      {
+        type: "tool_use",
+        id: "toolu_1",
+        name: "mcp__unity-vibe-os__unity_verify",
+        input: {},
       },
     ],
   },
@@ -106,7 +122,57 @@ describe("reduceStream", () => {
     const d = fold([toolUseAssistant, toolResultUser(false)]);
     expect(d.activities[0].status).toBe("ok");
     expect(d.activities[0].resultText).toContain("Project: MyGame");
+    expect(d.activities[0].resultRaw).toBeUndefined();
     expect(d.activities[0].endedAt).toBeTypeOf("number");
+  });
+
+  it("preserves the original MCP text separately from the short chip summary", () => {
+    const raw = JSON.stringify(
+      {
+        ok: true,
+        data: { pass: false, problems: [{ message: "A detailed failure" }] },
+        warnings: [],
+        meta: { source: "unity_bridge", durationMs: 4, detailLevel: "normal" },
+      },
+      null,
+      2,
+    );
+    const result = {
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: [{ type: "text", text: raw }],
+          },
+        ],
+      },
+    };
+    const d = fold([diagnosticToolUseAssistant, result]);
+    expect(d.activities[0].resultRaw).toBe(raw);
+    expect(d.activities[0].resultRawTruncated).toBeUndefined();
+    expect(d.activities[0].resultText!.length).toBeLessThanOrEqual(201);
+  });
+
+  it("bounds preserved MCP text and records truncation", () => {
+    const raw = "x".repeat(MAX_MCP_RESULT_TEXT_CHARS + 100);
+    const result = {
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: raw,
+          },
+        ],
+      },
+    };
+    const d = fold([diagnosticToolUseAssistant, result]);
+    expect(d.activities[0].resultRaw).toHaveLength(MAX_MCP_RESULT_TEXT_CHARS);
+    expect(d.activities[0].resultRawTruncated).toBe(true);
+    expect(d.activities[0].resultText).toHaveLength(201);
   });
 
   it("resolves the activity to error when tool_result is_error", () => {

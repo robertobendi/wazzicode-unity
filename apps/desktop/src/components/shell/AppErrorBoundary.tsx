@@ -17,7 +17,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("Unity Vibe Studio UI error", error, info.componentStack);
+    console.error("foundry-unity UI error", error, info.componentStack);
   }
 
   render() {
@@ -27,7 +27,9 @@ export default class AppErrorBoundary extends Component<Props, State> {
       <div className="flex h-full w-full items-center justify-center bg-ink-950 px-6 text-fg">
         <div className="glass-card w-full max-w-md rounded-2xl border p-6 text-center">
           <div className="mx-auto h-1.5 w-10 rounded-full bg-danger/70" />
-          <h1 className="mt-5 text-xl font-semibold">Studio needs to reload</h1>
+          <h1 className="mt-5 text-xl font-semibold">
+            foundry-unity needs to reload
+          </h1>
           <p className="mt-2 text-sm leading-relaxed text-fg-muted">
             The interface hit a display problem. Your project files and saved
             chats are safe.
@@ -36,7 +38,7 @@ export default class AppErrorBoundary extends Component<Props, State> {
             onClick={() => window.location.reload()}
             className="mt-6 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover"
           >
-            Reload Studio
+            Reload foundry-unity
           </button>
           <details className="mt-4 text-left">
             <summary className="cursor-pointer text-xs text-fg-dim">

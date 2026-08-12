@@ -32,11 +32,11 @@ export default {
       },
       fontFamily: {
         sans: [
-          "Avenir Next",
-          "Segoe UI Variable Text",
-          "SF Pro Text",
+          "-apple-system",
+          "BlinkMacSystemFont",
           "Segoe UI",
           "Helvetica Neue",
+          "Arial",
           "sans-serif",
         ],
       },

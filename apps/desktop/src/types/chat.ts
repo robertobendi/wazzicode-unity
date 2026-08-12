@@ -45,6 +45,10 @@ export interface ToolActivity {
   input?: unknown;
   /** Short text summary of the tool_result. */
   resultText?: string;
+  /** Bounded original MCP text, retained for structured result parsing. */
+  resultRaw?: string;
+  /** True when resultRaw reached its storage limit. */
+  resultRawTruncated?: boolean;
   startedAt: number;
   endedAt?: number;
 }

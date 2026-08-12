@@ -86,6 +86,8 @@ pub fn run() {
             commands::project_map::read_project_map,
             commands::project_map::query_project_map,
             commands::project_map::refresh_project_map,
+            commands::diagnostics::unity_diagnostics,
+            commands::diagnostics::unity_clear_console,
             commands::chat::chat_send,
             commands::chat::chat_cancel,
             commands::chat::chat_subscribe,

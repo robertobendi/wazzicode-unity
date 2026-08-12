@@ -217,6 +217,8 @@ pub async fn call(
         .await
         .map_err(|e| AppError::Other(format!("bridge response: {e}")))?;
 
+    ensure_response_project(&v, project)?;
+
     if v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false) {
         return Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null));
     }
@@ -231,6 +233,23 @@ pub async fn call(
         .and_then(|m| m.as_str())
         .unwrap_or("bridge returned an error");
     Err(AppError::Other(format!("{code}: {msg}")))
+}
+
+fn ensure_response_project(response: &serde_json::Value, project: &Path) -> AppResult<()> {
+    let Some(actual) = response
+        .get("meta")
+        .and_then(|meta| meta.get("projectPath"))
+        .and_then(|value| value.as_str())
+    else {
+        return Ok(());
+    };
+    if same_path(actual, project) {
+        return Ok(());
+    }
+    Err(AppError::Other(format!(
+        "PROJECT_IDENTITY_MISMATCH: Connected Unity is '{actual}' but expected '{}'.",
+        project.display()
+    )))
 }
 
 enum RpcOutcome {
@@ -313,5 +332,17 @@ mod tests {
             Path::new("C:/Users/x/Game")
         ));
         assert!(!same_path("/Users/x/Other", Path::new("/Users/x/Game")));
+    }
+
+    #[test]
+    fn response_identity_rejects_a_different_project() {
+        let response = serde_json::json!({
+            "ok": true,
+            "meta": { "projectPath": "/Users/x/Other" },
+            "result": {}
+        });
+        let error = ensure_response_project(&response, Path::new("/Users/x/Game"))
+            .expect_err("a different Unity project must be rejected");
+        assert!(error.to_string().contains("PROJECT_IDENTITY_MISMATCH"));
     }
 }

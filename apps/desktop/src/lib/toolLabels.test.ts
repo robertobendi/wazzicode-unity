@@ -16,6 +16,9 @@ describe("toolLabel", () => {
     expect(toolLabel("mcp__unity-vibe-os__unity_verify")).toBe(
       "Checking everything compiles and tests pass",
     );
+    expect(toolLabel("mcp__unity-vibe-os__unity_diagnose_connection")).toBe(
+      "Diagnosing the Unity connection",
+    );
     expect(toolLabel("mcp__unity-vibe-os__unity_capture_game_view")).toBe(
       "Taking a screenshot of the game",
     );
@@ -66,6 +69,7 @@ describe("toolLabel", () => {
     "unity_create_scriptable_object",
     "unity_delete_asset",
     "unity_delete_gameobject",
+    "unity_diagnose_connection",
     "unity_docs",
     "unity_enter_play_mode",
     "unity_execute_code",
@@ -139,6 +143,6 @@ describe("toolLabel", () => {
   });
 
   it("covers the expected number of unity tools", () => {
-    expect(UNITY_TOOL_NAMES).toHaveLength(73);
+    expect(UNITY_TOOL_NAMES).toHaveLength(74);
   });
 });

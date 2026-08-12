@@ -22,6 +22,7 @@ import type {
   ProjectMapData,
   ProjectMapQueryResult,
 } from "@/types/projectMap";
+import type { UnityDiagnosticsSnapshot } from "@/types/unityDiagnostics";
 import type {
   CliStatus,
   OnboardingStatus,
@@ -90,8 +91,15 @@ export const api = {
   statusStop: () => invoke<void>("status_stop"),
 
   // Capture the live game/scene view; returns the on-disk PNG path to render.
-  bridgeCapture: (project: string, kind: "game" | "scene" = "game") =>
+  bridgeCapture: (
+    project: string,
+    kind: "game" | "scene" | "selected" = "game",
+  ) =>
     invoke<{ pngPath: string }>("bridge_capture", { project, kind }),
+  unityDiagnostics: (project: string) =>
+    invoke<UnityDiagnosticsSnapshot>("unity_diagnostics", { project }),
+  unityClearConsole: (project: string) =>
+    invoke<void>("unity_clear_console", { project }),
 
   // Resource funnel: copy dropped/pasted files into the project inbox.
   stagePaths: (project: string, paths: string[]) =>

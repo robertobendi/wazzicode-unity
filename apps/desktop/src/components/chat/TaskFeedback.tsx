@@ -136,7 +136,7 @@ export default function TaskFeedback() {
                   onClick={() => void removeQueued(task.id)}
                   aria-label={`Remove queued task ${index + 1}`}
                   title="Remove from queue"
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sm text-fg-dim opacity-65 hover:bg-white/[0.07] hover:text-fg focus:opacity-100 group-hover:opacity-100"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-sm text-fg-dim hover:bg-white/[0.07] hover:text-fg"
                 >
                   ×
                 </button>

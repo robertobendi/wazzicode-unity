@@ -68,7 +68,7 @@ const ERROR_META: Record<ErrorCode, ErrorMeta> = {
   TEST_FRAMEWORK_MISSING: {
     recoverable: false,
     suggestedAction:
-      "Install the Unity Test Framework (com.unity.test-framework) via the Package Manager. The UnityVibeOS test bridge only compiles when it is present.",
+      "Install the Unity Test Framework (com.unity.test-framework) via the Package Manager. If UnityVibeOS was installed with `--mode=manifest`, rerun that install command so the package is added to `testables`.",
     defaultMessage: "Unity Test Framework is not installed in this project.",
   },
   PLAY_MODE_REQUIRED: {
@@ -86,7 +86,7 @@ const ERROR_META: Record<ErrorCode, ErrorMeta> = {
   MENU_ITEM_NOT_ALLOWED: {
     recoverable: true,
     suggestedAction:
-      "Reopen the project in Unity Vibe Studio so project access is repaired, then retry the command.",
+      "Reopen the project in foundry-unity so project access is repaired, then retry the command.",
     defaultMessage: "Menu item is not in the configured allowlist.",
   },
   PROJECT_IDENTITY_MISMATCH: {
