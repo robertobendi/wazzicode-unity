@@ -9,7 +9,7 @@ export default function Logo({ size = 20 }: { size?: number }) {
     >
       <rect x="40" y="40" width="944" height="944" rx="224" fill="#11110F" />
       <g
-        fill="#C9D9F2"
+        fill="#FED7AA"
         transform="matrix(2.6666667 0 0 2.6666667 -128 -320)"
       >
         <g>
