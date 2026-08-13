@@ -6,11 +6,13 @@ import {
   groupProjectMapFacts,
   groupProjectMapHits,
   localProjectMapHits,
+  projectMapAncestorIds,
   projectMapBreadcrumbs,
   projectMapChildren,
   projectMapConnections,
   projectMapCoveragePercent,
   projectMapFacetCounts,
+  projectMapNeighborhood,
   pushProjectMapHistory,
   reconcileProjectMapHistory,
 } from "./projectMap";
@@ -201,6 +203,147 @@ describe("project map presentation helpers", () => {
     expect(type.outbound).toHaveLength(0);
   });
 
+  it("projects structural and dependency relations onto four directional arms", () => {
+    const data = sampleMap();
+    data.entities = [
+      entity("selected", "type"),
+      entity("north:contains", "module"),
+      entity("north:declares", "script"),
+      entity("south:contains", "type"),
+      entity("south:declares", "type"),
+      entity("west:derives", "type"),
+      entity("west:references", "type"),
+      entity("east:derives", "type"),
+      entity("east:references", "type"),
+    ];
+    data.relations = [
+      relation("north:contains", "contains", "north:contains", "selected"),
+      relation("north:declares", "declares", "north:declares", "selected"),
+      relation("south:contains", "contains", "selected", "south:contains"),
+      relation("south:declares", "declares", "selected", "south:declares"),
+      relation("west:derives", "derives", "west:derives", "selected"),
+      relation(
+        "west:references",
+        "references",
+        "west:references",
+        "selected",
+      ),
+      relation("east:derives", "derives", "selected", "east:derives"),
+      relation(
+        "east:references",
+        "references",
+        "selected",
+        "east:references",
+      ),
+    ];
+
+    const neighborhood = projectMapNeighborhood(data, "selected");
+    expect(
+      Object.fromEntries(
+        Object.entries(neighborhood).map(([arm, value]) => [
+          arm,
+          value.nodes.map((node) => node.neighbor.id),
+        ]),
+      ),
+    ).toEqual({
+      north: ["north:contains", "north:declares"],
+      south: ["south:contains", "south:declares"],
+      west: ["west:derives", "west:references"],
+      east: ["east:derives", "east:references"],
+    });
+  });
+
+  it("coalesces neighbors and orders their relations by kind and id", () => {
+    const data = sampleMap();
+    const neighbor = entity("container", "script");
+    data.entities = [entity("selected", "type"), neighbor];
+    data.relations = [
+      relation("z-declares", "declares", neighbor.id, "selected"),
+      relation("z-contains", "contains", neighbor.id, "selected"),
+      relation("a-contains", "contains", neighbor.id, "selected"),
+    ];
+
+    expect(projectMapNeighborhood(data, "selected").north.nodes).toEqual([
+      {
+        neighbor,
+        relations: [data.relations[2], data.relations[1], data.relations[0]],
+        primaryRelationKind: "contains",
+      },
+    ]);
+  });
+
+  it("sorts neighborhood nodes deterministically before capping each arm", () => {
+    const data = sampleMap();
+    data.entities = [
+      entity("selected", "type"),
+      entity("id:z", "type", { name: "alpha" }),
+      entity("id:a", "type", { name: "Alpha" }),
+      entity("id:b", "type", { name: "beta" }),
+      entity("id:c", "type", { name: "aardvark" }),
+    ];
+    data.relations = [
+      relation("reference:b", "references", "selected", "id:b"),
+      relation("derive:z", "derives", "selected", "id:z"),
+      relation("reference:c", "references", "selected", "id:c"),
+      relation("derive:a", "derives", "selected", "id:a"),
+    ];
+
+    const forward = projectMapNeighborhood(data, "selected", 3).east;
+    data.entities.reverse();
+    data.relations.reverse();
+    const reversed = projectMapNeighborhood(data, "selected", 3).east;
+
+    expect(forward.nodes.map((node) => node.neighbor.id)).toEqual([
+      "id:a",
+      "id:z",
+      "id:c",
+    ]);
+    expect(forward.omittedCount).toBe(1);
+    expect(reversed).toEqual(forward);
+  });
+
+  it("shows structural folders before assets in dense neighborhoods", () => {
+    const data = sampleMap();
+    data.entities = [
+      entity("project", "project"),
+      entity("scene:a", "scene", { name: "0" }),
+      entity("scene:b", "scene", { name: "Bootstrap" }),
+      entity("module:z", "module", { name: "Scripts" }),
+      entity("module:a", "module", { name: "Assets" }),
+    ];
+    data.relations = data.entities.slice(1).map((item) =>
+      relation(`contains:${item.id}`, "contains", "project", item.id),
+    );
+
+    expect(
+      projectMapNeighborhood(data, "project", 3).south.nodes.map(
+        (node) => node.neighbor.id,
+      ),
+    ).toEqual(["module:a", "module:z", "scene:a"]);
+  });
+
+  it("ignores dangling neighborhood endpoints and empties missing selections", () => {
+    const data = sampleMap();
+    data.entities = [entity("selected", "type"), entity("valid", "type")];
+    data.relations = [
+      relation("valid", "derives", "selected", "valid"),
+      relation("dangling", "references", "selected", "missing"),
+      relation("self", "references", "selected", "selected"),
+    ];
+
+    expect(
+      projectMapNeighborhood(data, "selected").east.nodes.map(
+        (node) => node.neighbor.id,
+      ),
+    ).toEqual(["valid"]);
+    expect(projectMapNeighborhood(data, "missing")).toEqual({
+      north: { nodes: [], omittedCount: 0 },
+      south: { nodes: [], omittedCount: 0 },
+      west: { nodes: [], omittedCount: 0 },
+      east: { nodes: [], omittedCount: 0 },
+    });
+  });
+
   it("renders structured fact values compactly", () => {
     expect(formatKnowledgeFactValue(["Player", "Mover"])).toBe(
       "Player, Mover",
@@ -271,6 +414,45 @@ describe("project map presentation helpers", () => {
       "module:gameplay",
       "script:player",
       "type:player",
+    ]);
+  });
+
+  it("uses contains for nested types while preferring declares for normal types", () => {
+    const data = navigationMap();
+    data.entities.push(
+      entity("type:outer", "type", { name: "Outer" }),
+      entity("type:nested", "type", { name: "Nested" }),
+      entity("type:normal", "type", { name: "Normal" }),
+    );
+    data.relations.push(
+      relation("declares:outer", "declares", "script:player", "type:outer"),
+      relation("contains:nested", "contains", "type:outer", "type:nested"),
+      relation("declares:nested", "declares", "script:player", "type:nested"),
+      relation("declares:normal", "declares", "script:player", "type:normal"),
+    );
+
+    expect(
+      projectMapBreadcrumbs(data, "type:nested").map((item) => item.id),
+    ).toEqual([
+      "project:sample",
+      "module:gameplay",
+      "script:player",
+      "type:outer",
+      "type:nested",
+    ]);
+    expect(
+      projectMapBreadcrumbs(data, "type:normal").map((item) => item.id),
+    ).toEqual([
+      "project:sample",
+      "module:gameplay",
+      "script:player",
+      "type:normal",
+    ]);
+    expect(projectMapAncestorIds(data, "type:nested")).toEqual([
+      "project:sample",
+      "module:gameplay",
+      "script:player",
+      "type:outer",
     ]);
   });
 
@@ -410,6 +592,26 @@ describe("project map presentation helpers", () => {
       "type",
       "package",
     ]);
+  });
+
+  it("places nested types only under their containing type", () => {
+    const data = navigationMap();
+    data.entities.push(
+      entity("type:outer", "type", { name: "Outer" }),
+      entity("type:nested", "type", { name: "Nested" }),
+    );
+    data.relations.push(
+      relation("declares:outer", "declares", "script:player", "type:outer"),
+      relation("declares:nested", "declares", "script:player", "type:nested"),
+      relation("contains:nested", "contains", "type:outer", "type:nested"),
+    );
+
+    expect(
+      projectMapChildren(data, "script:player").map((item) => item.id),
+    ).toEqual(["type:outer", "type:player"]);
+    expect(
+      projectMapChildren(data, "type:outer").map((item) => item.id),
+    ).toEqual(["type:nested"]);
   });
 
   it("deduplicates current history entries and truncates forward branches", () => {

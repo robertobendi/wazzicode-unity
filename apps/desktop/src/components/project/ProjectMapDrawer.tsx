@@ -17,14 +17,19 @@ import {
   groupProjectMapFacts,
   groupProjectMapHits,
   localProjectMapHits,
+  projectMapAncestorIds,
   projectMapBreadcrumbs,
   projectMapChildren,
   projectMapConnections,
   projectMapFacetCounts,
+  projectMapNeighborhood,
   pushProjectMapHistory,
   reconcileProjectMapHistory,
   type ProjectMapConnection,
   type ProjectMapFacet,
+  type ProjectMapNeighborhood,
+  type ProjectMapNeighborhoodArm,
+  type ProjectMapNeighborhoodArmId,
 } from "@/lib/projectMap";
 import { relativeTime } from "@/lib/relativeTime";
 import { useUiStore } from "@/stores/useUiStore";
@@ -89,6 +94,11 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
   const dialogRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const inspectorHeadingRef = useRef<HTMLHeadingElement>(null);
+  const scrollSelectionIntoTreeRef = useRef(false);
+  const inertAppRootRef = useRef<{
+    element: HTMLElement;
+    wasInert: boolean;
+  } | null>(null);
   const readEpoch = useRef(0);
   const searchEpoch = useRef(0);
   const refreshEpoch = useRef(0);
@@ -142,6 +152,31 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
     setSelectedId(id);
   }
 
+  function restoreAppRoot() {
+    const inertState = inertAppRootRef.current;
+    if (!inertState) return;
+    inertState.element.inert = inertState.wasInert;
+    inertAppRootRef.current = null;
+  }
+
+  function expandSelectionAncestors(
+    nextData: ProjectMapData | null,
+    id: string | null,
+  ) {
+    if (!nextData || !id) return;
+    const ancestors = projectMapAncestorIds(nextData, id);
+    scrollSelectionIntoTreeRef.current = true;
+    if (ancestors.length === 0) {
+      setExpandedIds((current) => new Set(current));
+      return;
+    }
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      for (const ancestorId of ancestors) next.add(ancestorId);
+      return next;
+    });
+  }
+
   function adoptData(next: ProjectMapData | null, resetNavigation = false) {
     const current = selectedIdRef.current;
     const nextId =
@@ -162,7 +197,14 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
       const scriptsRoot = next?.entities.find(
         (entity) => entity.kind === "module" && entity.path === "Assets/Scripts",
       );
-      setExpandedIds(new Set(scriptsRoot ? [scriptsRoot.id] : []));
+      const nextExpanded = new Set(scriptsRoot ? [scriptsRoot.id] : []);
+      if (next && nextId) {
+        scrollSelectionIntoTreeRef.current = true;
+        for (const ancestorId of projectMapAncestorIds(next, nextId)) {
+          nextExpanded.add(ancestorId);
+        }
+      }
+      setExpandedIds(nextExpanded);
     } else {
       setNavigation((currentNavigation) =>
         reconcileProjectMapHistory(
@@ -172,6 +214,7 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
           nextId,
         ),
       );
+      expandSelectionAncestors(next, nextId);
     }
   }
 
@@ -221,10 +264,23 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
     setQuerying(false);
     setRefreshing(false);
     setOpen(false);
-    requestAnimationFrame(() =>
-      document.getElementById("project-map-trigger")?.focus(),
-    );
+    requestAnimationFrame(() => {
+      restoreAppRoot();
+      document.getElementById("project-map-trigger")?.focus();
+    });
   }
+
+  useEffect(() => {
+    if (!open) return;
+    const appRoot = document.getElementById("root");
+    if (!appRoot) return;
+    inertAppRootRef.current = {
+      element: appRoot,
+      wasInert: appRoot.inert,
+    };
+    appRoot.inert = true;
+    return restoreAppRoot;
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -341,7 +397,13 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
   }
 
   function navigateTo(id: string, focusInspector = false) {
-    if (selectedIdRef.current === id) return;
+    expandSelectionAncestors(data, id);
+    if (selectedIdRef.current === id) {
+      if (focusInspector) {
+        requestAnimationFrame(() => inspectorHeadingRef.current?.focus());
+      }
+      return;
+    }
     revealEpoch.current += 1;
     setRevealError(null);
     setSelection(id);
@@ -354,15 +416,15 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
   }
 
   function navigateBack() {
-    setNavigation((current) => {
-      if (current.index <= 0) return current;
-      const index = current.index - 1;
-      revealEpoch.current += 1;
-      setRevealError(null);
-      setSelection(current.history[index]);
-      requestAnimationFrame(() => inspectorHeadingRef.current?.focus());
-      return { ...current, index };
-    });
+    if (navigation.index <= 0) return;
+    const index = navigation.index - 1;
+    const id = navigation.history[index];
+    revealEpoch.current += 1;
+    setRevealError(null);
+    setSelection(id);
+    expandSelectionAncestors(data, id);
+    setNavigation({ ...navigation, index });
+    requestAnimationFrame(() => inspectorHeadingRef.current?.focus());
   }
 
   function showFacet(next: ProjectMapFacet) {
@@ -374,7 +436,9 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
   }
 
   function selectFacet(next: ProjectMapFacet) {
+    searchEpoch.current += 1;
     setFacet(next);
+    setQuerying(false);
     setSubmittedQuery(null);
     setRemoteHits([]);
     setQueryError(null);
@@ -409,6 +473,11 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
         : { inbound: [], outbound: [] },
     [data, selected],
   );
+  const neighborhood = useMemo(
+    () =>
+      data && selected ? projectMapNeighborhood(data, selected.id, 8) : null,
+    [data, selected],
+  );
   const facetCounts = useMemo(
     () => (data ? projectMapFacetCounts(data.entities) : null),
     [data],
@@ -428,6 +497,25 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
     () => groupProjectMapHits(visibleHits),
     [visibleHits],
   );
+
+  useEffect(() => {
+    if (
+      !scrollSelectionIntoTreeRef.current ||
+      !open ||
+      query.trim() ||
+      facet !== "all" ||
+      !selectedId
+    ) {
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>("[data-project-map-tree-selected]")
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      scrollSelectionIntoTreeRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [expandedIds, facet, open, query, selectedId]);
 
   if (!open) return null;
 
@@ -538,6 +626,7 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
               <EntityInspector
                 data={data}
                 entity={selected}
+                neighborhood={neighborhood}
                 inbound={connections.inbound}
                 outbound={connections.outbound}
                 canGoBack={navigation.index > 0}
@@ -545,7 +634,6 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
                 headingRef={inspectorHeadingRef}
                 onBack={navigateBack}
                 onSelect={(id) => navigateTo(id, true)}
-                onFacet={showFacet}
                 onReveal={(entity) => void reveal(entity)}
               />
             </div>
@@ -669,15 +757,19 @@ function EntityBrowser({
 }) {
   const browsingStructure = !query.trim() && facet === "all";
   const totalForFacet = facetCounts[facet];
-  const resultCopy = querying
-    ? "Searching the project map…"
-    : semanticActive
-      ? `${hits.length}${hits.length === 50 ? "+" : ""} project-wide ranked ${hits.length === 1 ? "result" : "results"}`
-      : query.trim()
-        ? `${hits.length} quick ${hits.length === 1 ? "match" : "matches"} · Enter searches dependencies too`
-        : hits.length < totalForFacet
-          ? `Showing ${hits.length} of ${totalForFacet.toLocaleString()}`
-          : `${totalForFacet.toLocaleString()} ${totalForFacet === 1 ? "item" : "items"}`;
+  const resultCopy = queryError
+    ? "Search unavailable"
+    : browsingStructure
+    ? `${totalForFacet.toLocaleString()} indexed items · ${data.relations.length.toLocaleString()} relationships`
+    : querying
+      ? "Searching the project map…"
+      : semanticActive
+        ? `${hits.length}${hits.length === 50 ? "+" : ""} project-wide ranked ${hits.length === 1 ? "result" : "results"}`
+        : query.trim()
+          ? `${hits.length} quick ${hits.length === 1 ? "match" : "matches"} · Enter searches dependencies too`
+          : hits.length < totalForFacet
+            ? `Showing ${hits.length} of ${totalForFacet.toLocaleString()}`
+            : `${totalForFacet.toLocaleString()} ${totalForFacet === 1 ? "item" : "items"}`;
 
   return (
     <aside
@@ -797,7 +889,21 @@ function EntityBrowser({
             onToggle={onToggle}
             onFacet={onShowFacet}
           />
-        ) : hits.length === 0 && !querying ? (
+        ) : querying ? (
+          <div
+            className="project-map-searching flex items-center gap-3 rounded-lg border p-3"
+          >
+            <span className="project-map-searching-spinner block h-4 w-4 shrink-0 animate-spin rounded-full border-2" />
+            <div>
+              <div className="text-xs font-medium text-fg">
+                Searching relationships…
+              </div>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-fg-dim">
+                Ranking names, code details, and dependencies across the map.
+              </p>
+            </div>
+          </div>
+        ) : hits.length === 0 ? (
           <div className="p-6 text-center">
             <div className="text-xs font-medium text-fg">Nothing matched</div>
             <p className="mt-1 text-[11px] leading-relaxed text-fg-dim">
@@ -806,6 +912,12 @@ function EntityBrowser({
                 : "Try another phrase or choose a different category."}
             </p>
           </div>
+        ) : semanticActive ? (
+          <RankedResults
+            hits={hits}
+            selectedId={selectedId}
+            onSelect={onSelect}
+          />
         ) : (
           <ResultGroups
             groups={groups}
@@ -815,6 +927,48 @@ function EntityBrowser({
         )}
       </div>
     </aside>
+  );
+}
+
+function RankedResults({
+  hits,
+  selectedId,
+  onSelect,
+}: {
+  hits: ProjectMapSearchHit[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <section aria-labelledby="project-map-ranked-results">
+      <div className="mb-1.5 flex items-center justify-between px-1">
+        <h4
+          id="project-map-ranked-results"
+          className="text-[10px] font-medium uppercase tracking-[0.1em] text-fg-dim"
+        >
+          Best matches
+        </h4>
+        <span className="text-[10px] tabular-nums text-fg-dim">
+          Ranked
+        </span>
+      </div>
+      <ol className="space-y-0.5">
+        {hits.map(({ entity }, index) => (
+          <li key={entity.id} className="flex items-center gap-1.5">
+            <span className="w-5 shrink-0 text-right text-[10px] tabular-nums text-fg-dim">
+              {index + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <EntityRow
+                entity={entity}
+                selected={selectedId === entity.id}
+                onSelect={() => onSelect(entity.id)}
+              />
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
@@ -847,12 +1001,18 @@ function StructureBrowse({
   return (
     <div>
       {root && (
-        <EntityRow
-          entity={root}
-          selected={selectedId === root.id}
-          onSelect={() => onSelect(root.id)}
-          prominent
-        />
+        <div
+          data-project-map-tree-selected={
+            selectedId === root.id ? "true" : undefined
+          }
+        >
+          <EntityRow
+            entity={root}
+            selected={selectedId === root.id}
+            onSelect={() => onSelect(root.id)}
+            prominent
+          />
+        </div>
       )}
 
       <SectionLabel className="mb-2 mt-4">Project folders</SectionLabel>
@@ -932,6 +1092,9 @@ function TreeNode({
   return (
     <li>
       <div
+        data-project-map-tree-selected={
+          selectedId === entity.id ? "true" : undefined
+        }
         className={`project-map-tree-row flex items-center rounded-lg ${
           selectedId === entity.id ? "bg-accent" : "hover:bg-ink-800"
         }`}
@@ -1081,6 +1244,7 @@ function EntityRow({
 function EntityInspector({
   data,
   entity,
+  neighborhood,
   inbound,
   outbound,
   canGoBack,
@@ -1088,11 +1252,11 @@ function EntityInspector({
   headingRef,
   onBack,
   onSelect,
-  onFacet,
   onReveal,
 }: {
   data: ProjectMapData;
   entity: KnowledgeEntity | null;
+  neighborhood: ProjectMapNeighborhood | null;
   inbound: ProjectMapConnection[];
   outbound: ProjectMapConnection[];
   canGoBack: boolean;
@@ -1100,9 +1264,10 @@ function EntityInspector({
   headingRef: RefObject<HTMLHeadingElement>;
   onBack: () => void;
   onSelect: (id: string) => void;
-  onFacet: (facet: ProjectMapFacet) => void;
   onReveal: (entity: KnowledgeEntity) => void;
 }) {
+  const relationshipDetailsRef = useRef<HTMLDetailsElement>(null);
+
   if (!entity) {
     return (
       <section className="flex min-h-0 items-center justify-center p-8 text-center text-xs text-fg-dim">
@@ -1160,7 +1325,7 @@ function EntityInspector({
                 ref={headingRef}
                 id="project-map-selection-title"
                 tabIndex={-1}
-                className="selectable min-w-0 break-words text-xl font-semibold text-fg focus:outline-none"
+                className="project-map-inspector-heading selectable min-w-0 break-words rounded-sm text-xl font-semibold text-fg"
               >
                 {entity.name}
               </h3>
@@ -1200,10 +1365,24 @@ function EntityInspector({
           </p>
         )}
 
-        {entity.kind === "project" && (
-          <ProjectOverview data={data} onFacet={onFacet} />
+        {neighborhood && (
+          <FocusNeighborhood
+            entity={entity}
+            neighborhood={neighborhood}
+            onSelect={onSelect}
+            onShowAll={() => {
+              const details = relationshipDetailsRef.current;
+              if (!details) return;
+              details.open = true;
+              details.scrollIntoView({ block: "start" });
+              requestAnimationFrame(() =>
+                details.querySelector<HTMLElement>("summary")?.focus(),
+              );
+            }}
+          />
         )}
         <RelationshipPanel
+          detailsRef={relationshipDetailsRef}
           entity={entity}
           inbound={inbound}
           outbound={outbound}
@@ -1215,51 +1394,201 @@ function EntityInspector({
   );
 }
 
-function ProjectOverview({
-  data,
-  onFacet,
+const NEIGHBORHOOD_ARMS: Array<{
+  id: ProjectMapNeighborhoodArmId;
+  label: string;
+  direction: "inbound" | "outbound";
+}> = [
+  { id: "north", label: "Lives in", direction: "inbound" },
+  { id: "west", label: "Depends on this", direction: "inbound" },
+  { id: "east", label: "This depends on", direction: "outbound" },
+  { id: "south", label: "Contains", direction: "outbound" },
+];
+
+function FocusNeighborhood({
+  entity,
+  neighborhood,
+  onSelect,
+  onShowAll,
 }: {
-  data: ProjectMapData;
-  onFacet: (facet: ProjectMapFacet) => void;
+  entity: KnowledgeEntity;
+  neighborhood: ProjectMapNeighborhood;
+  onSelect: (id: string) => void;
+  onShowAll: () => void;
 }) {
-  const counts = projectMapFacetCounts(data.entities);
   return (
-    <section className="mt-6" aria-labelledby="project-overview-title">
-      <SectionHeading id="project-overview-title">Explore the project</SectionHeading>
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {(
-          [
-            ["script", "Scripts"],
-            ["type", "Types"],
-            ["scene", "Scenes"],
-            ["prefab", "Prefabs"],
-          ] as Array<[ProjectMapFacet, string]>
-        ).map(([kind, label]) => (
-          <button
-            key={kind}
-            type="button"
-            onClick={() => onFacet(kind)}
-            className="rounded-lg border border-ink-700 bg-white px-3 py-3 text-left hover:border-ink-600 hover:bg-ink-800"
-          >
-            <span className="block text-lg font-semibold tabular-nums text-fg">
-              {counts[kind].toLocaleString()}
-            </span>
-            <span className="mt-0.5 block text-[10px] uppercase tracking-[0.1em] text-fg-dim">
-              {label}
-            </span>
-          </button>
+    <section
+      className="project-map-neighborhood mt-6"
+      aria-labelledby="project-map-neighborhood-title"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <SectionHeading id="project-map-neighborhood-title">
+            How it connects
+          </SectionHeading>
+          <p className="mt-1 text-[10px] leading-relaxed text-fg-dim">
+            Select a nearby item to follow its path.
+          </p>
+        </div>
+        <div
+          className="project-map-neighborhood-legend flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-fg-dim"
+          aria-label="Map direction legend"
+        >
+          <span>
+            <i aria-hidden className="project-map-legend-line project-map-legend-line--vertical" />
+            Structure and declarations
+          </span>
+          <span>
+            <i aria-hidden className="project-map-legend-line" />
+            Code dependencies
+          </span>
+        </div>
+      </div>
+
+      <div className="project-map-neighborhood-grid mt-3">
+        {NEIGHBORHOOD_ARMS.map(({ id, label, direction }) => (
+          <NeighborhoodArm
+            key={`${entity.id}:${id}`}
+            id={id}
+            label={label}
+            direction={direction}
+            arm={neighborhood[id]}
+            onSelect={onSelect}
+            onShowAll={onShowAll}
+          />
         ))}
+        {neighborhood.north.nodes.length > 0 && (
+          <span
+            aria-hidden
+            className="project-map-neighborhood-connector project-map-neighborhood-connector--north"
+          />
+        )}
+        {neighborhood.west.nodes.length > 0 && (
+          <span
+            aria-hidden
+            className="project-map-neighborhood-connector project-map-neighborhood-connector--west"
+          />
+        )}
+        <div className="project-map-neighborhood-focus" aria-current="true">
+          <KindGlyph kind={entity.kind} />
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold text-fg">
+              {entity.name}
+            </div>
+            <div className="mt-0.5 truncate text-[10px] uppercase tracking-[0.08em] text-fg-dim">
+              Selected {formatKnowledgeKind(entity.kind)}
+            </div>
+          </div>
+        </div>
+        {neighborhood.east.nodes.length > 0 && (
+          <span
+            aria-hidden
+            className="project-map-neighborhood-connector project-map-neighborhood-connector--east"
+          />
+        )}
+        {neighborhood.south.nodes.length > 0 && (
+          <span
+            aria-hidden
+            className="project-map-neighborhood-connector project-map-neighborhood-connector--south"
+          />
+        )}
       </div>
     </section>
   );
 }
 
+function NeighborhoodArm({
+  id,
+  label,
+  direction,
+  arm,
+  onSelect,
+  onShowAll,
+}: {
+  id: ProjectMapNeighborhoodArmId;
+  label: string;
+  direction: "inbound" | "outbound";
+  arm: ProjectMapNeighborhoodArm;
+  onSelect: (id: string) => void;
+  onShowAll: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? arm.nodes : arm.nodes.slice(0, 3);
+  const total = arm.nodes.length + arm.omittedCount;
+  const hiddenCount = Math.max(0, total - visible.length);
+
+  return (
+    <div className={`project-map-neighborhood-arm project-map-neighborhood-arm--${id}`}>
+      <div className="project-map-neighborhood-arm-label text-[10px] font-medium uppercase tracking-[0.08em] text-fg-dim">
+        {label}
+      </div>
+      {arm.nodes.length === 0 ? (
+        <div className="project-map-neighborhood-empty text-[10px] text-fg-dim">
+          None
+        </div>
+      ) : (
+        <ul className="project-map-neighborhood-nodes">
+          {visible.map((node) => {
+            const relationLabel = formatProjectMapRelation(
+              node.primaryRelationKind,
+              direction,
+            );
+            return (
+              <li key={node.neighbor.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(node.neighbor.id)}
+                  aria-label={`${label}: ${node.neighbor.name}, ${relationLabel}`}
+                  className="project-map-neighborhood-node"
+                >
+                  <KindGlyph kind={node.neighbor.kind} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-medium text-fg">
+                      {node.neighbor.name}
+                    </span>
+                    <span className="project-map-neighborhood-relation mt-0.5 block truncate text-[10px]">
+                      {relationLabel}
+                      {node.relations.length > 1
+                        ? ` +${node.relations.length - 1}`
+                        : ""}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          onClick={() => (expanded ? onShowAll() : setExpanded(true))}
+          className="project-map-neighborhood-more mt-1 w-full rounded-md py-1 text-[10px] font-medium"
+        >
+          {expanded ? `View all ${total}` : `+${hiddenCount} more`}
+        </button>
+      )}
+      {expanded && hiddenCount === 0 && arm.nodes.length > 3 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="project-map-neighborhood-more mt-1 w-full rounded-md py-1 text-[10px] font-medium"
+        >
+          Show fewer
+        </button>
+      )}
+    </div>
+  );
+}
+
 function RelationshipPanel({
+  detailsRef,
   entity,
   inbound,
   outbound,
   onSelect,
 }: {
+  detailsRef: RefObject<HTMLDetailsElement>;
   entity: KnowledgeEntity;
   inbound: ProjectMapConnection[];
   outbound: ProjectMapConnection[];
@@ -1267,34 +1596,43 @@ function RelationshipPanel({
 }) {
   const groups = relationshipGroups(inbound, outbound);
   return (
-    <section className="mt-7" aria-labelledby="project-connections-title">
-      <SectionHeading id="project-connections-title">
-        How it connects
-        <span className="ml-2 font-normal text-fg-dim">
+    <details
+      ref={detailsRef}
+      className="group mt-5 scroll-mt-14 overflow-hidden rounded-xl border border-ink-700 bg-white"
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-xs font-medium text-fg marker:hidden hover:bg-ink-800">
+        All relationships
+        <span className="rounded bg-ink-850 px-1.5 py-0.5 text-[10px] tabular-nums text-fg-dim">
           {inbound.length + outbound.length}
         </span>
-      </SectionHeading>
-      {groups.length === 0 ? (
-        <p className="mt-3 rounded-lg border border-dashed border-ink-700 p-4 text-xs leading-relaxed text-fg-dim">
-          No relationships were recorded for {entity.name}.
-        </p>
-      ) : (
-        <div
-          className={`mt-3 grid items-start gap-3 ${
-            groups.length > 1 ? "lg:grid-cols-2" : ""
-          }`}
-        >
-          {groups.map((group) => (
-            <RelationGroup
-              key={`${entity.id}:${group.direction}:${group.kind}`}
-              label={group.label}
-              connections={group.connections}
-              onSelect={onSelect}
-            />
-          ))}
-        </div>
-      )}
-    </section>
+        <span className="ml-1 min-w-0 flex-1 truncate text-[10px] font-normal text-fg-dim">
+          Complete connection list
+        </span>
+        <ChevronIcon className="h-3.5 w-3.5 shrink-0 text-fg-dim transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-ink-700 bg-ink-850/50 p-3">
+        {groups.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-ink-700 p-4 text-xs leading-relaxed text-fg-dim">
+            No relationships were recorded for {entity.name}.
+          </p>
+        ) : (
+          <div
+            className={`grid items-start gap-3 ${
+              groups.length > 1 ? "lg:grid-cols-2" : ""
+            }`}
+          >
+            {groups.map((group) => (
+              <RelationGroup
+                key={`${entity.id}:${group.direction}:${group.kind}`}
+                label={group.label}
+                connections={group.connections}
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 

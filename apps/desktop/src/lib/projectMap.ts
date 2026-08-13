@@ -26,6 +26,148 @@ export interface ProjectMapConnection {
   neighbor: KnowledgeEntity | null;
 }
 
+export type ProjectMapNeighborhoodArmId =
+  | "north"
+  | "south"
+  | "west"
+  | "east";
+
+export interface ProjectMapNeighborhoodNode {
+  neighbor: KnowledgeEntity;
+  relations: KnowledgeRelation[];
+  primaryRelationKind: KnowledgeRelationKind;
+}
+
+export interface ProjectMapNeighborhoodArm {
+  nodes: ProjectMapNeighborhoodNode[];
+  omittedCount: number;
+}
+
+export type ProjectMapNeighborhood = Record<
+  ProjectMapNeighborhoodArmId,
+  ProjectMapNeighborhoodArm
+>;
+
+const PROJECT_MAP_RELATION_KIND_PRIORITY: Record<
+  KnowledgeRelationKind,
+  number
+> = {
+  contains: 0,
+  declares: 1,
+  derives: 2,
+  references: 3,
+};
+
+function compareProjectMapText(left: string, right: string): number {
+  const normalizedLeft = left.toLowerCase();
+  const normalizedRight = right.toLowerCase();
+  if (normalizedLeft < normalizedRight) return -1;
+  if (normalizedLeft > normalizedRight) return 1;
+  return 0;
+}
+
+function compareProjectMapTextExactly(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function emptyProjectMapNeighborhood(): ProjectMapNeighborhood {
+  return {
+    north: { nodes: [], omittedCount: 0 },
+    south: { nodes: [], omittedCount: 0 },
+    west: { nodes: [], omittedCount: 0 },
+    east: { nodes: [], omittedCount: 0 },
+  };
+}
+
+export function projectMapNeighborhood(
+  data: ProjectMapData,
+  selectedId: string,
+  maxPerArm = 3,
+): ProjectMapNeighborhood {
+  const byId = new Map(data.entities.map((entity) => [entity.id, entity]));
+  if (!byId.has(selectedId)) return emptyProjectMapNeighborhood();
+
+  const grouped: Record<
+    ProjectMapNeighborhoodArmId,
+    Map<string, ProjectMapNeighborhoodNode>
+  > = {
+    north: new Map(),
+    south: new Map(),
+    west: new Map(),
+    east: new Map(),
+  };
+
+  const add = (
+    armId: ProjectMapNeighborhoodArmId,
+    neighborId: string,
+    relation: KnowledgeRelation,
+  ) => {
+    if (neighborId === selectedId) return;
+    const neighbor = byId.get(neighborId);
+    if (!neighbor) return;
+    const existing = grouped[armId].get(neighborId);
+    if (existing) existing.relations.push(relation);
+    else {
+      grouped[armId].set(neighborId, {
+        neighbor,
+        relations: [relation],
+        primaryRelationKind: relation.kind,
+      });
+    }
+  };
+
+  for (const relation of data.relations) {
+    const isStructural =
+      relation.kind === "contains" || relation.kind === "declares";
+    if (relation.to === selectedId) {
+      add(isStructural ? "north" : "west", relation.from, relation);
+    }
+    if (relation.from === selectedId) {
+      add(isStructural ? "south" : "east", relation.to, relation);
+    }
+  }
+
+  const relationOrder = (left: KnowledgeRelation, right: KnowledgeRelation) =>
+    PROJECT_MAP_RELATION_KIND_PRIORITY[left.kind] -
+      PROJECT_MAP_RELATION_KIND_PRIORITY[right.kind] ||
+    compareProjectMapText(left.id, right.id) ||
+    compareProjectMapTextExactly(left.id, right.id);
+  const nodeOrder = (
+    left: ProjectMapNeighborhoodNode,
+    right: ProjectMapNeighborhoodNode,
+  ) =>
+    PROJECT_MAP_RELATION_KIND_PRIORITY[left.primaryRelationKind] -
+      PROJECT_MAP_RELATION_KIND_PRIORITY[right.primaryRelationKind] ||
+    (left.primaryRelationKind === "contains"
+      ? PROJECT_MAP_STRUCTURE_KIND_PRIORITY[left.neighbor.kind] -
+        PROJECT_MAP_STRUCTURE_KIND_PRIORITY[right.neighbor.kind]
+      : 0) ||
+    compareProjectMapText(left.neighbor.name, right.neighbor.name) ||
+    compareProjectMapText(left.neighbor.id, right.neighbor.id) ||
+    compareProjectMapTextExactly(left.neighbor.name, right.neighbor.name) ||
+    compareProjectMapTextExactly(left.neighbor.id, right.neighbor.id);
+  const cap = Number.isFinite(maxPerArm)
+    ? Math.max(0, Math.floor(maxPerArm))
+    : 0;
+
+  const result = emptyProjectMapNeighborhood();
+  for (const armId of Object.keys(grouped) as ProjectMapNeighborhoodArmId[]) {
+    const nodes = [...grouped[armId].values()];
+    for (const node of nodes) {
+      node.relations.sort(relationOrder);
+      node.primaryRelationKind = node.relations[0].kind;
+    }
+    nodes.sort(nodeOrder);
+    result[armId] = {
+      nodes: nodes.slice(0, cap),
+      omittedCount: Math.max(0, nodes.length - cap),
+    };
+  }
+  return result;
+}
+
 export function projectMapCoveragePercent(data: ProjectMapData): number {
   const { discovered, scanned, complete } = data.manifest.coverage;
   if (discovered <= 0) return complete ? 100 : 0;
@@ -80,6 +222,16 @@ const PROJECT_MAP_SCOPE_ORDER: Record<KnowledgeEntity["scope"], number> = {
   "first-party": 1,
   package: 2,
   external: 3,
+};
+
+const PROJECT_MAP_STRUCTURE_KIND_PRIORITY: Record<KnowledgeEntityKind, number> = {
+  module: 0,
+  scene: 1,
+  prefab: 2,
+  script: 3,
+  type: 4,
+  package: 5,
+  project: 6,
 };
 
 export function projectMapFacetCounts(
@@ -183,6 +335,16 @@ export function projectMapChildren(
   entityId: string,
 ): KnowledgeEntity[] {
   const byId = new Map(data.entities.map((entity) => [entity.id, entity]));
+  const nestedTypeIds = new Set(
+    data.relations.flatMap((relation) => {
+      if (relation.kind !== "contains") return [];
+      const parent = byId.get(relation.from);
+      const child = byId.get(relation.to);
+      return parent?.kind === "type" && child?.kind === "type"
+        ? [child.id]
+        : [];
+    }),
+  );
   const children = new Map<string, KnowledgeEntity>();
   for (const relation of data.relations) {
     if (
@@ -192,23 +354,20 @@ export function projectMapChildren(
       continue;
     }
     const child = byId.get(relation.to);
+    if (
+      child?.kind === "type" &&
+      relation.kind === "declares" &&
+      nestedTypeIds.has(child.id)
+    ) {
+      continue;
+    }
     if (child) children.set(child.id, child);
   }
 
-  const kindOrder: KnowledgeEntityKind[] = [
-    "module",
-    "scene",
-    "prefab",
-    "script",
-    "type",
-    "package",
-    "project",
-  ];
-  const kindPriority = new Map(kindOrder.map((kind, index) => [kind, index]));
   return [...children.values()].sort(
     (left, right) =>
-      (kindPriority.get(left.kind) ?? kindOrder.length) -
-        (kindPriority.get(right.kind) ?? kindOrder.length) ||
+      PROJECT_MAP_STRUCTURE_KIND_PRIORITY[left.kind] -
+        PROJECT_MAP_STRUCTURE_KIND_PRIORITY[right.kind] ||
       left.name.localeCompare(right.name) ||
       left.id.localeCompare(right.id),
   );
@@ -222,25 +381,48 @@ export function projectMapBreadcrumbs(
   const selected = byId.get(entityId);
   if (!selected) return [];
 
-  const parents = new Map<string, Map<string, KnowledgeEntity>>();
+  interface ParentCandidate {
+    parent: KnowledgeEntity;
+    relationKind: "contains" | "declares";
+  }
+
+  const parentPriority = ({
+    parent,
+    relationKind,
+  }: ParentCandidate): number => {
+    if (relationKind === "contains" && parent.kind === "type") return 0;
+    return relationKind === "declares" ? 1 : 2;
+  };
+  const parents = new Map<string, Map<string, ParentCandidate>>();
   for (const relation of data.relations) {
     const child = byId.get(relation.to);
     const parent = byId.get(relation.from);
     if (
       !child ||
       !parent ||
-      relation.kind !== (child.kind === "type" ? "declares" : "contains")
+      (relation.kind !== "contains" && relation.kind !== "declares") ||
+      (child.kind !== "type" && relation.kind !== "contains")
     ) {
       continue;
     }
     const candidates = parents.get(child.id);
-    if (candidates) candidates.set(parent.id, parent);
-    else parents.set(child.id, new Map([[parent.id, parent]]));
+    const candidate = { parent, relationKind: relation.kind };
+    const existing = candidates?.get(parent.id);
+    if (!candidates) {
+      parents.set(child.id, new Map([[parent.id, candidate]]));
+    } else if (
+      !existing ||
+      parentPriority(candidate) < parentPriority(existing)
+    ) {
+      candidates.set(parent.id, candidate);
+    }
   }
 
-  const compareParents = (left: KnowledgeEntity, right: KnowledgeEntity) =>
-    PROJECT_MAP_SCOPE_ORDER[left.scope] -
-      PROJECT_MAP_SCOPE_ORDER[right.scope] || left.id.localeCompare(right.id);
+  const compareParents = (left: ParentCandidate, right: ParentCandidate) =>
+    parentPriority(left) - parentPriority(right) ||
+    PROJECT_MAP_SCOPE_ORDER[left.parent.scope] -
+      PROJECT_MAP_SCOPE_ORDER[right.parent.scope] ||
+    left.parent.id.localeCompare(right.parent.id);
 
   const lineage = [selected];
   const visited = new Set([selected.id]);
@@ -248,6 +430,7 @@ export function projectMapBreadcrumbs(
   while (current.kind !== "project") {
     const parent = [...(parents.get(current.id)?.values() ?? [])]
       .sort(compareParents)
+      .map((candidate) => candidate.parent)
       .find((candidate) => !visited.has(candidate.id));
     if (!parent) break;
     lineage.push(parent);
@@ -263,6 +446,15 @@ export function projectMapBreadcrumbs(
     if (project && !visited.has(project.id)) lineage.unshift(project);
   }
   return lineage;
+}
+
+export function projectMapAncestorIds(
+  data: ProjectMapData,
+  entityId: string,
+): string[] {
+  return projectMapBreadcrumbs(data, entityId)
+    .slice(0, -1)
+    .map((entity) => entity.id);
 }
 
 export function pushProjectMapHistory(
