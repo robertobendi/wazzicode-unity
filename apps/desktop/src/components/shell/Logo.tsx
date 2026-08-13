@@ -8,23 +8,19 @@ export default function Logo({ size = 20 }: { size?: number }) {
       focusable="false"
     >
       <rect x="40" y="40" width="944" height="944" rx="224" fill="#11110F" />
-      <g transform="matrix(2.6666667 0 0 2.6666667 -128 -320)">
-        <g fill="#FFFFFF">
+      <g
+        fill="#C9D9F2"
+        transform="matrix(2.6666667 0 0 2.6666667 -128 -320)"
+      >
+        <g>
           <rect x="120" y="216" width="48" height="192" rx="12" />
           <rect x="120" y="360" width="96" height="48" rx="12" />
         </g>
-        <g fill="#FFFFFF">
+        <g>
           <rect x="312" y="216" width="48" height="192" rx="12" />
           <rect x="264" y="360" width="96" height="48" rx="12" />
         </g>
-        <rect
-          x="216"
-          y="216"
-          width="48"
-          height="96"
-          rx="12"
-          fill="#1296D8"
-        />
+        <rect x="216" y="216" width="48" height="96" rx="12" />
       </g>
     </svg>
   );
