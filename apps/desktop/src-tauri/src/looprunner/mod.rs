@@ -9,7 +9,12 @@
 //!      (`done` / `continue` / `blocked`).
 //!   2. **QA critic** — a *cold* (unresumed) harsh reviewer that only runs when
 //!      the builder claims `done` (and `qaEvery > 0`); a fail feeds its notes
-//!      back into the next builder turn.
+//!      back into the next builder turn. The critic must run `unity_qa` and
+//!      report its verdict as a `gate`: the loop finishes only when that gate
+//!      passed *and* the reviewer is satisfied, so no amount of confident prose
+//!      or a good-looking screenshot can end the loop over a red build. A gate
+//!      that cannot run counts as unproven — the caps (strikes, cost, max
+//!      iterations) remain the only terminators in that case.
 //!
 //! Between the two, a **deterministic reflector** (pure fns in [`reflect`]) —
 //! not an LLM — parses the verdict and makes every stop/continue decision; each
@@ -476,10 +481,12 @@ impl Driver {
                     };
                     total_cost = reflect::add_cost(total_cost, qa_info.cost_usd);
                     let qa = reflect::parse_qa(qa_info.result_text.as_deref().unwrap_or(""));
+                    // Record the *effective* verdict, so a review the gate
+                    // rejected never shows up in the UI as a pass.
                     let qa_result = qa.as_ref().map(|q| QaResult {
-                        pass: q.pass,
+                        pass: q.accepted(),
                         score: q.score,
-                        notes: q.notes.clone(),
+                        notes: q.feedback(),
                     });
                     self.set_iteration_qa(i, qa_result, total_cost).await;
 
@@ -487,7 +494,7 @@ impl Driver {
                         self.stopped(),
                         total_cost,
                         max_cost,
-                        qa.as_ref().map(|q| q.pass),
+                        qa.as_ref().map(|q| q.accepted()),
                     );
                     let step2 = reflect::feedback_step(
                         self.stopped(),
@@ -502,7 +509,8 @@ impl Driver {
                         Step::CostCapped => return self.finish(LoopStatus::CostCapped).await,
                         _ => {
                             // QA failed → carry its notes into the next builder.
-                            qa_feedback = qa.map(|q| q.notes).filter(|n| !n.trim().is_empty());
+                            qa_feedback =
+                                qa.map(|q| q.feedback()).filter(|n| !n.trim().is_empty());
                             if reflect::gate_iterations(i + 1, max_iter) == Step::MaxIterations {
                                 return self.finish(LoopStatus::MaxIterations).await;
                             }
@@ -893,7 +901,7 @@ fn feedback_block(feedback: &[String]) -> String {
 fn qa_prompt(goal: &str, images: &[String]) -> String {
     let refs = reference_block(images);
     format!(
-        "You are a harsh, skeptical QA reviewer. Judge whether this goal has been FULLY achieved in the CURRENT state of the Unity project.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nUse unity_capture_game_view to see the current game view (and unity_enter_play_mode / unity_simulate_input if runtime behaviour matters) before judging. Be strict — do not pass work that is incomplete or visibly wrong.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{{\"pass\":true|false,\"score\":0,\"notes\":\"<what is wrong, or what is good>\"}}\n```"
+        "You are a harsh, skeptical QA reviewer. Judge whether this goal has been FULLY achieved in the CURRENT state of the Unity project.\n\nGOAL:\n{goal}\n\nReference images:\n{refs}\n\nJudge in this order:\n\n1. Run `unity_qa` FIRST. It is the ground truth — compile status, console errors, tests, missing scripts and dangling references come back as structured checks, and your opinion does not override it. Report what it returned in the `gate` field: \"pass\" if every check passed (checks it reports as skipped are not failures), \"fail\" if any check failed, \"unavailable\" if the tool could not run at all.\n2. Then judge the goal itself. Use unity_capture_game_view to see the current game view, and unity_enter_play_mode / unity_simulate_input if runtime behaviour matters.\n\nSet `pass` to true only when the gate passed AND the goal is fully met. A good-looking screenshot over a failing gate is not a pass. Be strict — do not pass work that is incomplete or visibly wrong.\n\nEND your reply with EXACTLY one fenced json block and NOTHING after it:\n```json\n{{\"pass\":true|false,\"gate\":\"pass|fail|unavailable\",\"score\":0,\"notes\":\"<what is wrong, or what is good>\"}}\n```"
     )
 }
 
@@ -1012,6 +1020,9 @@ mod tests {
         let p = qa_prompt("ship the level", &[]);
         assert!(p.contains("ship the level"));
         assert!(p.contains("\"pass\""));
+        // The critic is required to run the ground-truth gate and report it.
+        assert!(p.contains("unity_qa"));
+        assert!(p.contains("\"gate\""));
     }
 
     #[test]

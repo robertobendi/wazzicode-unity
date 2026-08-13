@@ -47,17 +47,63 @@ struct BuilderRaw {
     screenshot_path: Option<String>,
 }
 
+/// What the project's ground-truth gate (`unity_qa`) returned when the critic
+/// ran it. This is the one part of a QA verdict that is not the reviewer's
+/// opinion — compile status, console errors, tests, missing scripts and
+/// dangling references all come back as structured checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gate {
+    Pass,
+    Fail,
+    /// The gate could not run, or the critic never reported it. Both mean the
+    /// same thing to the loop: the work is unproven, so `done` is not accepted.
+    Unavailable,
+}
+
 /// Parsed QA critic block.
 #[derive(Debug, Clone)]
 pub struct QaReflection {
     pub pass: bool,
+    pub gate: Gate,
     pub score: Option<f64>,
     pub notes: String,
+}
+
+impl QaReflection {
+    /// The verdict the loop acts on: the reviewer's judgement **and** a passing
+    /// gate. A reviewer who likes the screenshot cannot finish the loop over a
+    /// failing compile or a red test.
+    pub fn accepted(&self) -> bool {
+        self.pass && self.gate == Gate::Pass
+    }
+
+    /// What to hand the next builder turn. When the gate is what blocked an
+    /// otherwise-positive review, say so — otherwise the builder reads glowing
+    /// notes and has no idea why it was sent back.
+    pub fn feedback(&self) -> String {
+        let notes = self.notes.trim();
+        match (self.pass, self.gate) {
+            (_, Gate::Pass) => notes.to_string(),
+            (true, Gate::Fail) => format!(
+                "unity_qa failed, so this is not done regardless of how it looks. \
+                 Run unity_qa yourself, fix every failing check, and re-verify. \
+                 Reviewer notes: {notes}"
+            ),
+            (true, Gate::Unavailable) => format!(
+                "unity_qa did not run, so nothing is proven. Get it running \
+                 (check the Unity bridge is connected) and make it pass before \
+                 claiming done. Reviewer notes: {notes}"
+            ),
+            (false, _) => notes.to_string(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
 struct QaRaw {
     pass: bool,
+    #[serde(default)]
+    gate: Option<String>,
     #[serde(default)]
     score: Option<f64>,
     #[serde(default)]
@@ -131,8 +177,14 @@ pub fn reflect_builder(text: &str) -> BuilderReflection {
 pub fn parse_qa(text: &str) -> Option<QaReflection> {
     let block = last_fenced_block(text)?;
     let raw: QaRaw = serde_json::from_str(&block).ok()?;
+    let gate = match raw.gate.as_deref().map(str::trim).unwrap_or("") {
+        g if g.eq_ignore_ascii_case("pass") => Gate::Pass,
+        g if g.eq_ignore_ascii_case("fail") => Gate::Fail,
+        _ => Gate::Unavailable,
+    };
     Some(QaReflection {
         pass: raw.pass,
+        gate,
         score: raw.score,
         notes: raw.notes.trim().to_string(),
     })
@@ -184,13 +236,15 @@ pub fn decide_after_builder(
     }
 }
 
-/// Decision after a QA turn. `qa_pass == None` means the QA block was
-/// unparseable — treated as a fail (keep iterating), never a silent pass.
+/// Decision after a QA turn. Takes the *effective* verdict
+/// ([`QaReflection::accepted`] — reviewer judgement AND a passing `unity_qa`
+/// gate); `None` means the QA block was unparseable. Anything but `Some(true)`
+/// keeps iterating, never a silent pass.
 pub fn decide_after_qa(
     stop_requested: bool,
     total_cost: f64,
     max_cost: f64,
-    qa_pass: Option<bool>,
+    qa_accepted: Option<bool>,
 ) -> Step {
     if stop_requested {
         return Step::Stopped;
@@ -198,7 +252,7 @@ pub fn decide_after_qa(
     if total_cost >= max_cost {
         return Step::CostCapped;
     }
-    match qa_pass {
+    match qa_accepted {
         Some(true) => Step::Done,
         _ => Step::Continue,
     }
@@ -313,6 +367,65 @@ mod tests {
         assert_eq!(fail.score, None);
 
         assert!(parse_qa("no verdict emitted").is_none());
+    }
+
+    #[test]
+    fn qa_gate_is_parsed_and_defaults_to_unavailable() {
+        let passed =
+            parse_qa("```json\n{\"pass\":true,\"gate\":\"PASS\",\"notes\":\"ok\"}\n```").unwrap();
+        assert_eq!(passed.gate, Gate::Pass);
+
+        let failed =
+            parse_qa("```json\n{\"pass\":true,\"gate\":\"fail\",\"notes\":\"ok\"}\n```").unwrap();
+        assert_eq!(failed.gate, Gate::Fail);
+
+        // A critic that never reports the gate has proven nothing.
+        let silent = parse_qa("```json\n{\"pass\":true,\"notes\":\"ok\"}\n```").unwrap();
+        assert_eq!(silent.gate, Gate::Unavailable);
+
+        let nonsense =
+            parse_qa("```json\n{\"pass\":true,\"gate\":\"probably?\",\"notes\":\"\"}\n```").unwrap();
+        assert_eq!(nonsense.gate, Gate::Unavailable);
+    }
+
+    #[test]
+    fn a_passing_review_over_a_failing_gate_is_not_accepted() {
+        let looks_fine = |gate: &str| {
+            parse_qa(&format!(
+                "```json\n{{\"pass\":true,\"gate\":\"{gate}\",\"notes\":\"looks great\"}}\n```"
+            ))
+            .unwrap()
+        };
+
+        assert!(looks_fine("pass").accepted());
+        assert!(!looks_fine("fail").accepted());
+        assert!(!looks_fine("unavailable").accepted());
+
+        // ...and the loop keeps going rather than finishing on the opinion.
+        assert_eq!(
+            decide_after_qa(false, 0.0, 5.0, Some(looks_fine("fail").accepted())),
+            Step::Continue
+        );
+        assert_eq!(
+            decide_after_qa(false, 0.0, 5.0, Some(looks_fine("pass").accepted())),
+            Step::Done
+        );
+    }
+
+    #[test]
+    fn gate_rejection_tells_the_builder_why_it_came_back() {
+        let blocked =
+            parse_qa("```json\n{\"pass\":true,\"gate\":\"fail\",\"notes\":\"looks great\"}\n```")
+                .unwrap();
+        let feedback = blocked.feedback();
+        assert!(feedback.contains("unity_qa failed"));
+        assert!(feedback.contains("looks great"));
+
+        // A genuine reviewer rejection is passed through untouched.
+        let honest =
+            parse_qa("```json\n{\"pass\":false,\"gate\":\"pass\",\"notes\":\"cube is blue\"}\n```")
+                .unwrap();
+        assert_eq!(honest.feedback(), "cube is blue");
     }
 
     #[test]
