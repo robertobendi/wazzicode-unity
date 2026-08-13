@@ -87,16 +87,30 @@ pub fn build_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
         args.push((*value).into());
     }
 
-    // A headless approval prompt has no usable UI and would look like a frozen
-    // task. Studio owns recovery through checkpoints, Unity Undo, snapshots and
-    // the action log, so both fresh and resumed runs are non-interactive.
-    args.push("--dangerously-bypass-approvals-and-sandbox".into());
+    if input.read_only {
+        // Answer-only run: the OS-level sandbox denies every write, so the
+        // question box cannot change the project no matter what the model
+        // decides to do. `exec` is non-interactive, so a denied write comes
+        // back as a failed command rather than a hidden approval prompt.
+        args.push("--sandbox".into());
+        args.push("read-only".into());
+    } else {
+        // A headless approval prompt has no usable UI and would look like a
+        // frozen task. Studio owns recovery through checkpoints, Unity Undo,
+        // snapshots and the action log, so both fresh and resumed runs are
+        // non-interactive.
+        args.push("--dangerously-bypass-approvals-and-sandbox".into());
+    }
 
     // The MCP server, as TOML overrides — the Codex analogue of Claude's
-    // `--mcp-config` + `--strict-mcp-config`.
-    for kv in mcp_overrides(input.mcp_entry) {
-        args.push("-c".into());
-        args.push(kv);
+    // `--mcp-config` + `--strict-mcp-config`. An answer-only run gets none:
+    // the sandbox governs shell commands, not MCP calls, so the Unity write
+    // tools have to be withheld rather than merely sandboxed.
+    if !input.read_only {
+        for kv in mcp_overrides(input.mcp_entry) {
+            args.push("-c".into());
+            args.push(kv);
+        }
     }
 
     if let Some(model) =
@@ -264,8 +278,32 @@ mod tests {
                 resume_session_id: resume,
                 max_turns: Some(60),
                 run_options: None,
+                read_only: false,
             },
         )
+    }
+
+    #[test]
+    fn an_answer_only_codex_run_is_sandboxed_and_has_no_mcp_server() {
+        let args = build_args(
+            &settings(None),
+            &FlagInput {
+                mcp_config_path: std::path::Path::new("/unused.json"),
+                mcp_entry: &entry(),
+                resume_session_id: None,
+                max_turns: Some(12),
+                run_options: None,
+                read_only: true,
+            },
+        );
+        let sandbox = args.iter().position(|a| a == "--sandbox").unwrap();
+        assert_eq!(args[sandbox + 1], "read-only");
+        assert!(!args
+            .iter()
+            .any(|a| a == "--dangerously-bypass-approvals-and-sandbox"));
+        // The sandbox governs shell commands, not MCP — so the Unity tools are
+        // withheld outright.
+        assert!(!args.iter().any(|a| a.starts_with("mcp_servers.")));
     }
 
     #[test]
@@ -393,6 +431,7 @@ mod tests {
                 resume_session_id: None,
                 max_turns: None,
                 run_options: None,
+                read_only: false,
             },
         );
         assert!(!args.iter().any(|a| a == "--model"));
@@ -414,6 +453,7 @@ mod tests {
                 resume_session_id: Some("thread-abc"),
                 max_turns: None,
                 run_options: Some(&run),
+                read_only: false,
             },
         );
         let effort = args

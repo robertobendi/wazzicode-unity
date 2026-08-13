@@ -235,6 +235,144 @@ pub async fn query_project_map(
     ))
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectMapAnswer {
+    pub answer: String,
+    /// Ids of entities the answer is about, already resolved against the
+    /// current map — the drawer highlights exactly these.
+    pub entity_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct AskRaw {
+    #[serde(default)]
+    answer: String,
+    #[serde(default)]
+    entities: Vec<String>,
+}
+
+const ASK_MAX_QUESTION_CHARS: usize = 500;
+const ASK_MAX_HIGHLIGHTS: usize = 8;
+const ASK_MAX_TURNS: u32 = 12;
+
+/// Answer a question *about* the project without touching it.
+///
+/// Runs one cold agent turn with a read-only tool set (see
+/// [`crate::agent::flags::FlagInput::read_only`]) and returns its prose answer
+/// plus the entities it cited, so the drawer can highlight them. Nothing here
+/// can write: the turn gets no MCP server and no edit/shell tools.
+#[tauri::command]
+pub async fn ask_project_map(
+    app: AppHandle,
+    project: String,
+    question: String,
+    state: State<'_, AppState>,
+) -> AppResult<ProjectMapAnswer> {
+    let question = question.trim().to_string();
+    if question.is_empty() {
+        return Err(AppError::Other("Ask a question first.".into()));
+    }
+    if question.chars().count() > ASK_MAX_QUESTION_CHARS {
+        return Err(AppError::Other(format!(
+            "Questions are limited to {ASK_MAX_QUESTION_CHARS} characters."
+        )));
+    }
+
+    let map = reconcile_project_map(app.clone(), project.clone(), state.clone(), true).await?;
+    let project_path = PathBuf::from(&project);
+    let mcp_config = crate::mcpconfig::ensure_mcp_config(&app, &state.config_dir, &project_path)?;
+    let mcp_entry = crate::mcpconfig::mcp_entry(&app, &project_path);
+    let settings = state.settings.read().await.clone();
+    let backend = settings.agent_backend;
+
+    let args = crate::agent::flags::build_args(
+        backend,
+        &settings,
+        &crate::agent::flags::FlagInput {
+            mcp_config_path: &mcp_config,
+            mcp_entry: &mcp_entry,
+            resume_session_id: None,
+            max_turns: Some(ASK_MAX_TURNS),
+            run_options: None,
+            read_only: true,
+        },
+    );
+
+    let run_id = format!("ask:{}", map.manifest.generated_at);
+    let (_handle, join) = crate::agent::spawn_streaming(
+        app,
+        backend,
+        run_id,
+        &project_path,
+        args,
+        ask_prompt(&project, &question),
+    )
+    .map_err(|error| AppError::Other(error.to_string()))?;
+    let info = join
+        .await
+        .map_err(|error| AppError::Other(format!("ask task failed: {error}")))?;
+
+    let text = info.result_text.unwrap_or_default();
+    let known: HashSet<&str> = map.entities.iter().map(|e| e.id.as_str()).collect();
+    Ok(parse_answer(&text, &known))
+}
+
+fn ask_prompt(project: &str, question: &str) -> String {
+    format!(
+        "You are answering a question about a Unity project. This is a READ-ONLY task: \
+         explain what is there, change nothing.\n\n\
+         PROJECT: {project}\n\n\
+         QUESTION:\n{question}\n\n\
+         The project map is already built at `.unity-vibe/knowledge/` — start there rather than \
+         scanning the whole project:\n\
+         - `entities.jsonl`: one JSON object per line with `id`, `kind` \
+         (project|package|scene|prefab|script|type|module), `name`, `path`.\n\
+         - `relations.jsonl`: `kind` (contains|declares|derives|references), `from`, `to` \
+         (entity ids).\n\
+         - `index.md`: a human-readable overview.\n\
+         Grep those files first, then read the specific source files you still need.\n\n\
+         Answer in at most 4 sentences of plain prose — no headings, no bullet lists. Say plainly \
+         when the map does not cover something rather than guessing.\n\n\
+         END your reply with EXACTLY one fenced json block and NOTHING after it. `entities` holds \
+         the ids (from entities.jsonl) of what the answer is about, most relevant first, at most \
+         {ASK_MAX_HIGHLIGHTS}; use an empty list when no single entity fits:\n\
+         ```json\n\
+         {{\"answer\":\"<your answer>\",\"entities\":[\"<entity id>\"]}}\n\
+         ```"
+    )
+}
+
+/// Pull the answer out of the turn's text, keeping only entity ids that exist
+/// in the current map — a hallucinated id highlights nothing rather than
+/// leaving a dead selection in the drawer.
+fn parse_answer(text: &str, known: &HashSet<&str>) -> ProjectMapAnswer {
+    let parsed = crate::looprunner::reflect::last_fenced_block(text)
+        .and_then(|block| serde_json::from_str::<AskRaw>(&block).ok());
+
+    let Some(parsed) = parsed else {
+        // No block: the prose is still worth showing, minus any stray fence.
+        let answer = text.split("```").next().unwrap_or("").trim().to_string();
+        return ProjectMapAnswer {
+            answer,
+            entity_ids: Vec::new(),
+        };
+    };
+
+    let mut seen = HashSet::new();
+    let entity_ids = parsed
+        .entities
+        .into_iter()
+        .filter(|id| known.contains(id.as_str()) && seen.insert(id.clone()))
+        .take(ASK_MAX_HIGHLIGHTS)
+        .collect();
+
+    ProjectMapAnswer {
+        answer: parsed.answer.trim().to_string(),
+        entity_ids,
+    }
+}
+
 #[tauri::command]
 pub async fn refresh_project_map(
     app: AppHandle,
@@ -1039,6 +1177,28 @@ fn process_detail(primary: &[u8], fallback: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_answer_keeps_only_entity_ids_that_exist() {
+        let known: HashSet<&str> = ["script:Player.cs", "type:Player"].into_iter().collect();
+        let answer = parse_answer(
+            "Sure.\n```json\n{\"answer\":\"It moves the player.\",\"entities\":\
+             [\"type:Player\",\"type:Ghost\",\"type:Player\"]}\n```",
+            &known,
+        );
+        assert_eq!(answer.answer, "It moves the player.");
+        // The unknown id is dropped and the repeat collapsed, so every chip the
+        // drawer renders resolves to something selectable.
+        assert_eq!(answer.entity_ids, vec!["type:Player".to_string()]);
+    }
+
+    #[test]
+    fn a_reply_without_a_json_block_still_shows_its_prose() {
+        let known: HashSet<&str> = HashSet::new();
+        let answer = parse_answer("There are 42 textures under Assets/Art.", &known);
+        assert_eq!(answer.answer, "There are 42 textures under Assets/Art.");
+        assert!(answer.entity_ids.is_empty());
+    }
 
     fn store_path(root: &Path, name: &str) -> PathBuf {
         root.join(".unity-vibe").join("knowledge").join(name)

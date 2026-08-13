@@ -127,3 +127,10 @@ export interface ProjectMapQueryResult {
   hits: ProjectMapSearchHit[];
   refreshedMap?: ProjectMapData;
 }
+
+/** Answer to a read-only question about the project, plus the entities it
+ *  cites — already filtered to ids that exist in the current map. */
+export interface ProjectMapAnswer {
+  answer: string;
+  entityIds: string[];
+}

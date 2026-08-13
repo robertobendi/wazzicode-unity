@@ -29,6 +29,11 @@ pub struct FlagInput<'a> {
     /// Explicit per-task controls. `Some` wins over persisted defaults, even
     /// when its model/effort is Automatic (`None`).
     pub run_options: Option<&'a AgentRunOptions>,
+    /// Answer-only run (the project map's Ask box): the agent may read the
+    /// project but must not change it. Enforced by the CLI, not by asking
+    /// nicely — Claude gets a read-only `--allowedTools` list, Codex gets an
+    /// OS-level read-only sandbox and no MCP server.
+    pub read_only: bool,
 }
 
 /// Tools we hand Claude. `--allowedTools` is variadic (`<tools...>`), so each
@@ -50,6 +55,12 @@ const ALLOWED_TOOLS: &[&str] = &[
     "WebSearch",
     "mcp__unity-vibe-os",
 ];
+
+/// Tools for an answer-only run. Every one of these reads; none of them writes,
+/// runs a shell, or reaches the Unity bridge. Whitelisting is the enforcement —
+/// a tool absent from `--allowedTools` cannot be called at all, so the question
+/// box physically cannot edit the project even if the model decides to try.
+const READ_ONLY_TOOLS: &[&str] = &["Read", "Glob", "Grep"];
 
 /// Assemble the full argv (everything after the program name) for `backend`.
 pub fn build_args(backend: Backend, settings: &Settings, input: &FlagInput) -> Vec<String> {
@@ -78,16 +89,25 @@ fn build_claude_args(settings: &Settings, input: &FlagInput) -> Vec<String> {
     // Variadic: flag once, then one arg per tool. The next token is a `--`
     // flag, which stops the collection.
     args.push("--allowedTools".into());
-    for tool in ALLOWED_TOOLS {
+    let tools = if input.read_only {
+        READ_ONLY_TOOLS
+    } else {
+        ALLOWED_TOOLS
+    };
+    for tool in tools {
         args.push((*tool).to_string());
     }
 
     // App-managed MCP config, and *only* that config — `--strict-mcp-config`
     // ignores any project `.mcp.json`, so machine-specific paths never leak
-    // into the game repo and no interactive server-approval is needed.
-    args.push("--mcp-config".into());
-    args.push(input.mcp_config_path.to_string_lossy().into_owned());
-    args.push("--strict-mcp-config".into());
+    // into the game repo and no interactive server-approval is needed. An
+    // answer-only run gets no MCP server at all: nothing in its tool list could
+    // call one, and leaving it out means the Unity bridge is never touched.
+    if !input.read_only {
+        args.push("--mcp-config".into());
+        args.push(input.mcp_config_path.to_string_lossy().into_owned());
+        args.push("--strict-mcp-config".into());
+    }
 
     if let Some(model) = effective_model(settings, input, Backend::Claude) {
         args.push("--model".into());
@@ -162,6 +182,7 @@ mod tests {
                 resume_session_id: resume,
                 max_turns,
                 run_options: None,
+                read_only: false,
             },
         )
     }
@@ -185,6 +206,34 @@ mod tests {
         // No resume / turn cap when unset.
         assert!(!args.contains(&"--resume".to_string()));
         assert!(!args.contains(&"--max-turns".to_string()));
+    }
+
+    #[test]
+    fn an_answer_only_claude_run_cannot_reach_a_write_tool() {
+        let cfg = PathBuf::from("/tmp/mcp.json");
+        let args = build_args(
+            Backend::Claude,
+            &Settings::default(),
+            &FlagInput {
+                mcp_config_path: &cfg,
+                mcp_entry: &entry(),
+                resume_session_id: None,
+                max_turns: Some(12),
+                run_options: None,
+                read_only: true,
+            },
+        );
+        assert!(args.contains(&"Read".to_string()));
+        assert!(args.contains(&"Grep".to_string()));
+        for forbidden in ["Edit", "Write", "MultiEdit", "Bash", "mcp__unity-vibe-os"] {
+            assert!(
+                !args.contains(&forbidden.to_string()),
+                "{forbidden} must not be reachable from an answer-only run"
+            );
+        }
+        // No MCP server either, so the Unity bridge is never touched.
+        assert!(!args.contains(&"--mcp-config".to_string()));
+        assert!(!args.contains(&"--strict-mcp-config".to_string()));
     }
 
     #[test]
@@ -230,6 +279,7 @@ mod tests {
                 resume_session_id: None,
                 max_turns: Some(60),
                 run_options: None,
+                read_only: false,
             },
         );
         assert_eq!(args[0], "exec");
@@ -261,6 +311,7 @@ mod tests {
                 resume_session_id: Some("session-1"),
                 max_turns: None,
                 run_options: Some(&run),
+                read_only: false,
             },
         );
         let model = args.iter().position(|a| a == "--model").unwrap();
@@ -287,6 +338,7 @@ mod tests {
                     resume_session_id: Some("session-1"),
                     max_turns: None,
                     run_options: Some(&run),
+                    read_only: false,
                 },
             );
             let index = args.iter().position(|arg| arg == "--effort").unwrap();
@@ -316,6 +368,7 @@ mod tests {
                 resume_session_id: None,
                 max_turns: None,
                 run_options: Some(&run),
+                read_only: false,
             },
         );
         assert!(!args.iter().any(|a| a == "--model" || a == "--effort"));

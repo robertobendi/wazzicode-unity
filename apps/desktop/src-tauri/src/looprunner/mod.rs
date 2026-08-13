@@ -554,6 +554,7 @@ impl Driver {
                 resume_session_id: resume,
                 max_turns: Some(max_turns),
                 run_options: Some(&self.options.agent),
+                read_only: false,
             },
         )
     }

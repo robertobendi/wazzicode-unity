@@ -74,6 +74,7 @@ pub async fn chat_send(
             // Chat turns are user-paced; only the auto-loop caps turns.
             max_turns: None,
             run_options: Some(&options),
+            read_only: false,
         },
     );
     state

@@ -38,6 +38,7 @@ import type {
   KnowledgeEntityKind,
   KnowledgeFact,
   KnowledgeRelationKind,
+  ProjectMapAnswer,
   ProjectMapData,
   ProjectMapSearchHit,
 } from "@/types/projectMap";
@@ -65,9 +66,28 @@ const SEARCH_EXAMPLES = [
   "what handles player input?",
 ];
 
+const ASK_EXAMPLES = [
+  "what does the player controller do?",
+  "how many textures do we have?",
+];
+
 interface NavigationState {
   history: string[];
   index: number;
+}
+
+/** Read-only Q&A about the project, owned by the drawer and rendered by
+ *  [`AskBox`]. */
+interface AskState {
+  question: string;
+  asking: boolean;
+  answer: ProjectMapAnswer | null;
+  error: string | null;
+  onQuestion: (question: string) => void;
+  /** Explicit text wins over the input's current value, so an example chip can
+   *  fill and ask in one click without waiting for state to settle. */
+  onAsk: (question?: string) => void;
+  onDismiss: () => void;
 }
 
 export default function ProjectMapDrawer({ project }: { project: string }) {
@@ -91,6 +111,10 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
   const [error, setError] = useState<string | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [revealError, setRevealError] = useState<string | null>(null);
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [answer, setAnswer] = useState<ProjectMapAnswer | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const inspectorHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -415,6 +439,30 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
     }
   }
 
+  /** Ask the agent about the project. Read-only — the answer is prose plus the
+   *  entities it cited, which we jump to so the map shows what it is talking
+   *  about. */
+  async function onAsk(explicit?: string) {
+    const asked = (explicit ?? question).trim();
+    if (!asked || asking) return;
+    if (explicit) setQuestion(explicit);
+    setAsking(true);
+    setAskError(null);
+    setAnswer(null);
+    try {
+      const result = await enqueueProjectOperation(() =>
+        api.askProjectMap(project, asked),
+      );
+      setAnswer(result);
+      const [first] = result.entityIds;
+      if (first) navigateTo(first);
+    } catch (e) {
+      setAskError(String(e));
+    } finally {
+      setAsking(false);
+    }
+  }
+
   function navigateBack() {
     if (navigation.index <= 0) return;
     const index = navigation.index - 1;
@@ -609,6 +657,18 @@ export default function ProjectMapDrawer({ project }: { project: string }) {
                 selectedId={selectedId}
                 expandedIds={expandedIds}
                 searchRef={searchRef}
+                ask={{
+                  question,
+                  asking,
+                  answer,
+                  error: askError,
+                  onQuestion: setQuestion,
+                  onAsk: (explicit) => void onAsk(explicit),
+                  onDismiss: () => {
+                    setAnswer(null);
+                    setAskError(null);
+                  },
+                }}
                 onQuery={changeQuery}
                 onSearch={(value) => void searchMap(value)}
                 onFacet={selectFacet}
@@ -714,6 +774,118 @@ function MapStatus({ data }: { data: ProjectMapData }) {
   );
 }
 
+/** Ask the agent about the project and jump to what it cites. Answer-only:
+ *  the run has no write tools, so this can never change the project. */
+function AskBox({
+  ask,
+  data,
+  onSelect,
+}: {
+  ask: AskState;
+  data: ProjectMapData;
+  onSelect: (id: string) => void;
+}) {
+  const cited = (ask.answer?.entityIds ?? [])
+    .map((id) => data.entities.find((entity) => entity.id === id))
+    .filter((entity): entity is KnowledgeEntity => Boolean(entity));
+  const idle = !ask.asking && !ask.answer && !ask.error;
+
+  return (
+    <div className="mb-3">
+      <label htmlFor="project-map-ask" className="sr-only">
+        Ask a question about this project
+      </label>
+      <div className="flex gap-2">
+        <input
+          id="project-map-ask"
+          type="text"
+          value={ask.question}
+          disabled={ask.asking}
+          onChange={(event) => ask.onQuestion(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            ask.onAsk();
+          }}
+          placeholder="Ask about this project…"
+          className="min-w-0 flex-1 rounded-lg border border-ink-700 bg-white px-3 py-2.5 text-xs text-fg outline-none placeholder:text-fg-dim focus:border-accent/40 disabled:opacity-60"
+        />
+        <button
+          type="button"
+          onClick={() => ask.onAsk()}
+          disabled={!ask.question.trim() || ask.asking}
+          className="shrink-0 rounded-lg bg-accent px-3 text-xs font-medium text-white disabled:opacity-40"
+        >
+          {ask.asking ? "Asking…" : "Ask"}
+        </button>
+      </div>
+
+      {idle && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {ASK_EXAMPLES.map((example) => (
+            <button
+              key={example}
+              type="button"
+              onClick={() => ask.onAsk(example)}
+              className="rounded-full border border-ink-700 px-2 py-0.5 text-[10px] text-fg-dim hover:border-ink-600 hover:text-fg-muted"
+            >
+              {example}
+            </button>
+          ))}
+          <span className="text-[10px] text-fg-dim">
+            Answers only — never changes your project.
+          </span>
+        </div>
+      )}
+
+      {ask.asking && (
+        <p className="mt-2 text-[11px] text-fg-dim" role="status">
+          Reading the project map…
+        </p>
+      )}
+
+      {ask.error && (
+        <p
+          role="alert"
+          className="selectable mt-2 rounded-lg border border-danger/30 bg-danger/5 px-2.5 py-2 text-[11px] leading-relaxed text-danger"
+        >
+          {ask.error}
+        </p>
+      )}
+
+      {ask.answer && (
+        <div className="mt-2 rounded-lg border border-ink-700 bg-white p-3">
+          <p className="selectable text-xs leading-relaxed text-fg">
+            {ask.answer.answer || "No answer came back."}
+          </p>
+          {cited.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {cited.map((entity) => (
+                <button
+                  key={entity.id}
+                  type="button"
+                  onClick={() => onSelect(entity.id)}
+                  title={entity.path ?? entity.name}
+                  className="max-w-full truncate rounded-full border border-accent/40 px-2 py-0.5 text-[10px] font-medium text-accent hover:border-accent"
+                >
+                  {entity.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={ask.onDismiss}
+            className="mt-2.5 text-[10px] text-fg-dim hover:text-fg-muted"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EntityBrowser({
   data,
   facet,
@@ -728,6 +900,7 @@ function EntityBrowser({
   selectedId,
   expandedIds,
   searchRef,
+  ask,
   onQuery,
   onSearch,
   onFacet,
@@ -748,6 +921,7 @@ function EntityBrowser({
   selectedId: string | null;
   expandedIds: Set<string>;
   searchRef: RefObject<HTMLInputElement>;
+  ask: AskState;
   onQuery: (query: string) => void;
   onSearch: (query?: string) => void;
   onFacet: (facet: ProjectMapFacet) => void;
@@ -780,6 +954,7 @@ function EntityBrowser({
         <h3 id="project-map-browse-title" className="sr-only">
           Browse project map
         </h3>
+        <AskBox ask={ask} data={data} onSelect={onSelect} />
         <label htmlFor="project-map-search" className="sr-only">
           Find code, assets, or dependencies
         </label>

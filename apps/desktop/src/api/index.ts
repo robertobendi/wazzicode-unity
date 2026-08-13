@@ -19,6 +19,7 @@ import type { RevertResult } from "@/types/revert";
 import type { SessionIndexEntry, SessionPayload } from "@/types/session";
 import type { QuickAction } from "@/lib/quickActions";
 import type {
+  ProjectMapAnswer,
   ProjectMapData,
   ProjectMapQueryResult,
 } from "@/types/projectMap";
@@ -51,6 +52,9 @@ export const api = {
     }),
   refreshProjectMap: (project: string) =>
     invoke<ProjectMapData>("refresh_project_map", { project }),
+  /** Ask about the project. Read-only: the agent gets no write tools. */
+  askProjectMap: (project: string, question: string) =>
+    invoke<ProjectMapAnswer>("ask_project_map", { project, question }),
 
   // Chat: returns the runId to subscribe to (agent:stream/done/error:<runId>).
   chatSend: (
