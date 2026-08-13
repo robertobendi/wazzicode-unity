@@ -23,6 +23,7 @@ const initial: Settings = {
   codexModel: null,
   effort: null,
   codexEffort: null,
+  theme: "system",
   debugDrawer: false,
   pairedOk: false,
   onboarded: true,

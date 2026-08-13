@@ -28,6 +28,7 @@ const settings: Settings = {
   codexModel: null,
   effort: null,
   codexEffort: null,
+  theme: "system",
   debugDrawer: false,
   pairedOk: true,
   onboarded: true,

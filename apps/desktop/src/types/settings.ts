@@ -9,6 +9,8 @@ export type {
   AgentRunOptions,
 } from "./agent";
 
+export type ThemeChoice = "system" | "light" | "dark";
+
 export interface Settings {
   schemaVersion: number;
   recentProjects: string[];
@@ -30,6 +32,8 @@ export interface Settings {
   effortFollowsModel?: boolean;
   codexModelFollowsCatalog?: boolean;
   codexEffortFollowsModel?: boolean;
+  /** Color scheme for the UI; "system" follows the OS. */
+  theme: ThemeChoice;
   /** Show the raw stream / debug drawer in the UI. */
   debugDrawer: boolean;
   /** Set true after the first successful Claude pair/verify (skips the gate). */

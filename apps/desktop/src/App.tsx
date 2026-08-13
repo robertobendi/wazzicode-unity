@@ -10,6 +10,7 @@ import { useDebugCapture } from "@/hooks/useDebugCapture";
 import { useLoopEvents } from "@/hooks/useLoopEvents";
 import { useCheckpointEvents } from "@/hooks/useCheckpointEvents";
 import { useAgentStream } from "@/hooks/useAgentStream";
+import { useTheme } from "@/hooks/useTheme";
 import { useLoopStore } from "@/stores/useLoopStore";
 import { authenticationBackend } from "@/lib/appRouting";
 import PairingScreen from "@/components/pairing/PairingScreen";
@@ -45,6 +46,8 @@ export default function App() {
   const setRepairing = useUiStore((s) => s.setRepairing);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const hydrateLoop = useLoopStore((s) => s.hydrate);
+
+  useTheme(settings?.theme);
 
   useEffect(() => {
     void load();

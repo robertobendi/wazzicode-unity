@@ -11,6 +11,7 @@ import { isLoopActive } from "@/types/loop";
 import { useUiStore } from "@/stores/useUiStore";
 import { BACKENDS, type AgentBackend } from "@/types/settings";
 import BackendPicker from "./BackendPicker";
+import ThemePicker from "./ThemePicker";
 
 /**
  * Focused settings dialog. Model/thinking controls stay in the composer where
@@ -157,7 +158,7 @@ export default function SettingsPopover() {
       aria-modal="true"
       aria-label="Settings"
       tabIndex={-1}
-      className="settings-surface fixed right-5 top-[4.75rem] z-[90] max-h-[calc(100vh-5.75rem)] w-[22rem] max-w-[calc(100vw-2rem)] animate-appear overflow-y-auto rounded-2xl border p-5 focus:outline-none"
+      className="settings-surface fixed right-4 top-14 z-[90] max-h-[calc(100vh-4.5rem)] w-[22rem] max-w-[calc(100vw-2rem)] animate-appear overflow-y-auto rounded-2xl border p-5 focus:outline-none"
     >
       <div className="flex items-center justify-between gap-3">
         <div>
@@ -302,6 +303,16 @@ export default function SettingsPopover() {
         )}
       </div>
 
+      <div className="mt-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-dim">
+        Appearance
+      </div>
+      <div className="mt-2">
+        <ThemePicker
+          value={settings.theme}
+          onChange={(theme) => void update({ theme })}
+        />
+      </div>
+
       <details className="mt-4 border-t border-white/[0.08] pt-3">
         <summary className="cursor-pointer text-xs font-medium text-fg-muted transition-colors hover:text-fg">
           Advanced
@@ -365,8 +376,8 @@ function Toggle({
         }`}
       >
         <span
-          className={`block h-4 w-4 rounded-full bg-white transition-transform duration-150 ${
-            checked ? "translate-x-4" : "translate-x-0"
+          className={`block h-4 w-4 rounded-full transition-transform duration-150 ${
+            checked ? "translate-x-4 bg-ink-950" : "translate-x-0 bg-fg-dim"
           }`}
         />
       </span>

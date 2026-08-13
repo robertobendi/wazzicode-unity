@@ -6,6 +6,7 @@ const withVar = (name) => `rgb(var(${name}) / <alpha-value>)`;
 
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
@@ -30,14 +31,25 @@ export default {
         warning: withVar("--warning"),
         danger: withVar("--danger"),
       },
+      // Same stacks as Hightower, so the suite renders in one typeface.
       fontFamily: {
         sans: [
           "-apple-system",
           "BlinkMacSystemFont",
+          "Inter",
+          "Segoe UI Variable",
           "Segoe UI",
-          "Helvetica Neue",
-          "Arial",
+          "system-ui",
           "sans-serif",
+        ],
+        mono: [
+          "JetBrains Mono",
+          "ui-monospace",
+          "SF Mono",
+          "Menlo",
+          "Geist Mono",
+          "Consolas",
+          "monospace",
         ],
       },
       keyframes: {

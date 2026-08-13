@@ -7,13 +7,25 @@ use std::path::Path;
 /// v2 added backend/model selection; v3 added per-backend reasoning defaults;
 /// v4 made strong defaults explicit; v5 tracks which choices should continue
 /// following each installed CLI's preferred model and strongest effort; v6
-/// moves the managed Claude preference from the Fable alias to the Opus alias.
+/// moves the managed Claude preference from the Fable alias to the Opus alias;
+/// v7 adds the theme choice and keeps pre-theme installs on light.
 /// Older files deserialize cleanly because every added field has a default.
-const CURRENT_SCHEMA_VERSION: u32 = 6;
+const CURRENT_SCHEMA_VERSION: u32 = 7;
 const DEFAULT_CLAUDE_MODEL: &str = "opus";
 const DEFAULT_CLAUDE_EFFORT: &str = "max";
 const DEFAULT_CODEX_MODEL: &str = "gpt-5.6-sol";
 const DEFAULT_CODEX_EFFORT: &str = "ultra";
+
+/// Which color scheme the UI paints in. `System` follows the OS; dark is the
+/// default, matching the rest of the suite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeChoice {
+    System,
+    Light,
+    #[default]
+    Dark,
+}
 
 /// Persistent user settings. Lives at `<config_dir>/settings.json`.
 ///
@@ -58,6 +70,9 @@ pub struct Settings {
     pub codex_model_follows_catalog: bool,
     #[serde(default)]
     pub codex_effort_follows_model: bool,
+    /// Color scheme for the UI. Defaults to following the OS.
+    #[serde(default)]
+    pub theme: ThemeChoice,
     /// Show the raw stream / debug drawer in the UI.
     #[serde(default)]
     pub debug_drawer: bool,
@@ -111,6 +126,7 @@ impl Default for Settings {
             effort_follows_model: true,
             codex_model_follows_catalog: true,
             codex_effort_follows_model: true,
+            theme: ThemeChoice::Dark,
             debug_drawer: false,
             paired_ok: false,
             onboarded: false,
@@ -153,6 +169,12 @@ pub fn load(config_dir: &Path) -> AppResult<Settings> {
 fn migrate_legacy_defaults(settings: &mut Settings) -> bool {
     if settings.schema_version >= CURRENT_SCHEMA_VERSION {
         return false;
+    }
+
+    if settings.schema_version < 7 {
+        // Foundry was light-only through v6. An existing install keeps the
+        // palette it already had; only fresh ones adopt the dark default.
+        settings.theme = ThemeChoice::Light;
     }
 
     if settings.schema_version < 4 {
@@ -309,6 +331,17 @@ mod tests {
     }
 
     #[test]
+    fn a_pre_theme_install_stays_light_while_fresh_ones_go_dark() {
+        let mut existing = Settings {
+            schema_version: 6,
+            ..Settings::default()
+        };
+        assert!(migrate_legacy_defaults(&mut existing));
+        assert_eq!(existing.theme, ThemeChoice::Light);
+        assert_eq!(Settings::default().theme, ThemeChoice::Dark);
+    }
+
+    #[test]
     fn model_for_is_per_backend_and_ignores_blanks() {
         let s = Settings {
             model: Some("claude-opus-4-8".into()),
@@ -334,7 +367,8 @@ mod tests {
     #[test]
     fn fresh_settings_use_the_preferred_verified_defaults() {
         let s = Settings::default();
-        assert_eq!(s.schema_version, 6);
+        assert_eq!(s.schema_version, 7);
+        assert_eq!(s.theme, ThemeChoice::Dark);
         assert_eq!(s.model.as_deref(), Some("opus"));
         assert_eq!(s.effort.as_deref(), Some("max"));
         assert_eq!(s.codex_model.as_deref(), Some("gpt-5.6-sol"));
@@ -357,7 +391,7 @@ mod tests {
         };
 
         assert!(migrate_legacy_defaults(&mut s));
-        assert_eq!(s.schema_version, 6);
+        assert_eq!(s.schema_version, 7);
         assert_eq!(s.model.as_deref(), Some("opus"));
         assert_eq!(s.effort.as_deref(), Some("max"));
         assert_eq!(s.codex_model.as_deref(), Some("gpt-5.6-sol"));
@@ -402,7 +436,7 @@ mod tests {
             ..Settings::default()
         };
         assert!(migrate_legacy_defaults(&mut managed));
-        assert_eq!(managed.schema_version, 6);
+        assert_eq!(managed.schema_version, 7);
         assert_eq!(managed.model.as_deref(), Some("opus"));
         assert_eq!(managed.effort.as_deref(), Some("max"));
 

@@ -145,7 +145,7 @@ export default function PairingScreen({
           ✓
         </div>
         <h2 className="mt-5 text-xl font-semibold text-fg">
-          {check === "connected" ? "Already connected!" : "You're connected!"}
+          {check === "connected" ? "Already connected" : "Connected"}
         </h2>
         <p className="mt-1 text-sm text-fg-muted">Taking you into the app…</p>
       </CenteredCard>
@@ -373,7 +373,7 @@ function ApproveStep({
           disabled={!url}
           className="shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
         >
-          {copied ? "Copied!" : "Copy link"}
+          {copied ? "Copied" : "Copy link"}
         </button>
       </div>
       {url && (

@@ -2,35 +2,90 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/*
+ * Theme tokens, shared with Hightower so the suite reads as one system: same
+ * neutral ramp, same status hues, same border tiers. Foundry differs only in
+ * the accent — ember orange where Hightower is achromatic.
+ *
+ * `:root` is dark (the default). `.theme-light` flips the same properties.
+ * RGB triplets so Tailwind's `<alpha-value>` opacity modifiers keep working.
+ */
+:root,
+.theme-dark {
+  color-scheme: dark;
+
+  --ink-950: 10 11 13;
+  --ink-900: 16 18 22;
+  --ink-850: 24 27 32;
+  --ink-800: 30 34 40;
+  --ink-700: 36 40 47;
+  --ink-600: 50 55 64;
+
+  --fg: 232 234 238;
+  --fg-muted: 170 176 186;
+  --fg-dim: 100 108 120;
+
+  /* Inverted roles: --accent is the tinted fill, --action the bright ink that
+     sits on top of it, so a peach-on-white chip becomes ember-on-brown. */
+  --accent: 60 38 25;
+  --accent-hover: 74 47 30;
+  --action: 240 145 92;
+  --action-hover: 250 168 120;
+  --on-action: 26 18 12;
+  /* Shadows and modal scrims: the dark side of the palette, not the ink. */
+  --shadow: 0 0 0;
+  --scrim-alpha: 0.55;
+
+  --success: 125 197 152;
+  --warning: 232 200 116;
+  --danger: 224 110 110;
+
+  --surface: 16 18 22;
+  --surface-2: 24 27 32;
+  --border-default: 40 44 52;
+  --border-subtle: 28 31 37;
+  --border-hover: 50 55 64;
+  --hover: 30 34 40;
+
+  --spectrum-blue: 60 38 25;
+  --spectrum-violet: 60 38 25;
+  --spectrum-rose: 60 38 25;
+  --spectrum-amber: 60 38 25;
+  --spectrum-cyan: 60 38 25;
+}
+
+.theme-light {
   color-scheme: light;
 
-  --ink-950: 245 246 248;
+  --ink-950: 250 250 251;
   --ink-900: 255 255 255;
-  --ink-850: 248 249 250;
-  --ink-800: 239 243 248;
-  --ink-700: 221 225 230;
-  --ink-600: 185 192 201;
+  --ink-850: 244 245 247;
+  --ink-800: 239 240 243;
+  --ink-700: 230 231 234;
+  --ink-600: 198 202 208;
 
-  --fg: 23 25 28;
-  --fg-muted: 95 102 112;
-  --fg-dim: 95 102 112;
+  --fg: 18 20 24;
+  --fg-muted: 72 78 86;
+  --fg-dim: 108 114 124;
 
   --accent: 254 215 170;
   --accent-hover: 255 230 199;
   --action: 184 67 31;
   --action-hover: 150 54 25;
+  --on-action: 255 255 255;
+  --shadow: 18 20 24;
+  --scrim-alpha: 0.28;
 
-  --success: 45 106 79;
-  --warning: 138 90 0;
-  --danger: 180 35 24;
+  --success: 47 137 90;
+  --warning: 168 123 0;
+  --danger: 196 61 61;
 
   --surface: 255 255 255;
-  --surface-2: 248 249 250;
-  --border-default: 221 225 230;
-  --border-subtle: 234 237 240;
-  --border-hover: 185 192 201;
-  --hover: 255 247 239;
+  --surface-2: 244 245 247;
+  --border-default: 222 224 228;
+  --border-subtle: 234 236 239;
+  --border-hover: 198 202 208;
+  --hover: 239 240 243;
 
   --spectrum-blue: 254 215 170;
   --spectrum-violet: 254 215 170;
@@ -50,13 +105,47 @@ body {
   overflow: hidden;
   background: rgb(var(--ink-950));
   color: rgb(var(--fg));
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
-    sans-serif;
+  font-family: theme("fontFamily.sans");
+  font-feature-settings: "cv11", "ss01", "ss03";
+  font-size: 13px;
+  line-height: 20px;
+  letter-spacing: 0.1px;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   overscroll-behavior: none;
   user-select: none;
+}
+
+/* Window drag regions. `-webkit-app-region` is quirky in WKWebView under
+   titleBarStyle "Overlay", so the header also drags via startDragging() in JS;
+   this keeps the CSS path working where it does apply. */
+@layer utilities {
+  .drag-region {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
+
+/* Controls inside a drag region stay clickable. */
+.drag-region
+  :is(
+    button,
+    input,
+    select,
+    textarea,
+    a,
+    [role="button"],
+    [role="switch"],
+    [role="radiogroup"]
+  ) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 #root {
@@ -149,9 +238,6 @@ body {
 h1,
 h2,
 h3 {
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
-    sans-serif;
   letter-spacing: -0.03em;
 }
 
@@ -188,10 +274,11 @@ button:not(:disabled):active {
   animation: shell-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* Flush chrome, like Hightower's toolbar: the window is the canvas, so the
+   header is a bordered band rather than a floating card. */
 .app-topbar {
   border-color: rgb(var(--border-default));
-  background: rgb(var(--surface));
-  box-shadow: 0 1px 2px rgb(var(--fg) / 0.035);
+  background: rgb(var(--ink-900));
 }
 
 .foundry-lockup {
@@ -230,8 +317,8 @@ button:not(:disabled):active {
 .composer-shell {
   border-color: rgb(var(--border-default));
   box-shadow:
-    0 1px 2px rgb(var(--fg) / 0.035),
-    0 6px 18px rgb(var(--fg) / 0.035);
+    0 1px 2px rgb(var(--shadow) / 0.035),
+    0 6px 18px rgb(var(--shadow) / 0.035);
 }
 
 .composer-shell .command-dock {
@@ -279,8 +366,8 @@ button:not(:disabled):active {
   border-radius: 12px;
   background: rgb(var(--surface));
   box-shadow:
-    0 1px 2px rgb(var(--fg) / 0.035),
-    0 8px 24px rgb(var(--fg) / 0.035);
+    0 1px 2px rgb(var(--shadow) / 0.035),
+    0 8px 24px rgb(var(--shadow) / 0.035);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -289,7 +376,7 @@ button:not(:disabled):active {
    The stronger surface prevents background controls/text from bleeding through
    and the portal/backdrop guarantee pointer hit-testing matches what is visible. */
 .settings-backdrop {
-  background: rgb(var(--fg) / 0.28);
+  background: rgb(var(--shadow) / var(--scrim-alpha));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -299,12 +386,12 @@ button:not(:disabled):active {
   border-radius: 12px;
   background: rgb(var(--surface));
   box-shadow:
-    0 1px 2px rgb(var(--fg) / 0.05),
-    0 16px 40px rgb(var(--fg) / 0.12);
+    0 1px 2px rgb(var(--shadow) / 0.05),
+    0 16px 40px rgb(var(--shadow) / 0.12);
 }
 
 .project-map-backdrop {
-  background: rgb(var(--fg) / 0.28);
+  background: rgb(var(--shadow) / var(--scrim-alpha));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -314,8 +401,8 @@ button:not(:disabled):active {
   border-radius: 12px;
   background: rgb(var(--surface));
   box-shadow:
-    -8px 0 32px rgb(var(--fg) / 0.1),
-    0 1px 2px rgb(var(--fg) / 0.05);
+    -8px 0 32px rgb(var(--shadow) / 0.1),
+    0 1px 2px rgb(var(--shadow) / 0.05);
   animation: project-map-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -481,7 +568,7 @@ button:not(:disabled):active {
   border: 1px solid rgb(var(--border-default));
   border-radius: 8px;
   background: rgb(var(--surface));
-  box-shadow: 0 1px 1px rgb(var(--fg) / 0.025);
+  box-shadow: 0 1px 1px rgb(var(--shadow) / 0.025);
   text-align: left;
 }
 
@@ -640,8 +727,8 @@ button:not(:disabled):active {
   border-radius: 12px;
   background: rgb(var(--surface));
   box-shadow:
-    0 1px 2px rgb(var(--fg) / 0.04),
-    0 12px 32px rgb(var(--fg) / 0.07);
+    0 1px 2px rgb(var(--shadow) / 0.04),
+    0 12px 32px rgb(var(--shadow) / 0.07);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -685,8 +772,8 @@ button:not(:disabled):active {
   border-radius: 12px;
   background: rgb(var(--surface));
   box-shadow:
-    0 1px 2px rgb(var(--fg) / 0.035),
-    0 8px 24px rgb(var(--fg) / 0.035);
+    0 1px 2px rgb(var(--shadow) / 0.035),
+    0 8px 24px rgb(var(--shadow) / 0.035);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -764,7 +851,7 @@ button:not(:disabled):active {
 }
 
 .bg-accent.text-white {
-  color: white;
+  color: rgb(var(--on-action));
   background-color: rgb(var(--action));
   background-image: none;
   box-shadow: none;
@@ -788,8 +875,8 @@ button:not(:disabled):active {
 }
 
 .bg-accent.text-white .animate-spin {
-  border-color: rgb(255 255 255 / 0.35);
-  border-top-color: white;
+  border-color: rgb(var(--on-action) / 0.35);
+  border-top-color: rgb(var(--on-action));
 }
 
 .border-accent {
@@ -800,6 +887,16 @@ button:not(:disabled):active {
 .animate-dot-pulse.bg-accent,
 .animate-ping.bg-accent,
 [role="switch"] .bg-accent {
+  background-color: rgb(var(--action));
+}
+
+/* Small solid marks — status dots, the rule above a heading — are the ember
+   ink itself, not the tinted surface that sits behind a chip. Pills keep the
+   tint: their `.bg-accent.text-white` rule is more specific than this one. */
+[role="radio"] .bg-accent,
+.rounded-full.bg-accent,
+[class~="bg-accent/70"],
+[class~="bg-accent/60"] {
   background-color: rgb(var(--action));
 }
 
@@ -884,6 +981,12 @@ textarea[class]:focus-visible {
   border-color: rgb(var(--border-default));
 }
 
+/* Opaque `bg-white` means "a raised card / input", not the colour white —
+   it has to follow the theme like every other surface. */
+[class~="bg-white"] {
+  background-color: rgb(var(--surface));
+}
+
 [class~="bg-white/10"] {
   background-color: rgb(var(--accent));
 }
@@ -956,8 +1059,8 @@ textarea[class]:focus-visible {
     width: min(20rem, calc(100% - 1.5rem));
     margin: 0;
     box-shadow:
-      -8px 0 24px rgb(var(--fg) / 0.08),
-      0 1px 2px rgb(var(--fg) / 0.04);
+      -8px 0 24px rgb(var(--shadow) / 0.08),
+      0 1px 2px rgb(var(--shadow) / 0.04);
   }
 }
 

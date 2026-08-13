@@ -8,10 +8,32 @@ import type { BridgeState } from "@/types/status";
 import { formatTokens } from "@/lib/formatTokens";
 import { useCliInstallActive } from "@/hooks/useOnboarding";
 import { createPortal } from "react-dom";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { GearIcon, MapIcon, PanelIcon, SidebarIcon } from "./icons";
 import Logo from "./Logo";
 import RevertControl from "./RevertControl";
 import SettingsPopover from "./SettingsPopover";
+
+const INTERACTIVE =
+  "button, input, select, textarea, a, [role='button'], [role='switch'], .no-drag";
+
+/**
+ * The header doubles as the title bar (titleBarStyle "Overlay"), so dragging
+ * it moves the window. CSS `-webkit-app-region: drag` is unreliable in
+ * WKWebView under Overlay; startDragging() is not.
+ */
+function startWindowDrag(e: React.MouseEvent<HTMLElement>) {
+  if (e.button !== 0) return;
+  if ((e.target as HTMLElement | null)?.closest(INTERACTIVE)) return;
+  void getCurrentWindow().startDragging();
+}
+
+/** Double-clicking the title bar zooms the window — native behaviour that the
+ *  JS drag above would otherwise swallow. */
+function toggleWindowZoom(e: React.MouseEvent<HTMLElement>) {
+  if ((e.target as HTMLElement | null)?.closest(INTERACTIVE)) return;
+  void getCurrentWindow().toggleMaximize();
+}
 
 /** Slim app header: project name, Chat/Auto toggle, activity-panel, settings. */
 export default function TopBar() {
@@ -53,7 +75,11 @@ export default function TopBar() {
   const statusLabel = `Unity: ${bridgeLabel}${usageLabel ? `. Session usage: ${usageLabel}` : ""}`;
 
   return (
-    <header className="app-topbar glass-bar relative z-30 mx-3 mt-3 grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center rounded-xl border px-3">
+    <header
+      className="app-topbar drag-region relative z-30 grid h-12 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b pl-[4.75rem] pr-3"
+      onMouseDown={startWindowDrag}
+      onDoubleClick={toggleWindowZoom}
+    >
       <div className="flex min-w-0 items-center gap-2 overflow-hidden">
         {mode === "chat" && (
           <IconButton

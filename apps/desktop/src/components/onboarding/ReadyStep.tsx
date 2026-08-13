@@ -4,7 +4,7 @@ import { PrimaryButton, StepHeading } from "./_shared";
 
 /**
  * Step 5 — the finish line. Polls the Unity bridge live: prompts the employee to
- * open Unity, and flips to a green "You're all set!" the moment it connects.
+ * open Unity, and flips to a green "All set" the moment it connects.
  * Finish is enabled regardless (Unity can connect later).
  */
 export default function ReadyStep({
@@ -22,7 +22,7 @@ export default function ReadyStep({
 
   return (
     <div>
-      <StepHeading title={connected ? "You're all set!" : "Almost there"}>
+      <StepHeading title={connected ? "All set" : "Almost there"}>
         {connected
           ? "Unity is connected. You can start chatting to make changes to your game."
           : "One last thing — open Unity and load your project so the app can talk to it."}

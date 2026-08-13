@@ -17,6 +17,7 @@ const settings: Settings = {
   codexModel: "gpt-5.6-sol",
   effort: "high",
   codexEffort: "xhigh",
+  theme: "system",
   debugDrawer: false,
   pairedOk: true,
   onboarded: true,

@@ -120,8 +120,8 @@ export default function CodexAuthScreen({
         </div>
         <h2 className="mt-5 text-xl font-semibold text-fg">
           {check === "signed_in" && phase !== "success"
-            ? "Already signed in!"
-            : "You're signed in!"}
+            ? "Already signed in"
+            : "Signed in"}
         </h2>
         <p className="mt-1 text-sm text-fg-muted">Taking you into the app…</p>
       </CenteredCard>
@@ -297,7 +297,7 @@ function WaitingPanel({
               onClick={() => void copy()}
               className="shrink-0 rounded-lg bg-ink-700 px-3 py-2 text-sm font-medium text-fg transition-colors hover:bg-ink-600"
             >
-              {copied ? "Copied!" : "Copy"}
+              {copied ? "Copied" : "Copy"}
             </button>
             <button
               onClick={() => void openExternal(url)}
