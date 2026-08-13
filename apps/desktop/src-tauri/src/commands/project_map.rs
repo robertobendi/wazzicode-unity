@@ -7,6 +7,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, State};
@@ -299,7 +300,10 @@ pub async fn ask_project_map(
         },
     );
 
-    let run_id = format!("ask:{}", map.manifest.generated_at);
+    // One channel per ask. The map's timestamp would repeat across questions,
+    // so consecutive asks would stream onto the same event name.
+    static ASK_SEQ: AtomicU64 = AtomicU64::new(0);
+    let run_id = format!("ask:{}", ASK_SEQ.fetch_add(1, Ordering::Relaxed));
     let (_handle, join) = crate::agent::spawn_streaming(
         app,
         backend,
