@@ -299,6 +299,50 @@ pub fn no_window(cmd: &mut Command) {
     }
 }
 
+/// Windows reports a failed process *startup* as an NTSTATUS exit code: the
+/// child never reached `main`, so it wrote nothing to stdout/stderr that could
+/// explain itself. Translate the three we can act on; everything else is an
+/// ordinary exit code and returns `None`.
+///
+/// `label` names the program for the message ("Claude Code", "Codex CLI").
+pub fn launch_failure(label: &str, exit_code: u32) -> Option<String> {
+    let cause = match exit_code {
+        // STATUS_DLL_INIT_FAILED — a DLL's init refused, or (for a console
+        // program) it could not attach to its console.
+        0xC000_0142 => "Windows stopped it before it could start (0xC0000142)",
+        // STATUS_DLL_NOT_FOUND
+        0xC000_0135 => "a library it needs is missing (0xC0000135)",
+        // STATUS_INVALID_IMAGE_FORMAT
+        0xC000_007B => "its program file is damaged or built for another CPU (0xC000007B)",
+        _ => return None,
+    };
+    Some(format!(
+        "{label} is installed, but {cause}. Security software blocking it or a \
+         damaged install are the usual causes."
+    ))
+}
+
+/// Stop Windows popping a modal "Application Error" box when a child process
+/// fails to initialize. Children inherit the parent's error mode, so without
+/// this a broken CLI hangs — alive but blocked on a dialog behind our window —
+/// and every deadline we have has to run out before the user learns anything.
+/// With it the child dies immediately and we report its exit code ourselves.
+///
+/// Trade-off: this also suppresses the crash box for the app itself. Panics
+/// already go to the log file via the panic hook, so nothing is lost.
+pub fn fail_child_startup_errors_silently() {
+    #[cfg(windows)]
+    {
+        const SEM_FAILCRITICALERRORS: u32 = 0x0001;
+        const SEM_NOGPFAULTERRORBOX: u32 = 0x0002;
+        // kernel32, already linked into every process.
+        extern "system" {
+            fn SetErrorMode(mode: u32) -> u32;
+        }
+        unsafe { SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX) };
+    }
+}
+
 /// Apply the standard "non-interactive network git" env to a Command:
 ///   - `GIT_TERMINAL_PROMPT=0` — disable git's own stdin prompts.
 ///   - `GCM_INTERACTIVE=Never` — block Git Credential Manager GUI dialogs
@@ -451,6 +495,27 @@ fn missing_message(bin: &str) -> String {
         "{bin} is not installed or not on PATH — {}",
         install_hint(bin)
     )
+}
+
+#[cfg(test)]
+mod launch_status_tests {
+    use super::*;
+
+    #[test]
+    fn startup_failures_are_named_not_shown_as_an_exit_code() {
+        let msg = launch_failure("Claude Code", 0xC000_0142).expect("dll-init is a launch failure");
+        assert!(msg.contains("0xC0000142"));
+        assert!(msg.contains("Claude Code"));
+        assert!(launch_failure("Claude Code", 0xC000_0135).is_some());
+        assert!(launch_failure("Claude Code", 0xC000_007B).is_some());
+    }
+
+    #[test]
+    fn ordinary_exit_codes_are_left_alone() {
+        for code in [0, 1, 2, 127] {
+            assert!(launch_failure("Claude Code", code).is_none(), "{code}");
+        }
+    }
 }
 
 #[cfg(all(test, unix))]

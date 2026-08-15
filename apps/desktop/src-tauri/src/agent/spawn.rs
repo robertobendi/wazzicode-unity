@@ -335,6 +335,13 @@ pub fn friendly_spawn_error(backend: Backend, stderr_tail: &str, exit_code: Opti
             backend.label()
         );
     }
+    // A Windows startup failure exits with an NTSTATUS and writes nothing, so
+    // the raw code is all we'd otherwise have to show.
+    if let Some(reason) =
+        exit_code.and_then(|code| crate::proc::launch_failure(backend.label(), code as u32))
+    {
+        return reason;
+    }
     match exit_code {
         Some(code) => format!(
             "{} stopped unexpectedly (exit code {code}).",
@@ -354,6 +361,14 @@ mod tests {
         assert!(claude.contains("Re-pair"));
         let codex = friendly_spawn_error(Backend::Codex, "401 Unauthorized", Some(1));
         assert!(codex.contains("Sign in to Codex"));
+    }
+
+    #[test]
+    fn a_windows_startup_failure_is_explained_not_printed_as_a_negative_code() {
+        // 0xC0000142 (STATUS_DLL_INIT_FAILED) as std's signed exit code.
+        let msg = friendly_spawn_error(Backend::Claude, "", Some(-1_073_741_502));
+        assert!(msg.contains("0xC0000142"), "{msg}");
+        assert!(!msg.contains("-1073741502"), "{msg}");
     }
 
     #[test]
