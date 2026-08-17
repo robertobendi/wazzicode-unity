@@ -61,7 +61,7 @@ What it is **not**:
 
 **Palette**: dark-first, shared with Hightower token for token. Background `#0a0b0d`, raised surface `#101216`, foreground `#e8eaee`, status green `#7dc598` / amber `#e8c874` / red `#e06e6e`. Light mode is a full peer, not an afterthought — it flips the same tokens.
 
-The **accent is ember orange**: `#f0915c` on dark, `#b8431f` on light, with a warm brown tint (`#3c2619`) as the fill behind selected chips. This is the only hue that separates the two apps. Do not introduce a second accent.
+The **accent is ember orange**: `#f0915c` on dark, `#b8431f` on light, with a warm brown tint (`#3c2619`) as the fill behind selected chips. Each engine app carries exactly one accent — ember for Unity, Godot editor blue for the Godot sibling; the accent and the mark's ink are what separate the two apps. Do not introduce a second accent within an app.
 
 **Typography**: system-first, identical stack to Hightower — SF Pro / Inter / Segoe UI Variable, with JetBrains Mono or SF Mono for code, paths, and console output. Tabular numerals for costs, token counts, and timings.
 

@@ -50,7 +50,7 @@ export default function WelcomeStep({
                 ? `${meta.label} CLI needs attention.`
                 : `${meta.label} CLI is not installed.`}
       </div>
-      <StepHeading title="Welcome to foundry-unity">
+      <StepHeading title="Welcome to Foundry for Unity">
         Make Unity changes just by chatting — no terminal needed. First, pick the
         AI agent you want to drive it.
       </StepHeading>

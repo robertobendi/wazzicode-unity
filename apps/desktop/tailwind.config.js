@@ -27,6 +27,11 @@ export default {
           DEFAULT: withVar("--accent"),
           hover: withVar("--accent-hover"),
         },
+        action: {
+          DEFAULT: withVar("--action"),
+          hover: withVar("--action-hover"),
+        },
+        "on-action": withVar("--on-action"),
         success: withVar("--success"),
         warning: withVar("--warning"),
         danger: withVar("--danger"),
