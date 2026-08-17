@@ -125,7 +125,7 @@ export async function collectDoctorReport(
   const bridgePort = disco?.port ?? DEFAULT_BRIDGE_PORT;
   const bridge = opts.mock
     ? { reachable: false, error: "mock mode (real bridge probe skipped)" }
-    : await probeBridge(projectPath);
+    : await probeBridge(projectPath, disco !== null);
   const git = await probeGit(projectPath);
   const ageMs = await brainAgeMs(projectPath);
 
@@ -162,7 +162,7 @@ export async function collectDoctorReport(
     config: { path: cfgPath, exists: cfgExists, safetyMode: cfg.safetyMode, mockMode: cfg.mockMode },
     unityProject: { detected: unityProjectDetected, unityVersion },
     unityPackage: { detectedAt: unityPackageAt, manifestRef: unityPackageManifestRef, detected: unityPackageDetected },
-    bridge: { host: bridgeHost, port: bridgePort, reachable: bridge.reachable, error: bridge.error },
+    bridge: { host: bridgeHost, port: bridgePort, ...bridge },
     git,
     brain: { exists: ageMs !== null, ageMs: ageMs ?? undefined },
     suggestions,
@@ -204,7 +204,10 @@ export function formatDoctorReport(r: DoctorReport): string {
   return lines.join("\n") + "\n";
 }
 
-async function probeBridge(projectPath: string): Promise<Omit<DoctorReport["bridge"], "host" | "port">> {
+async function probeBridge(
+  projectPath: string,
+  clientGuardsIdentity: boolean
+): Promise<Omit<DoctorReport["bridge"], "host" | "port">> {
   // The client resolves the real port from bridge.json (falling back to the default),
   // and rejects an Editor running a different project (PROJECT_IDENTITY_MISMATCH).
   const client = createHttpBridgeClient({ projectPath, timeoutMs: 1500 });
@@ -222,6 +225,22 @@ async function probeBridge(projectPath: string): Promise<Omit<DoctorReport["brid
           health.wasFocused === false,
       }
     : {};
+
+  // The client's own identity guard only fires once bridge.json exists, because that file
+  // is what tells it which project to expect. With no discovery file it falls back to the
+  // default port — where a *different* project's Editor may be listening, and it answers
+  // happily. Compare what answered against what we asked about, the way the runtime path
+  // does (unity_diagnose_connection), so doctor can't tick a bridge that isn't ours.
+  if (!clientGuardsIdentity) {
+    const answeredFor = res.meta?.projectPath ?? health?.projectPath;
+    if (answeredFor && !samePath(answeredFor, projectPath)) {
+      return {
+        reachable: false,
+        error: `PROJECT_IDENTITY_MISMATCH: Connected Unity is '${answeredFor}' but expected '${projectPath}'.`,
+      };
+    }
+  }
+
   if (res.ok) return { reachable: true, ...liveness };
   if (health && res.error.code === "BRIDGE_TIMEOUT") {
     // Socket answers but the RPC timed out — the Editor main thread is wedged, not absent.
@@ -229,6 +248,11 @@ async function probeBridge(projectPath: string): Promise<Omit<DoctorReport["brid
     return { reachable: true, error: `${res.error.code}: ${res.error.message}`, ...liveness };
   }
   return { reachable: false, error: `${res.error.code}: ${res.error.message}` };
+}
+
+function samePath(a: string, b: string): boolean {
+  const normalize = (value: string) => path.resolve(value).replace(/[\\/]+$/, "").toLowerCase();
+  return normalize(a) === normalize(b);
 }
 
 async function probeGit(cwd: string): Promise<DoctorReport["git"]> {

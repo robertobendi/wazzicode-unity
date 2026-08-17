@@ -39,10 +39,13 @@ export default function ProjectPicker({
       const info = await api.validateUnityProject(path);
       if (!info.ok) {
         setCandidate(null);
+        const missing = [
+          ...(info.hasAssets ? [] : ["Assets/"]),
+          ...(info.hasProjectSettings ? [] : ["ProjectSettings/"]),
+          ...(info.hasPackages ? [] : ["Packages/"]),
+        ].join(" ");
         setError(
-          `That folder doesn't look like a Unity project (missing ${
-            info.hasAssets ? "" : "Assets/ "
-          }${info.hasProjectSettings ? "" : "ProjectSettings/"}).`.trim(),
+          `That folder doesn't look like a Unity project (missing ${missing}).`,
         );
       } else {
         setCandidate(info);
@@ -135,7 +138,7 @@ export default function ProjectPicker({
           <Logo size={26} />
         </div>
         <h1 className="text-2xl font-semibold tracking-tight text-fg">
-          Welcome to foundry-unity
+          Foundry for Unity
         </h1>
         <p className="mt-2 text-sm text-fg-muted">
           Open the folder that holds your game — the one with{" "}
@@ -178,7 +181,7 @@ export default function ProjectPicker({
             </div>
             {!candidate.brainReady && (
               <p className="mt-3 text-xs leading-relaxed text-fg-muted">
-                foundry-unity will scan the project once and build its
+                Foundry will scan the project once and build its
                 searchable map before opening it.
               </p>
             )}

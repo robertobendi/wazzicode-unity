@@ -2,7 +2,7 @@
 
 **Make Claude Code see and edit your Unity project.**
 
-A local MCP server + Unity Editor package + project brain. Claude Code gets **60+ live `unity_*` tools** — inspect scenes, **write & verify C#**, run play mode, edit prefabs, and literally **see** your Game and Scene views via real screenshots. Editing works immediately; changes are checkpointed, Undo-able, and action-logged. Everything runs on `127.0.0.1`.
+A local MCP server + Unity Editor package + project brain. Claude Code gets **75 live `unity_*` tools** — inspect scenes, **write & verify C#**, run play mode, edit prefabs, and literally **see** your Game and Scene views via real screenshots. Editing works immediately; changes are checkpointed, Undo-able, and action-logged. Everything runs on `127.0.0.1`.
 
 ---
 
@@ -22,7 +22,7 @@ Or run it yourself:
 node /ABS/PATH/TO/wazzicode-unity/bootstrap.mjs /ABS/PATH/TO/MyUnityProject
 ```
 
-That single command installs deps, builds, drops the Unity package into `Packages/manifest.json`, generates `.unity-vibe/`, writes a per-project `.mcp.json` (Claude Code auto-discovers it), and updates both `CLAUDE.md` and `AGENTS.md` with usage rules for Claude Code and Codex. Idempotent — safe to re-run and preserves your existing instructions.
+That single command installs deps, builds, embeds the Unity package as a portable copy under `Packages/com.uvibe.os/` (Unity auto-discovers it — no manifest entry, so it works on every machine that clones the project), generates `.unity-vibe/`, writes a per-project `.mcp.json` (Claude Code auto-discovers it), and updates both `CLAUDE.md` and `AGENTS.md` with usage rules for Claude Code and Codex. Idempotent — safe to re-run and preserves your existing instructions.
 
 ### Step 2 — Open Unity, restart Claude Code
 
@@ -125,7 +125,7 @@ Enter play mode, press jump a few times, capture the game view, and tell me if i
 
 ## 🛠 What ships
 
-- **MCP server** with **73 tools** across groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`):
+- **MCP server** with **75 tools** across groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`):
   - **Orientation & inspection** — `unity_orient` (one-call status), `unity_get_scene_hierarchy`, `unity_inspect_selected`, `unity_get_console_logs`, `unity_wait_for_compile`, `unity_check_git_status`.
   - **See it** — multimodal screenshots `unity_capture_game_view` / `unity_capture_scene_view` / `unity_capture_selected` / `unity_capture_editor_window` return real images.
   - **Write & edit C#** — `unity_read_script`, `unity_find_in_file`, `unity_create_script`, `unity_apply_text_edits`, `unity_script_edit`; verify with `unity_verify` (compile → console → tests in one call).
@@ -163,7 +163,7 @@ Common fixes:
 bootstrap.mjs              one-command install
 apps/cli/                  uvibe CLI (TypeScript)
 packages/core/             protocol, schemas, errors, envelope
-packages/mcp-server/       MCP server, bridge client, mock bridge, 66 tools,
+packages/mcp-server/       MCP server, bridge client, mock bridge, 75 tools,
                            tool groups, annotations, prompts, resources, instructions
 packages/project-brain/    Unity-project detector + brain generator
 packages/safety/           config, safety modes + per-target gates, snapshot + action log

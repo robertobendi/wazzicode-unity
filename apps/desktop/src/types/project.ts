@@ -8,6 +8,8 @@ export interface ProjectInfo {
   unityVersion: string | null;
   hasAssets: boolean;
   hasProjectSettings: boolean;
+  /** Setup embeds the Unity package under Packages/, so `ok` requires it. */
+  hasPackages: boolean;
   uvibeInitialized: boolean;
   /** `.unity-vibe/knowledge/manifest.json` exists. */
   brainReady: boolean;

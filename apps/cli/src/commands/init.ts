@@ -9,6 +9,19 @@ const CLAUDE_MD_END = "<!-- END unity-vibe-os -->";
 const AGENTS_MD_BEGIN = "<!-- BEGIN unity-vibe-os -->";
 const AGENTS_MD_END = "<!-- END unity-vibe-os -->";
 
+// Volatile per-machine state under .unity-vibe/. The heading matches the one the
+// desktop app writes (commands/onboarding.rs `patch_gitignore`), so whichever
+// runs second adds nothing and the file never grows a duplicate section.
+const GITIGNORE_HEADING = "# foundry-unity scratch (safe to ignore)";
+const GITIGNORE_ENTRIES = [
+  ".unity-vibe/inbox/",
+  ".unity-vibe/loop/",
+  ".unity-vibe/studio/",
+  ".unity-vibe/action_log.jsonl",
+  ".unity-vibe/snapshots/",
+  ".unity-vibe/screenshots/",
+];
+
 export async function runInit(g: GlobalOptions): Promise<CommandResult> {
   const out: string[] = [];
   const cfg = await writeConfigIfMissing(g.project);
@@ -48,6 +61,9 @@ export async function runInit(g: GlobalOptions): Promise<CommandResult> {
   );
   out.push(`${agentsStatus} ${agentsMd}`);
 
+  const gitignore = path.join(g.project, ".gitignore");
+  out.push(`${await upsertGitignore(gitignore)} ${gitignore}`);
+
   if (g.json) {
     return { exitCode: 0, stdout: JSON.stringify({ project: g.project, actions: out }, null, 2) + "\n" };
   }
@@ -83,6 +99,25 @@ async function upsertAgentInstructions(
   const sep = existing.endsWith("\n") ? "\n" : "\n\n";
   await fs.writeFile(file, existing + sep + block + "\n", "utf8");
   return "appended";
+}
+
+async function upsertGitignore(file: string): Promise<"created" | "updated" | "kept"> {
+  let current = "";
+  try {
+    current = await fs.readFile(file, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+  const present = new Set(current.split(/\r?\n/).map((line) => line.trim()));
+  const missing = GITIGNORE_ENTRIES.filter((entry) => !present.has(entry));
+  if (missing.length === 0) return "kept";
+
+  const prefix = current.length === 0 || current.endsWith("\n") ? current : current + "\n";
+  const heading = current.includes(GITIGNORE_HEADING)
+    ? ""
+    : `${prefix.length ? "\n" : ""}${GITIGNORE_HEADING}\n`;
+  await fs.writeFile(file, `${prefix}${heading}${missing.join("\n")}\n`, "utf8");
+  return current.length === 0 ? "created" : "updated";
 }
 
 function renderAgentBlock(projectPath: string, begin: string, end: string): string {

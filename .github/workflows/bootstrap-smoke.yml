@@ -1,0 +1,49 @@
+# Proves a fresh clone can install itself.
+#
+# bootstrap.mjs is the only documented way in, and every failure it can have is a
+# failure every new user hits on their first command — a missing package in the
+# build order, a tsc error, a setup step that assumes something the repo doesn't
+# ship. Nothing else in CI runs it, because the developer machines that run the
+# tests always have node_modules and dist/ already there.
+#
+# So: clean checkout, throwaway Unity project, one command, and the job passes
+# only if it exits 0.
+name: bootstrap-smoke
+
+on:
+  push:
+    branches: ["**"]
+  pull_request: {}
+  workflow_dispatch: {}
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm first so setup-node's `cache: pnpm` can find it. Version is read
+      # from the root package.json "packageManager" field (pnpm@10.x).
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+
+      # The minimum shape `uvibe setup` accepts: the three directories it
+      # validates, the version file doctor parses, and a manifest for the
+      # Unity-package install step to reconcile.
+      - name: Create a throwaway Unity project
+        run: |
+          mkdir -p "$RUNNER_TEMP/fixture/Assets/Scenes"
+          mkdir -p "$RUNNER_TEMP/fixture/Packages"
+          mkdir -p "$RUNNER_TEMP/fixture/ProjectSettings"
+          echo 'm_EditorVersion: 2022.3.42f1' > "$RUNNER_TEMP/fixture/ProjectSettings/ProjectVersion.txt"
+          echo '{ "dependencies": {} }' > "$RUNNER_TEMP/fixture/Packages/manifest.json"
+          printf '%%YAML 1.1\n' > "$RUNNER_TEMP/fixture/Assets/Scenes/Sample.unity"
+
+      - name: Bootstrap from scratch
+        run: node bootstrap.mjs "$RUNNER_TEMP/fixture"

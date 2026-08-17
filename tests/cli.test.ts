@@ -96,6 +96,46 @@ describe("cli/doctor", () => {
       await close();
     }
   });
+
+  // Without a discovery file the client has nothing to compare against, so it
+  // probes the default port and the *other* project's Editor answers happily.
+  // Doctor has to catch that itself or it ticks a bridge that isn't ours.
+  it("rejects a foreign Editor on the default port when no bridge.json exists", async (ctx) => {
+    const http = await import("node:http");
+    const { DEFAULT_BRIDGE_PORT } = await import("@uvibe/core");
+    const project = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-doctor-nodisco-"));
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          id: "doctor",
+          ok: true,
+          result: { status: "ok" },
+          error: null,
+          meta: { unityVersion: "6000.0.0f1", projectPath: "/some/other/project", durationMs: 1 },
+        })
+      );
+    });
+    const bound = await new Promise<boolean>((resolve) => {
+      server.once("error", () => resolve(false));
+      server.listen(DEFAULT_BRIDGE_PORT, "127.0.0.1", () => resolve(true));
+    });
+    if (!bound) {
+      await fs.rm(project, { recursive: true, force: true });
+      // Something else (a real Unity Editor, a parallel run) owns the port.
+      ctx.skip();
+      return;
+    }
+    try {
+      const r = await runDoctor({ project, mock: false, json: true });
+      const obj = JSON.parse(r.stdout!);
+      expect(obj.bridge.reachable).toBe(false);
+      expect(String(obj.bridge.error)).toContain("PROJECT_IDENTITY_MISMATCH");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await fs.rm(project, { recursive: true, force: true });
+    }
+  });
 });
 
 /**
@@ -266,6 +306,50 @@ describe("cli/setup", () => {
   });
 });
 
+describe("cli/init .gitignore", () => {
+  it("appends the scratch entries once, preserving existing rules", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-init-gitignore-"));
+    const file = path.join(tmp, ".gitignore");
+    try {
+      await fs.writeFile(file, "Library/\nTemp/\n", "utf8");
+
+      await runInit({ project: tmp, mock: false, json: false });
+      let after = await fs.readFile(file, "utf8");
+      expect(after).toContain("Library/");
+      for (const entry of [
+        ".unity-vibe/inbox/",
+        ".unity-vibe/loop/",
+        ".unity-vibe/studio/",
+        ".unity-vibe/action_log.jsonl",
+        ".unity-vibe/snapshots/",
+        ".unity-vibe/screenshots/",
+      ]) {
+        expect(after).toContain(entry);
+      }
+
+      // Re-running adds nothing — no duplicate entries, no second heading.
+      await runInit({ project: tmp, mock: false, json: false });
+      const rerun = await fs.readFile(file, "utf8");
+      expect(rerun).toBe(after);
+      expect((rerun.match(/\.unity-vibe\/loop\//g) ?? []).length).toBe(1);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("creates the file when the project has none", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-init-gitignore-new-"));
+    try {
+      await runInit({ project: tmp, mock: false, json: false });
+      const after = await fs.readFile(path.join(tmp, ".gitignore"), "utf8");
+      expect(after.startsWith("# foundry-unity scratch")).toBe(true);
+      expect(after).toContain(".unity-vibe/action_log.jsonl");
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("cli/init re-runs preserve user content in CLAUDE.md", () => {
   it("inserts and updates a marker-delimited block; appends if file existed", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-init-claude-"));
@@ -336,6 +420,46 @@ describe("cli/mcp-config --write", () => {
       // command must be an absolute path to a node binary (not bare "uvibe")
       expect(entry.command).not.toBe("uvibe");
       expect(path.isAbsolute(entry.command)).toBe(true);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a malformed .mcp.json instead of replacing the user's servers", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-mcpwrite-bad-"));
+    const file = path.join(tmp, ".mcp.json");
+    try {
+      // Hand-edited config with a trailing comma — still holds real servers.
+      const original = '{ "mcpServers": { "other": { "command": "x", "args": [], "env": {} }, } }';
+      await fs.writeFile(file, original);
+      const r = await runMcpConfig(
+        { project: tmp, mock: false, json: false },
+        { command: "mcp-config", positional: [], flags: { write: true } }
+      );
+      expect(r.exitCode).toBe(2);
+      expect(r.stderr).toContain("Refusing to update");
+      expect(r.stderr).toContain("not valid JSON");
+      expect(await fs.readFile(file, "utf8")).toBe(original);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves top-level keys it does not own", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "uvibe-mcpwrite-keys-"));
+    try {
+      await fs.writeFile(
+        path.join(tmp, ".mcp.json"),
+        JSON.stringify({ $schema: "https://example.invalid/mcp.json", mcpServers: {} })
+      );
+      const r = await runMcpConfig(
+        { project: tmp, mock: false, json: false },
+        { command: "mcp-config", positional: [], flags: { write: true } }
+      );
+      expect(r.exitCode).toBe(0);
+      const cfg = JSON.parse(await fs.readFile(path.join(tmp, ".mcp.json"), "utf8"));
+      expect(cfg.$schema).toBe("https://example.invalid/mcp.json");
+      expect(cfg.mcpServers["unity-vibe-os"]).toBeDefined();
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }

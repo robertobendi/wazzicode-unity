@@ -30,10 +30,13 @@ export default function ProjectStep({
       const info = await api.validateUnityProject(path);
       if (!info.ok) {
         setCandidate(null);
+        const missing = [
+          ...(info.hasAssets ? [] : ["Assets/"]),
+          ...(info.hasProjectSettings ? [] : ["ProjectSettings/"]),
+          ...(info.hasPackages ? [] : ["Packages/"]),
+        ].join(" ");
         setError(
-          `That folder doesn't look like a Unity project (missing ${
-            info.hasAssets ? "" : "Assets/ "
-          }${info.hasProjectSettings ? "" : "ProjectSettings/"}).`.trim(),
+          `That folder doesn't look like a Unity project (missing ${missing}).`,
         );
       } else {
         setCandidate(info);

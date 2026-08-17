@@ -1,5 +1,6 @@
 import path from "node:path";
 import { promises as fs, existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { CommandResult, GlobalOptions, ParsedArgs } from "../options.js";
 
@@ -11,6 +12,8 @@ interface McpServerEntry {
 
 interface McpConfigShape {
   mcpServers: Record<string, McpServerEntry>;
+  /** Unrelated top-level keys of an existing .mcp.json, preserved on merge. */
+  [key: string]: unknown;
 }
 
 export async function runMcpConfig(g: GlobalOptions, parsed: ParsedArgs): Promise<CommandResult> {
@@ -35,8 +38,18 @@ export async function runMcpConfig(g: GlobalOptions, parsed: ParsedArgs): Promis
 
   if (write) {
     const file = path.join(project, ".mcp.json");
-    const merged = await mergeMcpJson(file, entry);
-    await fs.writeFile(file, JSON.stringify(merged, null, 2) + "\n", "utf8");
+    let merged: McpConfigShape;
+    try {
+      merged = await mergeMcpJson(file, entry);
+    } catch (e) {
+      // A malformed .mcp.json is the user's file, holding their other MCP
+      // servers. Overwriting it would delete them silently, so refuse.
+      return {
+        exitCode: 2,
+        stderr: `Refusing to update ${file}: ${e instanceof Error ? e.message : String(e)}\n`,
+      };
+    }
+    await writeJsonAtomically(file, merged);
     if (g.json) {
       return { exitCode: 0, stdout: JSON.stringify({ wrote: file, config: merged }, null, 2) + "\n" };
     }
@@ -154,17 +167,52 @@ function buildEntry(opts: { project: string; mock: boolean; bare: boolean }): Mc
   };
 }
 
+/**
+ * Add our entry to the project's `.mcp.json`, preserving every other server and
+ * top-level key. Throws (rather than starting fresh) when the file exists but
+ * cannot be understood — the caller turns that into a refusal, because the
+ * alternative is deleting MCP servers the user configured by hand.
+ */
 async function mergeMcpJson(file: string, entry: McpServerEntry): Promise<McpConfigShape> {
-  let existing: McpConfigShape = { mcpServers: {} };
+  let raw: string | null = null;
   try {
-    const raw = await fs.readFile(file, "utf8");
-    const parsed = JSON.parse(raw) as Partial<McpConfigShape>;
-    if (parsed && typeof parsed === "object") {
-      existing = { mcpServers: parsed.mcpServers ?? {} };
+    raw = await fs.readFile(file, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error(`existing file could not be read: ${e instanceof Error ? e.message : String(e)}`);
     }
-  } catch {
-    // File missing or invalid; start fresh.
   }
-  existing.mcpServers = { ...existing.mcpServers, "unity-vibe-os": entry };
+
+  let existing: McpConfigShape = { mcpServers: {} };
+  if (raw !== null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`existing file is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (!isRecord(parsed)) throw new Error("existing file must contain a JSON object");
+    if (parsed.mcpServers !== undefined && !isRecord(parsed.mcpServers)) {
+      throw new Error("existing mcpServers value must be a JSON object");
+    }
+    existing = parsed as McpConfigShape;
+  }
+
+  existing.mcpServers = { ...(existing.mcpServers ?? {}), "unity-vibe-os": entry };
   return existing;
+}
+
+/** Write via temp+rename so an interrupted write can't truncate the user's config. */
+async function writeJsonAtomically(file: string, value: McpConfigShape): Promise<void> {
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporary, JSON.stringify(value, null, 2) + "\n", { flag: "wx" });
+    await fs.rename(temporary, file);
+  } finally {
+    await fs.rm(temporary, { force: true }).catch(() => undefined);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

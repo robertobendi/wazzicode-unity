@@ -15,7 +15,7 @@
 //
 // What it does:
 //   1) Detects the Unity project (or uses the path you pass).
-//   2) Installs Node deps (pnpm if available, else npm).
+//   2) Installs Node deps (pnpm — required; npm cannot resolve workspace:* deps).
 //   3) Builds the TypeScript packages in topological order.
 //   4) Calls `uvibe setup` against the Unity project, which:
 //        a) writes .unity-vibe/{config.json, conventions.md, project_brain.{md,json}, claude_context.md}
@@ -164,13 +164,21 @@ function findUnityProject(start) {
 
 const PACKAGES_BUILD_ORDER = [
   "packages/core",
+  "packages/bridge-client",
   "packages/safety",
   "packages/project-brain",
   "packages/mcp-server",
   "apps/cli",
 ];
 
+const REQUIRED_NODE_MAJOR = 20;
+
 async function main() {
+  const nodeMajor = parseInt(process.versions.node, 10);
+  if (nodeMajor < REQUIRED_NODE_MAJOR) {
+    fail(`Node ${process.versions.node} is too old — this repo needs Node ${REQUIRED_NODE_MAJOR} or newer.`);
+  }
+
   const { flags, positional } = parseArgs(process.argv.slice(2));
 
   // --build-only: recompile without touching node_modules (handy after a pull
@@ -209,7 +217,9 @@ async function main() {
     // This is a pnpm workspace: package.json pins pnpm and deps use `workspace:*`,
     // which npm cannot resolve (EUNSUPPORTEDPROTOCOL). So npm is never a valid
     // fallback. Prefer a real pnpm on PATH; otherwise drive the pinned pnpm via
-    // corepack (ships with Node ≥16). Use a shell so Windows .cmd shims resolve.
+    // corepack when it happens to be installed (it is unbundled from Node ≥25
+    // and absent from several distro/Homebrew builds, so it can't be assumed).
+    // Use a shell so Windows .cmd shims resolve.
     const winShell = process.platform === "win32";
     if (which("pnpm")) {
       info("using pnpm");
@@ -221,8 +231,9 @@ async function main() {
     } else {
       fail(
         "This is a pnpm workspace and pnpm is not on PATH.\n" +
-          "   Enable it once with:  corepack enable pnpm\n" +
-          "   (corepack ships with Node ≥16.) Then re-run this bootstrap.\n" +
+          "   Install it with:      npm install -g pnpm     (macOS: brew install pnpm)\n" +
+          "   Or, if you have it:   corepack enable pnpm\n" +
+          "   Then re-run this bootstrap.\n" +
           "   npm cannot install this repo — it does not understand workspace:* deps."
       );
     }
