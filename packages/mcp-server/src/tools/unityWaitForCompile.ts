@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ToolDef } from "../registry.js";
 import { BRIDGE_METHODS, bridgeCall, isUnknownMethodError, probeEditorStall } from "./_helpers.js";
+import { reportProgress } from "../interaction.js";
 import { CompileStatus, ToolEnvelope, err, isErrorCode } from "@uvibe/core";
 
 const InputShape = {
@@ -22,10 +23,17 @@ export const unityWaitForCompile: ToolDef<typeof InputShape, CompileStatus> = {
     const pollMs = args.pollMs ?? 500;
     const start = Date.now();
     let last: ToolEnvelope<CompileStatus> | undefined;
+    let step = 0;
+    const tick = (message: string) => reportProgress(ctx, ++step, undefined, message);
+    tick("waiting for Unity to finish compiling…");
     // Fast path: compile.await holds the request open inside Unity and settles within ~50ms of
     // the compile finishing — no client-side poll interval to wait out.
     let useAwait = true;
+    let round = 0;
     while (Date.now() - start < timeoutMs) {
+      // Each round is a closed long-poll window (~25s), so this reports at a useful cadence and
+      // keeps the client's idle timer from expiring on a slow compile.
+      if (round++ > 0) tick(`still compiling (${Math.round((Date.now() - start) / 1000)}s)…`);
       if (useAwait) {
         const remaining = timeoutMs - (Date.now() - start);
         last = await bridgeCall<CompileStatus>(

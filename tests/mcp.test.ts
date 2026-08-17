@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations, UNITY_PROMPTS, createServer, readSceneHierarchyResource, readConsoleResource, readActionLogResource, SERVER_INSTRUCTIONS } from "@uvibe/mcp-server";
+import os from "node:os";
+import path from "node:path";
+import { promises as fsp } from "node:fs";
+import { allTools, buildContext, createMockBridgeClient, createHttpBridgeClient, ToolGroupController, defaultActiveGroups, groupOf, toolAnnotations, UNITY_PROMPTS, createServer, readSceneHierarchyResource, readConsoleResource, readActionLogResource, SERVER_INSTRUCTIONS, INSTRUCTIONS_BUDGET_BYTES, composeInstructions, selectReturnedFrames, hammingDistance } from "@uvibe/mcp-server";
 import type { BridgeMethod, BridgeResponse } from "@uvibe/core";
 import type { BridgeClient } from "@uvibe/mcp-server";
 import { isEditorWindowCaptureSupported, unityCaptureEditorWindow } from "../packages/mcp-server/src/tools/unityCaptureEditorWindow.js";
@@ -16,6 +19,7 @@ describe("mcp-server/registry", () => {
       "unity_assign_reference",
       "unity_batch",
       "unity_capture_editor_window",
+      "unity_capture_frames",
       "unity_capture_game_view",
       "unity_capture_scene_view",
       "unity_capture_selected",
@@ -186,6 +190,23 @@ describe("mcp-server/instructions", () => {
     }
   });
 
+  it("static instructions plus the appended primer stay inside the client's 2KB window", () => {
+    expect(INSTRUCTIONS_BUDGET_BYTES).toBe(2000);
+    expect(Buffer.byteLength(SERVER_INSTRUCTIONS)).toBeLessThanOrEqual(INSTRUCTIONS_BUDGET_BYTES);
+    // No primer, a realistic primer, and a primer far larger than the remaining budget.
+    expect(composeInstructions()).toBe(SERVER_INSTRUCTIONS);
+    for (const primer of [
+      "PROJECT MAP (generated): MockGame. Coverage complete, 42 first-party scripts.\nModules: Player, Enemies, UI.",
+      `PROJECT MAP (generated): ${"Module".repeat(400)}`,
+    ]) {
+      const composed = composeInstructions(primer);
+      expect(composed.startsWith(SERVER_INSTRUCTIONS)).toBe(true);
+      expect(Buffer.byteLength(composed)).toBeLessThanOrEqual(INSTRUCTIONS_BUDGET_BYTES);
+    }
+    // An oversized primer is trimmed rather than dropped, and points at the full resource.
+    expect(composeInstructions("x".repeat(5000))).toContain("unity://project-brain");
+  });
+
   it("blocks unsafe whole-editor capture on macOS without calling Unity", async () => {
     expect(isEditorWindowCaptureSupported("darwin")).toBe(false);
     expect(isEditorWindowCaptureSupported("linux")).toBe(true);
@@ -324,6 +345,7 @@ describe("mcp-server/mockBridge", () => {
       "screenshot.sceneView",
       "screenshot.selected",
       "screenshot.editorWindow",
+      "capture.frames",
       "perf.sample",
       "test.run",
       "test.status",
@@ -1704,5 +1726,182 @@ describe("mcp-server/long-poll awaits + legacy fallback", () => {
       });
     }
     expect(calls).toEqual(["test.run", "test.await", "test.status"]);
+  });
+});
+
+describe("mcp-server/unity_capture_frames", () => {
+  const scratch = path.join(os.tmpdir(), "uvibe-frames-test");
+
+  function frameCtx(bridge: BridgeClient, projectPath = scratch) {
+    return { bridge, projectPath, configMockMode: false };
+  }
+
+  /** Bridge double returning a finished capture session with the given per-frame hashes. */
+  function captureBridge(hashes: string[], overrides: Record<string, unknown> = {}): BridgeClient {
+    return {
+      source: "unity_bridge",
+      async call<T>(): Promise<BridgeResponse<T>> {
+        return {
+          id: "c",
+          ok: true,
+          result: {
+            capturing: false,
+            playMode: true,
+            width: 480,
+            height: 270,
+            mimeType: "image/jpeg",
+            droppedFrames: 0,
+            avgIntervalMs: 250,
+            frames: hashes.map((hash, i) => ({
+              index: i + 1,
+              tMs: i * 250,
+              hash,
+              imageBase64: Buffer.from(`frame-${i}`).toString("base64"),
+            })),
+            ...overrides,
+          } as T,
+          error: null,
+          meta: { unityVersion: "6000.0.0f1", projectPath: "/p", durationMs: 1 },
+        };
+      },
+      async isConnected() {
+        return true;
+      },
+    };
+  }
+
+  const tool = () => allTools.find((t) => t.name === "unity_capture_frames")!;
+
+  it("returns an ordered, labelled sequence against the mock bridge", async () => {
+    const ctx = buildContext({ mock: true, projectPath: scratch });
+    const env = await tool().run({ frames: 4, returnImages: "all", save: false }, ctx);
+    expect(env.ok).toBe(true);
+    if (!env.ok) return;
+    const data = env.data as any;
+    expect(data.frames).toHaveLength(4);
+    expect(data.frames.map((f: any) => f.index)).toEqual([1, 2, 3, 4]);
+    expect(data.frames.map((f: any) => f.tMs)).toEqual([0, 250, 500, 750]);
+    expect(data.frames.every((f: any) => f.returned && f.imageBase64.length > 0)).toBe(true);
+    expect(data.actual.frames).toBe(4);
+    expect(data.dedup).toEqual({ captured: 4, returned: 4, skippedUnchanged: 0 });
+    expect(data.requested.returnImages).toBe("all");
+  });
+
+  it("returnImages:'none' keeps the envelope but sends no image bytes", async () => {
+    const ctx = buildContext({ mock: true, projectPath: scratch });
+    const env = await tool().run({ frames: 3, returnImages: "none", save: false }, ctx);
+    expect(env.ok).toBe(true);
+    if (!env.ok) return;
+    const data = env.data as any;
+    expect(data.frames).toHaveLength(3);
+    expect(data.frames.every((f: any) => f.returned === false)).toBe(true);
+    expect(data.frames.every((f: any) => f.imageBase64 === undefined)).toBe(true);
+    expect(data.dedup.returned).toBe(0);
+  });
+
+  it("returnImages:'changed' keeps every distinct frame and collapses identical ones", async () => {
+    const moving = await tool().run(
+      { returnImages: "changed", save: false },
+      frameCtx(captureBridge(["0000000000000000", "ffffffffffffffff", "0f0f0f0f0f0f0f0f"]))
+    );
+    expect(moving.ok).toBe(true);
+    if (moving.ok) {
+      const data = moving.data as any;
+      expect(data.dedup).toEqual({ captured: 3, returned: 3, skippedUnchanged: 0 });
+    }
+
+    const still = await tool().run(
+      { returnImages: "changed", save: false },
+      frameCtx(captureBridge(["abcdefabcdefabcd", "abcdefabcdefabcd", "abcdefabcdefabcd"]))
+    );
+    expect(still.ok).toBe(true);
+    if (still.ok) {
+      const data = still.data as any;
+      // Frame 1 is always returned as the baseline the rest are read against.
+      expect(data.dedup).toEqual({ captured: 3, returned: 1, skippedUnchanged: 2 });
+      expect(data.frames[0].returned).toBe(true);
+      expect(data.frames.slice(1).every((f: any) => f.returned === false)).toBe(true);
+    }
+  });
+
+  it("compares each frame against the last RETURNED one so slow drift is not lost", () => {
+    // Frame 1 drifts only 2 bits — below the threshold — but frame 2 is 6 bits from the
+    // baseline, so it is returned and becomes the new reference for frame 3.
+    const drift = ["0000000000000000", "0000000000000003", "000000000000003f", "0000000000000fff"];
+    const frames = drift.map((hash) => ({ hash, imageBase64: "x" }));
+    expect([...selectReturnedFrames(frames, "changed")].sort()).toEqual([0, 2, 3]);
+    expect(hammingDistance(drift[0], drift[1])).toBe(2);
+    expect(hammingDistance(drift[0], drift[2])).toBe(6);
+    expect(hammingDistance(drift[2], drift[3])).toBe(6);
+    // Unusable hashes count as fully different rather than silently deduping.
+    expect(hammingDistance("", "abcd")).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("saves every captured frame and reports the paths", async () => {
+    const dir = path.join(scratch, `save-${Date.now()}`);
+    const env = await tool().run(
+      { returnImages: "none", save: true },
+      frameCtx(captureBridge(["1111111111111111", "2222222222222222"]), dir)
+    );
+    expect(env.ok).toBe(true);
+    if (!env.ok) return;
+    const data = env.data as any;
+    expect(data.savedPaths).toHaveLength(2);
+    for (const saved of data.savedPaths) {
+      expect(saved).toContain(path.join(".unity-vibe", "screenshots"));
+      await expect(fsp.stat(saved)).resolves.toBeDefined();
+    }
+    // Frames are saved even when no image block is returned, so the user can still look.
+    expect(data.frames.every((f: any) => typeof f.savedPath === "string")).toBe(true);
+    await fsp.rm(dir, { recursive: true, force: true });
+  });
+
+  it("reports capture progress only when the client asked for it", async () => {
+    const updates: string[] = [];
+    const bridge = captureBridge(["1111111111111111", "2222222222222222"]);
+    const withToken = await tool().run(
+      { save: false },
+      { ...frameCtx(bridge), onProgress: (u) => updates.push(u.message) }
+    );
+    expect(withToken.ok).toBe(true);
+    expect(updates.length).toBeGreaterThan(0);
+    expect(updates.some((m) => m.includes("frames"))).toBe(true);
+
+    // No reporter on the context (no progressToken from the client) must be a silent no-op.
+    const without = await tool().run({ save: false }, frameCtx(bridge));
+    expect(without.ok).toBe(true);
+  });
+
+  it("surfaces an edit-mode capture as a warning rather than a failure", async () => {
+    const env = await tool().run(
+      { save: false },
+      frameCtx(captureBridge(["1111111111111111", "1111111111111111"], { playMode: false }))
+    );
+    expect(env.ok).toBe(true);
+    if (env.ok) {
+      expect((env.data as any).playMode).toBe(false);
+      expect(env.warnings.join(" ")).toContain("edit mode");
+    }
+  });
+
+  it("mock bridge synthesizes moving frames by default and identical ones on request", async () => {
+    const bridge = createMockBridgeClient();
+    const moving = await bridge.call<{ frames: Array<{ hash: string }> }>("capture.frames", { frames: 4 });
+    const still = await bridge.call<{ frames: Array<{ hash: string }> }>("capture.frames", {
+      frames: 4,
+      staticScene: true,
+    });
+    expect(moving.ok && still.ok).toBe(true);
+    if (!moving.ok || !still.ok) return;
+    expect(new Set(moving.result.frames.map((f) => f.hash)).size).toBe(4);
+    expect(new Set(still.result.frames.map((f) => f.hash)).size).toBe(1);
+    // Distinct mock frames must clear the dedup threshold, or "changed" would collapse them.
+    expect(hammingDistance(moving.result.frames[0].hash, moving.result.frames[1].hash)).toBeGreaterThan(4);
+  });
+
+  it("fails loudly when the session returns no frames", async () => {
+    const env = await tool().run({ save: false }, frameCtx(captureBridge([])));
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.error.code).toBe("MALFORMED_BRIDGE_RESPONSE");
   });
 });

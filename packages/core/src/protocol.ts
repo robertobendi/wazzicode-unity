@@ -18,6 +18,12 @@ export const BRIDGE_METHODS = {
   screenshotSelected: "screenshot.selected",
   screenshotEditorWindow: "screenshot.editorWindow",
 
+  // Temporal frame-sequence capture of the Game view.
+  /** Long-poll: settles when the capture session has collected every requested frame. */
+  captureFrames: "capture.frames",
+  captureBeginFrames: "capture.beginFrames",
+  captureFramesStatus: "capture.framesStatus",
+
   // Performance probes (Unity.Profiling.ProfilerRecorder)
   perfSample: "perf.sample",
 

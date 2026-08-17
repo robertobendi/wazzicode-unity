@@ -10,6 +10,7 @@ import { unityWaitForCompile } from "./unityWaitForCompile.js";
 import { unityRefreshAssets } from "./unityRefreshAssets.js";
 import { unityCheckGitStatus } from "./unityCheckGitStatus.js";
 import { unityCaptureGameView } from "./unityCaptureGameView.js";
+import { unityCaptureFrames } from "./unityCaptureFrames.js";
 import { unityCaptureSceneView } from "./unityCaptureSceneView.js";
 import { unityCaptureSelected } from "./unityCaptureSelected.js";
 import { unityCaptureEditorWindow } from "./unityCaptureEditorWindow.js";
@@ -95,6 +96,7 @@ export const allTools: AnyToolDef[] = [
   unityCheckGitStatus,
   // Visual
   unityCaptureGameView,
+  unityCaptureFrames,
   unityCaptureSceneView,
   unityCaptureSelected,
   unityCaptureEditorWindow,
@@ -178,6 +180,7 @@ export {
   unityRefreshAssets,
   unityCheckGitStatus,
   unityCaptureGameView,
+  unityCaptureFrames,
   unityCaptureSceneView,
   unityCaptureSelected,
   unityCaptureEditorWindow,

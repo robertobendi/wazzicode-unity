@@ -123,6 +123,10 @@ namespace UnityVibeOS
                     int maxWidth = GetInt(p, "maxWidth", 0);
                     return ScreenshotCapture.CaptureEditorWindow(maxWidth);
                 }
+                case "capture.beginFrames":
+                    return FrameCapture.Begin(p);
+                case "capture.framesStatus":
+                    return FrameCapture.Status();
 
                 case "perf.sample":
                     return PerformanceProbe.Sample();

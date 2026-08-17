@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z, ZodRawShape } from "zod";
 import { PRODUCT_VERSION, ToolEnvelope, err } from "@uvibe/core";
 import { BridgeClient, createHttpBridgeClient, HttpBridgeOptions, timeoutForMethod } from "@uvibe/bridge-client";
@@ -9,37 +11,127 @@ import { allTools } from "./tools/index.js";
 import { AnyToolDef, ToolContext } from "./registry.js";
 import { executeTool } from "./execute.js";
 import { ToolGroupController, defaultActiveGroups } from "./groups.js";
-import { toolAnnotations } from "./annotations.js";
+import { toolAnnotations, toolMeta } from "./annotations.js";
 import { registerPrompts } from "./prompts.js";
 import { registerResources } from "./resources.js";
-import { SERVER_INSTRUCTIONS } from "./instructions.js";
+import { composeInstructions } from "./instructions.js";
+import type { ConfirmElicitor, ProgressReporter } from "./interaction.js";
 
 type McpContent =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string };
 
+interface FrameLike {
+  index?: unknown;
+  tMs?: unknown;
+  imageBase64?: unknown;
+}
+
 /**
- * If the envelope carries a base64 PNG (screenshot tools), surface it as a multimodal
- * `image` content block so Claude can SEE it. The text envelope replaces the bulky base64
- * with a placeholder so the JSON view stays readable.
+ * If the envelope carries base64 image bytes, surface them as multimodal `image` content blocks
+ * so Claude can SEE them: one image for a screenshot tool, or a labelled sequence for a frame
+ * capture. The text envelope replaces the bulky base64 with a placeholder so the JSON view stays
+ * readable.
  */
 function shapeContent(env: ToolEnvelope<unknown>): McpContent[] {
   const content: McpContent[] = [];
   let textEnv: unknown = env;
   if (env.ok && typeof env.data === "object" && env.data !== null) {
-    const data = env.data as { pngBase64?: unknown; mimeType?: unknown };
+    const data = env.data as { pngBase64?: unknown; mimeType?: unknown; frames?: unknown };
+    const mime = typeof data.mimeType === "string" ? data.mimeType : "image/png";
     if (typeof data.pngBase64 === "string" && data.pngBase64.length > 0) {
-      const mime = typeof data.mimeType === "string" ? data.mimeType : "image/png";
       content.push({ type: "image", data: data.pngBase64, mimeType: mime });
-      const placeholder = `<base64 ${mime}, ${data.pngBase64.length} chars>`;
       textEnv = {
         ...env,
-        data: { ...(data as object), pngBase64: placeholder },
+        data: { ...(data as object), pngBase64: placeholderFor(data.pngBase64, mime) },
       };
+    } else if (Array.isArray(data.frames)) {
+      const frames = data.frames as FrameLike[];
+      const shown = frames.filter((f) => typeof f.imageBase64 === "string" && f.imageBase64.length > 0);
+      for (const [i, frame] of shown.entries()) {
+        const t = typeof frame.tMs === "number" ? Math.round(frame.tMs) : 0;
+        content.push({ type: "text", text: `Frame ${i + 1}/${shown.length} — t=+${t}ms` });
+        content.push({ type: "image", data: frame.imageBase64 as string, mimeType: mime });
+      }
+      if (shown.length > 0) {
+        textEnv = {
+          ...env,
+          data: {
+            ...(data as object),
+            frames: frames.map((f) =>
+              typeof f.imageBase64 === "string" && f.imageBase64.length > 0
+                ? { ...f, imageBase64: placeholderFor(f.imageBase64, mime) }
+                : f
+            ),
+          },
+        };
+      }
     }
   }
   content.push({ type: "text", text: JSON.stringify(textEnv, null, 2) });
   return content;
+}
+
+function placeholderFor(base64: string, mime: string): string {
+  return `<base64 ${mime}, ${base64.length} chars>`;
+}
+
+type ToolCallExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+
+/**
+ * Per-call view of the context, carrying the two channels that only exist while a request is in
+ * flight: progress notifications (only when the client sent a progressToken — Claude Code kills
+ * calls idle for 30 minutes and each notification resets that timer) and elicitation (only when
+ * the client declared the capability; Codex CLI does not). Tools that don't use them are
+ * unaffected, and a context built outside a request simply has neither.
+ */
+function callContext(ctx: ToolContext, server: McpServer, extra: ToolCallExtra): ToolContext {
+  const progressToken = extra._meta?.progressToken;
+  const onProgress: ProgressReporter | undefined =
+    progressToken === undefined
+      ? undefined
+      : (update) => {
+          void extra
+            .sendNotification({
+              method: "notifications/progress",
+              params: { progressToken, ...update },
+            })
+            .catch(() => {
+              // A dropped progress notification must never fail the tool call itself.
+            });
+        };
+
+  const confirm: ConfirmElicitor | undefined = server.server.getClientCapabilities()?.elicitation
+    ? async (request) => {
+        try {
+          const result = await server.server.elicitInput({
+            message: request.message,
+            requestedSchema: {
+              type: "object",
+              properties: {
+                [request.field]: {
+                  type: "boolean",
+                  title: request.fieldTitle,
+                  description: request.fieldDescription,
+                },
+              },
+              required: [request.field],
+            },
+          });
+          if (result.action !== "accept") return result.action;
+          return result.content?.[request.field] === true ? "accept" : "decline";
+        } catch {
+          // Client advertised elicitation but couldn't serve it — fall back to the non-interactive path.
+          return "unsupported";
+        }
+      }
+    : undefined;
+
+  return {
+    ...ctx,
+    ...(onProgress ? { onProgress } : {}),
+    ...(confirm ? { confirmWithUser: confirm } : {}),
+  };
 }
 
 export interface ServeOptions {
@@ -72,10 +164,10 @@ export function createServer(ctx: ToolContext): McpServer {
       version: PRODUCT_VERSION,
     },
     {
-      // Delivered to Claude Code on connect — teaches the toolset + workflows in the user's project.
-      instructions: ctx.projectKnowledgePrimer
-        ? `${SERVER_INSTRUCTIONS}\n\n${ctx.projectKnowledgePrimer}`
-        : SERVER_INSTRUCTIONS,
+      // Delivered to Claude Code on connect — teaches the workflows in the user's project.
+      // Static text + generated primer share the client's 2KB window; composeInstructions
+      // trims the primer to fit rather than letting the client silently drop the tail.
+      instructions: composeInstructions(ctx.projectKnowledgePrimer),
     }
   );
 
@@ -85,17 +177,19 @@ export function createServer(ctx: ToolContext): McpServer {
   ctx.toolGroups = controller;
 
   for (const tool of allTools) {
+    const meta = toolMeta(tool);
     const registered = server.registerTool(
       tool.name,
       {
         description: tool.description,
         inputSchema: tool.inputShape,
         annotations: toolAnnotations(tool),
+        ...(meta ? { _meta: meta } : {}),
       },
-      async (rawArgs: unknown) => {
+      async (rawArgs: unknown, extra: ToolCallExtra) => {
         try {
           const parsed = z.object(tool.inputShape).parse(rawArgs ?? {});
-          const env = await executeTool(tool, parsed, ctx);
+          const env = await executeTool(tool, parsed, callContext(ctx, server, extra));
           return {
             content: shapeContent(env),
             isError: env.ok ? false : true,
@@ -139,18 +233,18 @@ export async function startMcpServer(opts: ServeOptions = {}): Promise<void> {
 
 function renderKnowledgePrimer(knowledge: KnowledgeBase): string {
   const { manifest, entities } = knowledge;
+  // Kept short on purpose: this shares the client's 2KB instructions window with
+  // SERVER_INSTRUCTIONS, and composeInstructions trims whatever still doesn't fit.
   const modules = entities
     .filter((entity) => entity.kind === "module" && entity.scope === "first-party")
     .map((entity) => entity.name)
-    .slice(0, 12);
+    .slice(0, 8);
   const coverage = manifest.coverage.complete
     ? "complete"
-    : `partial (${manifest.coverage.scanned}/${manifest.coverage.discovered} files)`;
+    : `partial ${manifest.coverage.scanned}/${manifest.coverage.discovered}`;
   return [
-    "CURRENT PROJECT MAP (generated, bounded primer)",
-    `Project: ${manifest.project.name}. Coverage: ${coverage}. First-party scripts: ${manifest.coverage.counts.firstPartyScripts}.`,
+    `PROJECT MAP (generated): ${manifest.project.name}. Coverage ${coverage}, ${manifest.coverage.counts.firstPartyScripts} first-party scripts.`,
     modules.length ? `Modules: ${modules.join(", ")}.` : "Modules: none detected.",
-    "Use unity_query_project_brain for source-backed details; do not infer facts from this compact primer.",
   ].join("\n");
 }
 
@@ -162,9 +256,18 @@ export {
   type HttpBridgeOptions,
 };
 export { allTools } from "./tools/index.js";
+export { selectReturnedFrames, hammingDistance } from "./tools/unityCaptureFrames.js";
 export type { ToolContext, ToolDef } from "./registry.js";
 export { ToolGroupController, defaultActiveGroups, groupOf, isKnownGroup, TOOL_GROUPS } from "./groups.js";
-export { toolAnnotations, type ToolAnnotations } from "./annotations.js";
+export { toolAnnotations, toolMeta, type ToolAnnotations } from "./annotations.js";
+export {
+  reportProgress,
+  confirmWithUser,
+  type ConfirmElicitor,
+  type ElicitDecision,
+  type InteractionContext,
+  type ProgressReporter,
+} from "./interaction.js";
 export { UNITY_PROMPTS, registerPrompts } from "./prompts.js";
 export {
   registerResources,
@@ -173,4 +276,4 @@ export {
   readActionLogResource,
   readProjectBrainResource,
 } from "./resources.js";
-export { SERVER_INSTRUCTIONS } from "./instructions.js";
+export { SERVER_INSTRUCTIONS, INSTRUCTIONS_BUDGET_BYTES, composeInstructions } from "./instructions.js";

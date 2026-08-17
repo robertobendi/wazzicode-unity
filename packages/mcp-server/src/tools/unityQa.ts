@@ -14,6 +14,7 @@ import {
 } from "@uvibe/core";
 import { ToolDef } from "../registry.js";
 import { ok } from "./_helpers.js";
+import { reportProgress, withRelayedProgress } from "../interaction.js";
 import { unityVerify } from "./unityVerify.js";
 import { unityGetBuildSettings } from "./unityBuildSettings.js";
 import {
@@ -159,8 +160,14 @@ export const unityQa: ToolDef<typeof InputShape, QaResult> = {
       checks.push(check);
       if (!check.pass && !check.skipped) reasons.push(check.summary);
     };
+    let step = 0;
+    const tick = (message: string) => reportProgress(ctx, ++step, undefined, message);
+    // QA is the longest call in the toolset; sub-tools report through the same counter so the
+    // client sees continuous movement instead of four restarts.
+    const sub = withRelayedProgress(ctx, tick);
 
     try {
+      tick("verifying compile, console, and tests…");
       const verify = await capture(() =>
         unityVerify.run(
           {
@@ -169,7 +176,7 @@ export const unityQa: ToolDef<typeof InputShape, QaResult> = {
             testFilter: args.testFilter,
             compileTimeoutMs: args.compileTimeoutMs,
           },
-          ctx
+          sub
         )
       );
       if ("thrown" in verify) {
@@ -229,9 +236,11 @@ export const unityQa: ToolDef<typeof InputShape, QaResult> = {
         }
       }
 
+      tick("checking build readiness…");
       const build = await capture(() =>
         unityGetBuildSettings.run({ detailLevel: "full" }, ctx)
       );
+      if (args.checkAssets ?? true) tick("scanning for missing scripts and references…");
       const scripts = (args.checkAssets ?? true)
         ? await capture(() =>
             unityFindMissingScripts.run({ limit: QA_SCAN_BRIDGE_LIMIT, detailLevel: "full" }, ctx)
@@ -367,6 +376,7 @@ export const unityQa: ToolDef<typeof InputShape, QaResult> = {
           summary: "Play-mode smoke test was skipped because Unity verification did not pass.",
         });
       } else {
+        tick("running the play-mode smoke test…");
         const smoke = await capture(() =>
           unitySmokeTest.run(
             {
@@ -377,7 +387,7 @@ export const unityQa: ToolDef<typeof InputShape, QaResult> = {
               maxMainThreadMs: args.maxMainThreadMs,
               maxGcAllocBytesPerFrame: args.maxGcAllocBytesPerFrame,
             },
-            ctx
+            sub
           )
         );
         if ("thrown" in smoke) {

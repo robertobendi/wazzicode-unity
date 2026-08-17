@@ -6,6 +6,9 @@ const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      // pnpm keeps the MCP SDK under packages/mcp-server, so a test file at the repo root can't
+      // resolve its subpath exports. Map the prefix onto the package's own ESM output.
+      "@modelcontextprotocol/sdk/": r("./packages/mcp-server/node_modules/@modelcontextprotocol/sdk/dist/esm/"),
       "@uvibe/bridge-client": r("./packages/bridge-client/src/index.ts"),
       "@uvibe/core": r("./packages/core/src/index.ts"),
       "@uvibe/mcp-server": r("./packages/mcp-server/src/index.ts"),

@@ -79,6 +79,37 @@ This checklist enumerates every assertion that should be hand-verified inside Un
 - [ ] `unity_capture_game_view` with `format: "jpg"` returns `mimeType: image/jpeg`, a noticeably smaller payload, and saves a `.jpg` to `.unity-vibe/screenshots/`.
 - [ ] In Claude Code, after a screenshot tool call, the chat shows the image inline (multimodal content block) — not just a JSON blob.
 
+## 9b. `capture.frames` / `unity_capture_frames` (temporal capture — entirely unverified)
+
+None of `unity/UnityVibeOS/Editor/FrameCapture.cs` or `FrameCapturePump.cs` has ever run. It is the most Unity-specific code in the package (render targets, `ScreenCapture.CaptureScreenshotIntoRenderTexture`, `AsyncGPUReadback`, coroutine timing), so work through every line below before trusting it.
+
+**Play mode (the primary path)**
+
+- [ ] Enter play mode with something moving on screen, then `unity_capture_frames` with defaults → 8 images arrive in order, each labelled `Frame i/N — t=+XXXms`, and consecutive frames visibly differ.
+- [ ] The frames show the **composited** Game view — post-processing, UI overlay, and any camera stack are all present (this is what `WaitForEndOfFrame` + `CaptureScreenshotIntoRenderTexture` buys over a plain camera render).
+- [ ] Images are the right way up. If they are vertically mirrored, the `SystemInfo.graphicsUVStartsAtTop` branch in `FrameCapture.StoreFrame` is inverted for this graphics API — flip the condition and retest on both Metal/D3D and OpenGL/Vulkan if available.
+- [ ] `actual.avgIntervalMs` is close to the requested `intervalMs` (some drift upward is expected on a slow editor); `actual.droppedFrames` is 0.
+- [ ] The Editor stays responsive for the whole capture — no beachball, no frozen inspector.
+- [ ] After the call, no `__UVibeFrameCapturePump__` GameObject remains in the hierarchy and no `__UVibeFrameCapture__` / `__UVibeFrameCaptureFull__` render textures leak (check the Memory Profiler or `Resources.FindObjectsOfTypeAll<RenderTexture>()`).
+- [ ] Run it 5 times in a row → no growth in RenderTexture/Texture2D count, no `[UnityVibeOS] frame capture failed` warnings.
+- [ ] `frames: 16, intervalMs: 2000` (32s — longer than the 25s long-poll window) → the client re-issues and the session is **not** restarted; exactly 16 frames come back once.
+- [ ] Exit play mode midway through a capture → the call returns what it collected with the remainder in `droppedFrames`, rather than hanging.
+
+**Edit mode**
+
+- [ ] With the Editor in edit mode, `unity_capture_frames` returns frames rendered from `Camera.main`, `playMode:false` in the envelope, and a warning that the Game view is not simulating.
+- [ ] 3D geometry is **depth-sorted correctly** (this is what the 24-bit depth buffer on `_captureRT` is for; if objects render in the wrong order the depth allocation regressed).
+- [ ] With no camera in the scene and no `cameraPath` → `OBJECT_NOT_FOUND`, and no session is left running (a following capture call still works).
+- [ ] `cameraPath: "/SecondaryCam"` renders that camera, not Main.
+
+**Options and output**
+
+- [ ] `format:"png"` returns `mimeType: image/png`; the default `jpg` is markedly smaller across the sequence.
+- [ ] `width: 1280` → frames are 1280 wide with the height following the Game view aspect, not a fixed 16:9.
+- [ ] `returnImages:"all"` returns every frame; `"none"` returns no image blocks but still the hashes/timings; `"changed"` on a **paused** game returns only frame 1 with `dedup.skippedUnchanged` accounting for the rest.
+- [ ] `save:true` (default) writes every captured frame to `.unity-vibe/screenshots/<stamp>_frames_<n>.jpg`, in order, including frames that were deduped out of the response.
+- [ ] Fallback path: on hardware/graphics API where `SystemInfo.supportsAsyncGPUReadback` is false (or force `_useAsyncReadback = false` locally), capture still succeeds via the synchronous `ReadPixels` path.
+
 ## 10. Threading & lifecycle
 
 - [ ] Issue 50 rapid `unity_get_open_scenes` calls. None hangs; Editor remains responsive.
@@ -132,4 +163,5 @@ These ship in the bridge but their Unity-side behavior is **not** runtime-verifi
 ## What is NOT verified by this checklist
 
 - The new navigation/layout/prefab/play-test/2D tools above until section 13 is completed in a real project — in particular `unity_simulate_input` (Input System reflection) and `unity_slice_sprite` (uses the legacy `TextureImporter.spritesheet` path) are the most likely to need per-version adjustment.
+- **All of `unity_capture_frames`' Unity side** (section 9b). The TypeScript half — session long-polling, dedup selection, saving, envelope shape — is covered by tests against a bridge double, but nothing has exercised the render targets, `AsyncGPUReadback`, or the coroutine timing. Frame orientation and the async-readback path are the two most likely to need adjustment per graphics API.
 - Tests on Windows (the package is platform-agnostic but cross-OS HttpListener behavior should be re-verified on Windows specifically).

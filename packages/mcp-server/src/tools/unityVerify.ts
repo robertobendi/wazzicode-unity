@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CompileStatus, ConsoleLogsResult, TestRunStatus, ToolEnvelope } from "@uvibe/core";
 import { ToolContext, ToolDef } from "../registry.js";
 import { isUnknownMethodError, ok } from "./_helpers.js";
+import { reportProgress, withRelayedProgress } from "../interaction.js";
 import { unityWaitForCompile } from "./unityWaitForCompile.js";
 import { unityRefreshAssets } from "./unityRefreshAssets.js";
 import { unityGetConsoleLogs } from "./unityGetConsoleLogs.js";
@@ -31,8 +32,14 @@ export const unityVerify: ToolDef<typeof InputShape, unknown> = {
     const wantTests = args.runTests ?? true;
     const warnings: string[] = [];
     let refreshVerified = true;
+    let step = 0;
+    const tick = (message: string) => reportProgress(ctx, ++step, undefined, message);
+    // Sub-tools report through the same counter, so the compile wait and test run keep the
+    // client's idle timer alive without restarting the numbering.
+    const sub = withRelayedProgress(ctx, tick);
+    tick("refreshing assets…");
 
-    const refreshEnv = (await unityRefreshAssets.run({}, ctx)) as ToolEnvelope<CompileStatus>;
+    const refreshEnv = (await unityRefreshAssets.run({}, sub)) as ToolEnvelope<CompileStatus>;
     if (!refreshEnv.ok) {
       if (isUnknownMethodError(refreshEnv)) {
         refreshVerified = false;
@@ -48,7 +55,7 @@ export const unityVerify: ToolDef<typeof InputShape, unknown> = {
 
     const compileEnv = (await unityWaitForCompile.run(
       { timeoutMs: args.compileTimeoutMs },
-      ctx
+      sub
     )) as ToolEnvelope<CompileStatus>;
     if (!compileEnv.ok) {
       // Couldn't even reach compile status (bridge down / reloading) — surface as-is.
@@ -58,6 +65,7 @@ export const unityVerify: ToolDef<typeof InputShape, unknown> = {
     const compile = compileEnv.data;
     const compiled = !compile.isCompiling && !compile.hasErrors;
 
+    tick("reading console…");
     const initialConsole = await inspectConsole(ctx);
     const initialProblems = initialConsole.logs;
     let consoleReadable = initialConsole.readable;
@@ -70,7 +78,7 @@ export const unityVerify: ToolDef<typeof InputShape, unknown> = {
       const testStartedAt = Date.now();
       const testEnv = (await unityRunTests.run(
         { mode: args.testMode ?? "EditMode", filter: args.testFilter },
-        ctx
+        sub
       )) as ToolEnvelope<TestRunStatus>;
       if (testEnv.ok) {
         tests = testEnv.data;

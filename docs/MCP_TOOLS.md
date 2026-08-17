@@ -18,7 +18,7 @@ Failure:
 
 Stable error codes: `UNITY_NOT_CONNECTED`, `UNITY_COMPILING`, `UNITY_RELOADING`, `TEST_FRAMEWORK_MISSING`, `PLAY_MODE_REQUIRED`, `PROJECT_IDENTITY_MISMATCH`, `FEATURE_UNAVAILABLE`, `OBJECT_NOT_FOUND`, `ASSET_NOT_FOUND`, `INVALID_ARGUMENT`, `SAFETY_MODE_BLOCKED`, `WRITE_REQUIRES_SNAPSHOT`, `UNSUPPORTED_UNITY_VERSION`, `INTERNAL_ERROR`, `MOCK_MODE_ACTIVE`, `BRIDGE_TIMEOUT`, `MALFORMED_BRIDGE_RESPONSE`, `TOOL_NOT_IMPLEMENTED`, `PROJECT_NOT_FOUND`, `GIT_NOT_AVAILABLE`.
 
-## Implemented (73 tools)
+## Implemented (75 tools)
 
 ### Context & inspection
 
@@ -40,11 +40,22 @@ Stable error codes: `UNITY_NOT_CONNECTED`, `UNITY_COMPILING`, `UNITY_RELOADING`,
 | Tool | Source | Notes |
 |---|---|---|
 | `unity_capture_game_view` | `unity_bridge` | Renders `Camera.main` (or specified) off-screen. Returns multimodal **image** content (base64 PNG, or JPEG via `format:"jpg"` — ≈10x smaller). Auto-saves to `.unity-vibe/screenshots/`. |
+| `unity_capture_frames` | `unity_bridge` | **Temporal** capture: a burst of Game view frames (`frames` 2–16, default 8; `intervalMs` 50–2000, default 250; `width` 160–1280, default 480) returned as an ordered image sequence, so motion is visible rather than a single instant. Works in play mode and in edit mode. |
 | `unity_capture_scene_view` | `unity_bridge` | Renders `SceneView.lastActiveSceneView` camera. Multimodal image. |
 | `unity_capture_selected` | `unity_bridge` | Spawns a temporary HideAndDontSave camera framing the selection's bounds; falls back to `AssetPreview` for prefab assets. Multimodal image. |
 | `unity_capture_editor_window` | `unity_bridge` | Captures the **whole Editor main window** (all docked panels — toolbar, Hierarchy, Scene/Game view, Inspector, Project, Console) from the OS framebuffer via `InternalEditorUtility.ReadScreenPixel`, not a camera render. Optional `maxWidth` downscales (longest side); omit for native resolution. Multimodal image. |
 
 Screenshot tools return `{source, width, height, mimeType, pngBase64, savedTo?, cameraName?, subject?}`. The MCP server detects `pngBase64` and emits an `image` content block alongside the JSON envelope so Claude sees the actual pixels — not just a data URL string.
+
+`unity_capture_frames` returns a `frames[]` instead, each entry `{index, tMs, hash, returned, imageBase64?, savedPath?}`, plus `{requested, actual: {frames, avgIntervalMs, droppedFrames}, playMode, savedPaths, dedup}`. The server emits a `Frame i/N — t=+XXXms` text block before each returned image so the sequence reads in order. Unity computes an 8x8 grayscale average hash per frame; `returnImages` decides how many of them reach the model:
+
+| `returnImages` | Behaviour |
+|---|---|
+| `changed` (default) | Frame 1 always, then each frame more than 4 bits (of 64) from the last **returned** frame — comparing against the last returned frame, not the previous captured one, so slow drift isn't dropped a step at a time. |
+| `all` | Every captured frame. |
+| `none` | No images; the JSON envelope only (hashes and timings still returned). |
+
+`save` (default true) writes **every** captured frame — including ones no image block was emitted for — to `.unity-vibe/screenshots/<timestamp>_frames_<n>.<ext>`, so the user can inspect what the dedup skipped.
 
 ### Performance
 
@@ -101,6 +112,15 @@ Studio-managed projects make write tools available automatically. Before dispatc
 
 Every tool supports a `detailLevel` input of `summary | normal | full` (default `normal`). The hierarchy tool also accepts `maxDepth` and `includeComponents`.
 
+## Client interaction
+
+Four things the server puts on the wire beyond the tool list itself:
+
+- **Server instructions** are capped at 2,000 bytes total, because Claude Code truncates the field at 2KB and the generated project primer is appended to the static text. `composeInstructions()` trims the primer (never the workflow rules) to fit and leaves a pointer to `unity://project-brain`.
+- **`_meta` on tools/list.** `anthropic/maxResultSizeChars: 200000` on the four tools whose output the *project* sizes (`unity_get_scene_hierarchy`, `unity_reflect`, `unity_query_project_brain`, `unity_get_console_logs`). `anthropic/requiresUserInteraction: true` on `unity_execute_code` and `unity_execute_menu_item` — the two tools whose argument is itself the program — so Claude Code raises a real permission prompt even in bypass modes.
+- **Progress notifications** on `unity_wait_for_compile`, `unity_run_tests`, `unity_verify`, `unity_qa`, and `unity_capture_frames`, sent only when the client supplied a `progressToken`. Nested tools report through the parent's counter so progress increases monotonically across phases. Claude Code kills calls idle for 30 minutes and each notification resets that timer.
+- **Elicitation** at exactly two decision points, both of which fall back to their existing error envelope when the client declares no elicitation capability (Codex CLI does not): `unity_open_scene` asks before discarding unsaved scene changes, and `unity_execute_menu_item` asks before running a path outside `allowedMenuItems`. The menu grant covers that one call — it is never written back to the config.
+
 ## Bridge methods (server-internal)
 
 | Method | Purpose |
@@ -115,6 +135,7 @@ Every tool supports a `detailLevel` input of `summary | normal | full` (default 
 | `screenshot.gameView` | Render Camera.main / specified Camera as PNG |
 | `screenshot.sceneView` | Render the active SceneView camera as PNG |
 | `screenshot.selected` | Render the active selection from a temp camera |
+| `capture.frames` | Long-poll frame-sequence capture (`capture.beginFrames` starts the session, `capture.framesStatus` reports it). Play mode grabs the composited Game view after `WaitForEndOfFrame`; edit mode renders the resolved camera on the editor tick. |
 | `perf.sample` | Read averaged ProfilerRecorder counters |
 | `test.run` / `test.status` / `test.cancel` | Test Framework run lifecycle (registered dynamically by the optional `UnityVibeOS.TestRunner.Editor` assembly) |
 | `playmode.enter` / `.exit` / `.step` / `.status` | Play-mode state machine |

@@ -204,6 +204,54 @@ export const ScreenshotResultSchema = z.object({
 });
 export type ScreenshotResult = z.infer<typeof ScreenshotResultSchema>;
 
+// ----- Temporal frame capture -----
+
+export const CapturedFrameSchema = z.object({
+  /** 1-based position in the capture sequence. */
+  index: z.number().int().positive(),
+  /** Milliseconds since the first frame of the sequence. */
+  tMs: z.number().nonnegative(),
+  /** 64-bit average hash as 16 hex chars, computed in Unity from the downscaled pixels. */
+  hash: z.string(),
+  /** base64-encoded image bytes. Omitted for frames the tool chose not to return. */
+  imageBase64: z.string().optional(),
+  /** Absolute path this frame was written to under .unity-vibe/screenshots/. */
+  savedPath: z.string().optional(),
+  /** Whether an image block for this frame was surfaced to the model. */
+  returned: z.boolean(),
+});
+export type CapturedFrame = z.infer<typeof CapturedFrameSchema>;
+
+export const FrameCaptureResultSchema = z.object({
+  requested: z.object({
+    frames: z.number().int().positive(),
+    intervalMs: z.number().int().positive(),
+    width: z.number().int().positive(),
+    format: z.enum(["png", "jpg"]),
+    quality: z.number().int(),
+    returnImages: z.enum(["all", "changed", "none"]),
+  }),
+  actual: z.object({
+    frames: z.number().int().nonnegative(),
+    /** Mean gap between consecutive captured frames; drifts above intervalMs on a slow editor. */
+    avgIntervalMs: z.number().nonnegative(),
+    /** Requested frames the session could not deliver (readback failures, aborted session). */
+    droppedFrames: z.number().int().nonnegative(),
+  }),
+  playMode: z.boolean(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  mimeType: z.enum(["image/png", "image/jpeg"]),
+  savedPaths: z.array(z.string()),
+  dedup: z.object({
+    captured: z.number().int().nonnegative(),
+    returned: z.number().int().nonnegative(),
+    skippedUnchanged: z.number().int().nonnegative(),
+  }),
+  frames: z.array(CapturedFrameSchema),
+});
+export type FrameCaptureResult = z.infer<typeof FrameCaptureResultSchema>;
+
 // ----- Performance probes -----
 
 export const PerfCounterSchema = z.object({

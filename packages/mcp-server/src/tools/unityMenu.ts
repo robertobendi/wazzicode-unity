@@ -2,6 +2,7 @@ import { z } from "zod";
 import { loadConfig } from "@uvibe/safety";
 import { ToolDef } from "../registry.js";
 import { BRIDGE_METHODS, bridgeCall, err } from "./_helpers.js";
+import { confirmWithUser } from "../interaction.js";
 
 /**
  * Generic Editor escape hatch: run a menu command by its path. This can do almost anything, so it
@@ -34,12 +35,22 @@ export const unityExecuteMenuItem: ToolDef<typeof ExecuteMenuItemShape, unknown>
       const config = await loadConfig(ctx.projectPath);
       const allowed = config.allowedMenuItems ?? [];
       if (!config.allowMenuItems || !isMenuItemAllowed(allowed, args.menuItem)) {
-        return err(
+        const blocked = err(
           "MENU_ITEM_NOT_ALLOWED",
           `Menu item '${args.menuItem}' is not available in this project configuration.`,
           { source: ctx.bridge.source },
           { menuItem: args.menuItem, allowed }
         );
+        // Ask the user to authorise this one path when the client can ask. Deliberately NOT
+        // persisted to allowedMenuItems: the grant covers this call only, so a later run of the
+        // same path asks again rather than silently widening the configured allowlist.
+        const decision = await confirmWithUser(ctx, {
+          message: `Run the Unity Editor menu item '${args.menuItem}'? It is not in this project's allowlist.`,
+          field: "allow",
+          fieldTitle: "Run this menu item once",
+          fieldDescription: "Allows this one call only; the project allowlist is not changed.",
+        });
+        if (decision !== "accept") return blocked;
       }
     }
     return bridgeCall(ctx.bridge, BRIDGE_METHODS.editorExecuteMenuItem, { menuItem: args.menuItem });

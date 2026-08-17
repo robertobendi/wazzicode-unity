@@ -48,6 +48,7 @@ namespace UnityVibeOS
                 return EditorStateMirror.IsPlaying == wantPlaying;
             }, "playmode.status");
             RegisterAwait("playmode.step", _ => PlayModeControl.StepsRemaining == 0, "playmode.stepStatus", beginMethod: "playmode.beginStep");
+            RegisterAwait("capture.frames", _ => !FrameCapture.IsCapturing, "capture.framesStatus", beginMethod: "capture.beginFrames");
 
             // On domain reload we only tear down the socket — the discovery file stays so the
             // client knows a bridge exists here and treats the gap as UNITY_RELOADING, not a

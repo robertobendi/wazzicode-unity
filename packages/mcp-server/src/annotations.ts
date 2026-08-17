@@ -26,10 +26,9 @@ const MUTATING_NON_WRITE = new Set<string>([
   "unity_manage_tools", // changes which tools are exposed this session
   "unity_refresh_assets", // imports externally changed files into the AssetDatabase
   "unity_verify", // refreshes assets and may start compilation/tests
-  "unity_capture_game_view", // saves under .unity-vibe/screenshots by default
-  "unity_capture_scene_view",
-  "unity_capture_selected",
-  "unity_capture_editor_window",
+  // Capture tools are deliberately NOT here: they only save under the
+  // gitignored .unity-vibe/screenshots scratch dir, and CLAUDE.md promises
+  // capture is auto-approvable read-only.
   "unity_run_tests", // changes Test Runner session state
   "unity_open_scene", // changes open Editor content
   "unity_load_scene_additive",
@@ -83,6 +82,37 @@ function titleOf(name: string): string {
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+/**
+ * Read tools whose payload is bounded by the *project*, not by our own caps: a 5000-node
+ * hierarchy, a full type dump, a brain query, a console flood. Claude Code reads
+ * `anthropic/maxResultSizeChars` off tools/list and truncates the result client-side instead of
+ * blowing the context window. Generous on purpose — these tools already page/limit themselves,
+ * so the cap is a backstop, not the primary bound.
+ */
+const MAX_RESULT_SIZE_CHARS = 200_000;
+const LARGE_OUTPUT = new Set<string>([
+  "unity_get_scene_hierarchy",
+  "unity_reflect",
+  "unity_query_project_brain",
+  "unity_get_console_logs",
+]);
+
+/**
+ * Arbitrary-execution tools: the argument *is* the program, so no static annotation can bound
+ * what they do. `anthropic/requiresUserInteraction` makes Claude Code raise a real permission
+ * prompt even in bypass modes. Deliberately just these two — every other write is bounded by its
+ * schema and already gated by safetyMode.
+ */
+const REQUIRES_USER_INTERACTION = new Set<string>(["unity_execute_code", "unity_execute_menu_item"]);
+
+/** `_meta` for a tool's tools/list entry, or undefined when it carries none. */
+export function toolMeta(tool: AnyToolDef): Record<string, unknown> | undefined {
+  const meta: Record<string, unknown> = {};
+  if (LARGE_OUTPUT.has(tool.name)) meta["anthropic/maxResultSizeChars"] = MAX_RESULT_SIZE_CHARS;
+  if (REQUIRES_USER_INTERACTION.has(tool.name)) meta["anthropic/requiresUserInteraction"] = true;
+  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
 export function toolAnnotations(tool: AnyToolDef): ToolAnnotations {

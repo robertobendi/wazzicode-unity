@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ToolDef } from "../registry.js";
 import { BRIDGE_METHODS, bridgeCall } from "./_helpers.js";
+import { confirmWithUser } from "../interaction.js";
 
 /**
  * Scene navigation. These are intentionally NOT write tools: opening a scene is how Claude
@@ -24,12 +25,36 @@ export const unityOpenScene: ToolDef<typeof OpenSceneShape, unknown> = {
   requires: ["unity_bridge"],
   inputShape: OpenSceneShape,
   async run(args, ctx) {
+    const discard = args.discardUnsavedChanges ?? false;
+    const opened = await bridgeCall(ctx.bridge, BRIDGE_METHODS.sceneOpen, {
+      scenePath: args.scenePath,
+      discardUnsavedChanges: discard,
+    });
+    if (opened.ok || discard || opened.error.code !== "UNSAVED_CHANGES") return opened;
+
+    // The dirty scenes are the user's unsaved work, so only the user can authorise discarding
+    // them. Ask when the client can ask; otherwise the UNSAVED_CHANGES envelope stands unchanged.
+    const dirty = dirtySceneList(opened.error.details);
+    const decision = await confirmWithUser(ctx, {
+      message: `Opening ${args.scenePath} would discard unsaved changes in ${dirty}. Discard and open it?`,
+      field: "discard",
+      fieldTitle: "Discard unsaved changes",
+      fieldDescription: `Unsaved edits in ${dirty} will be lost. Choose no to keep them and cancel the scene switch.`,
+    });
+    if (decision !== "accept") return opened;
+
     return bridgeCall(ctx.bridge, BRIDGE_METHODS.sceneOpen, {
       scenePath: args.scenePath,
-      discardUnsavedChanges: args.discardUnsavedChanges ?? false,
+      discardUnsavedChanges: true,
     });
   },
 };
+
+function dirtySceneList(details: Record<string, unknown> | undefined): string {
+  const scenes = details?.dirtyScenes;
+  if (!Array.isArray(scenes) || scenes.length === 0) return "the open scene(s)";
+  return scenes.map(String).join(", ");
+}
 
 const LoadAdditiveShape = {
   scenePath: z.string().describe("Project-relative scene path to load additively alongside the open scenes."),

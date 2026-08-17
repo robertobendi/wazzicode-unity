@@ -67,6 +67,8 @@ const METHOD_TIMEOUT_MS: Record<string, number> = {
   "test.await": 30_000,
   // Multi-frame stepping long-polls in the same way.
   "playmode.step": 30_000,
+  // Frame-sequence capture long-polls while Unity collects the frames.
+  "capture.frames": 30_000,
   // Test runner kicks off an async job; the polling tool calls these repeatedly.
   "test.run": 35_000,
   "test.status": 35_000,

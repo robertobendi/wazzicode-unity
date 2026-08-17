@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ToolDef } from "../registry.js";
 import { BRIDGE_METHODS, bridgeCall, isUnknownMethodError } from "./_helpers.js";
+import { reportProgress } from "../interaction.js";
 import { TestRunStatus, ToolEnvelope, err, isErrorCode } from "@uvibe/core";
 
 /** Single long-poll round is capped server-side; re-issue until our own deadline. */
@@ -32,6 +33,9 @@ export const unityRunTests: ToolDef<typeof InputShape, TestRunStatus> = {
     const mode = args.mode ?? "EditMode";
     const timeoutMs = args.timeoutMs ?? 300_000;
     const pollMs = args.pollMs ?? 1000;
+    let step = 0;
+    const tick = (message: string) => reportProgress(ctx, ++step, undefined, message);
+    tick(`starting ${mode} tests…`);
 
     const started = await bridgeCall<TestRunStatus>(ctx.bridge, BRIDGE_METHODS.testRun, {
       mode,
@@ -108,6 +112,14 @@ export const unityRunTests: ToolDef<typeof InputShape, TestRunStatus> = {
       );
       if (mismatch) return mismatch;
       last = status;
+      // The Test Framework only fills the counts once the run ends, so report them when the
+      // bridge has them and fall back to a coarse phase when it doesn't.
+      const done = (status.data.passed ?? 0) + (status.data.failed ?? 0) + (status.data.skipped ?? 0);
+      tick(
+        status.data.total
+          ? `${mode} tests running (${done}/${status.data.total})…`
+          : `${mode} tests running (${Math.round((Date.now() - start) / 1000)}s)…`
+      );
       if (status.data.state !== "running") {
         if (status.data.failed && status.data.failed > 0) {
           status.warnings.push(`${status.data.failed} test(s) failed.`);

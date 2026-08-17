@@ -2,10 +2,11 @@ import { z, ZodRawShape } from "zod";
 import { ToolEnvelope, WriteTarget } from "@uvibe/core";
 import { BridgeClient } from "@uvibe/bridge-client";
 import type { ToolGroupController } from "./groups.js";
+import type { InteractionContext } from "./interaction.js";
 
 export type { WriteTarget };
 
-export interface ToolContext {
+export interface ToolContext extends InteractionContext {
   bridge: BridgeClient;
   projectPath: string;
   configMockMode: boolean;

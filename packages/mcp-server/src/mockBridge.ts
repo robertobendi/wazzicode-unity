@@ -9,7 +9,9 @@ export function createMockBridgeClient(): BridgeClient {
     durationMs: 3,
   };
 
-  const responders: Partial<Record<BridgeMethod, () => unknown>> = {
+  // Responders may ignore params (most do); those that shape their output from the request
+  // declare it. Zero-arg responders stay assignable, so existing entries are unchanged.
+  const responders: Partial<Record<BridgeMethod, (params: Record<string, unknown>) => unknown>> = {
     "system.health": () => ({ status: "ok", uptime: 12345 }),
 
     "system.summary": () => ({
@@ -260,6 +262,36 @@ export function createMockBridgeClient(): BridgeClient {
         pngBase64: img.pngBase64,
         cameraName: "EditorWindow",
         subject: "Unity Editor main window",
+      };
+    },
+
+    // Temporal capture. Frames move across the sequence so dedup has real differences to find;
+    // `staticScene` (mock-only) freezes them so the "nothing changed" path is testable too.
+    "capture.frames": (params) => {
+      const count = clampInt(params.frames, 2, 16, 8);
+      const width = clampInt(params.width, 160, 1280, 480);
+      const height = Math.max(8, Math.round((width * 9) / 16));
+      const intervalMs = clampInt(params.intervalMs, 50, 2000, 250);
+      const staticScene = params.staticScene === true;
+      const frames = Array.from({ length: count }, (_, i) => {
+        const phase = staticScene ? 0 : i;
+        const img = makeMockPng(width, height, [40 + phase * 12, 100, 180 - phase * 8], `FRAME ${phase}`);
+        return {
+          index: i + 1,
+          tMs: i * intervalMs,
+          hash: mockFrameHash(phase),
+          imageBase64: img.pngBase64,
+        };
+      });
+      return {
+        capturing: false,
+        playMode: true,
+        width,
+        height,
+        mimeType: "image/png",
+        droppedFrames: 0,
+        avgIntervalMs: intervalMs,
+        frames,
       };
     },
 
@@ -668,7 +700,7 @@ export function createMockBridgeClient(): BridgeClient {
 
   async function call<T>(
     method: BridgeMethod,
-    _params: Record<string, unknown> = {}
+    params: Record<string, unknown> = {}
   ): Promise<BridgeResponse<T>> {
     const responder = responders[method];
     if (!responder) {
@@ -686,7 +718,7 @@ export function createMockBridgeClient(): BridgeClient {
     return {
       id: "mock",
       ok: true,
-      result: responder() as T,
+      result: responder(params) as T,
       error: null,
       meta,
     };
@@ -711,4 +743,19 @@ export function createMockBridgeClient(): BridgeClient {
   }
 
   return { source: "mock", call, isConnected, health };
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === "number" ? Math.round(value) : Number.NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+/** 64-bit average hash as 16 hex chars, matching the Unity side's format. */
+function mockFrameHash(phase: number): string {
+  let hash = "";
+  for (let byte = 0; byte < 8; byte++) {
+    hash += (((phase * 37 + byte * 11) & 0xff) ^ 0x5a).toString(16).padStart(2, "0");
+  }
+  return hash;
 }
