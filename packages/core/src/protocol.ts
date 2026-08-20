@@ -114,7 +114,16 @@ export type BridgeMethod = (typeof BRIDGE_METHODS)[keyof typeof BRIDGE_METHODS];
  * `.unity-vibe/config.json` (allowSceneWrites, allowPrefabWrites, ...). Single source of
  * truth shared by @uvibe/safety (gating) and @uvibe/mcp-server (tool definitions).
  */
-export type WriteTarget = "scene" | "prefab" | "asset" | "script" | "console" | "editor" | "code";
+export type WriteTarget =
+  | "scene"
+  | "prefab"
+  | "asset"
+  | "script"
+  | "console"
+  | "editor"
+  | "code"
+  /** Out-of-band batch-mode Editor work: player builds and regenerable-cache cleanup. */
+  | "build";
 
 export interface BridgeRequest<P = Record<string, unknown>> {
   id: string;

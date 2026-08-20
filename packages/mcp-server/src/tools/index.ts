@@ -76,11 +76,16 @@ import { unityExecuteCode } from "./unityCode.js";
 import { unityReflect, unityDocs } from "./unityReflect.js";
 import { unityManageTools } from "./unityManageTools.js";
 import { unityDiagnoseConnection } from "./unityDiagnoseConnection.js";
+import { unityLaunchEditor, unityInstallEditor } from "./unityEditorLifecycle.js";
+import { unityEnvironment } from "./unityEnvironment.js";
+import { unityBuildPlayer, unityRunTestsHeadless, unityProjectClean } from "./unityBatchMode.js";
 
 export const allTools: AnyToolDef[] = [
   // Context / inspection
   unityOrient,
   unityDiagnoseConnection,
+  unityLaunchEditor,
+  unityEnvironment,
   unityVerify,
   unityBatch,
   unityManageTools,
@@ -104,9 +109,14 @@ export const allTools: AnyToolDef[] = [
   unityGetPerformanceStats,
   // Tests
   unityRunTests,
+  unityRunTestsHeadless,
   unityGetBuildSettings,
   unitySmokeTest,
   unityQa,
+  // Machine-level (Unity CLI)
+  unityInstallEditor,
+  unityBuildPlayer,
+  unityProjectClean,
   // Play mode + runtime
   unityEnterPlayMode,
   unityExitPlayMode,
@@ -244,4 +254,10 @@ export {
   unityReflect,
   unityDocs,
   unityManageTools,
+  unityLaunchEditor,
+  unityInstallEditor,
+  unityEnvironment,
+  unityBuildPlayer,
+  unityRunTestsHeadless,
+  unityProjectClean,
 };

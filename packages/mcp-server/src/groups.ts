@@ -18,6 +18,7 @@ export const TOOL_GROUPS: ToolGroupMeta[] = [
   { name: "runtime", description: "Play mode control, runtime inspection/overrides, input simulation, animator, performance stats.", defaultActive: true },
   { name: "testing", description: "Verification, build readiness, smoke tests, and the Unity Test Runner.", defaultActive: true },
   { name: "codegen", description: "In-Editor C# automation for operations without a dedicated tool.", defaultActive: true },
+  { name: "machine", description: "Editor lifecycle via Unity's own CLI: launch/install an Editor, environment report, batch-mode builds, headless tests, cache cleanup.", defaultActive: true },
 ];
 
 /** Tools not listed here are "core". Keep names in sync with the tool defs. */
@@ -53,6 +54,13 @@ const TOOL_GROUP_BY_NAME: Record<string, string> = {
   unity_qa: "testing",
   // codegen
   unity_execute_code: "codegen",
+  // machine (Unity CLI, no bridge involved)
+  unity_launch_editor: "machine",
+  unity_install_editor: "machine",
+  unity_environment: "machine",
+  unity_build_player: "machine",
+  unity_run_tests_headless: "machine",
+  unity_project_clean: "machine",
 };
 
 export function groupOf(toolName: string): string {

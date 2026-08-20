@@ -1,6 +1,7 @@
 import { useChatStore } from "@/stores/useChatStore";
 import { useStatusStore } from "@/stores/useStatusStore";
 import { formatTokens } from "@/lib/formatTokens";
+import OpenUnityButton from "./OpenUnityButton";
 import type { BridgeState } from "@/types/status";
 
 /** Bottom bar: Unity connection pill + running session cost (or tokens, on a
@@ -8,6 +9,7 @@ import type { BridgeState } from "@/types/status";
 export default function StatusBar() {
   const status = useStatusStore((s) => s.status);
   const running = useChatStore((s) => s.running);
+  const project = useChatStore((s) => s.project);
   const totalCost = useChatStore((s) => s.session.totalCostUsd);
   const totalTokens = useChatStore((s) => s.session.totalTokens);
 
@@ -24,6 +26,9 @@ export default function StatusBar() {
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full ${dotColor(status.state)}`} />
         <span className="text-fg-muted">{label}</span>
+        {status.state === "disconnected" && project ? (
+          <OpenUnityButton project={project} />
+        ) : null}
       </div>
       {totalCost > 0 ? (
         <span className="tabular-nums">Session ${totalCost.toFixed(4)}</span>

@@ -1,7 +1,14 @@
 import { ErrorCode, ErrorDetail, makeError } from "./errors.js";
 
 export type DetailLevel = "summary" | "normal" | "full";
-export type ToolSource = "unity_bridge" | "project_brain" | "filesystem" | "git" | "mock";
+export type ToolSource =
+  | "unity_bridge"
+  | "project_brain"
+  | "filesystem"
+  | "git"
+  /** Unity's own `unity` CLI — machine-level Editor lifecycle, installs, batch-mode builds/tests. */
+  | "unity_cli"
+  | "mock";
 
 export interface ToolMeta {
   source: ToolSource;

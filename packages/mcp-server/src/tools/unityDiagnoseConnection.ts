@@ -12,10 +12,22 @@ import {
   type BridgeResponse,
 } from "@uvibe/core";
 import { readBridgeDiscovery } from "@uvibe/bridge-client";
+import { loadConfig } from "@uvibe/safety";
+import { ensureEditorRunning, describeEditorEnvironment, defaultBridgeProbe, type EditorEnvironment, type EnsureEditorResult } from "@uvibe/unity-cli";
 import { ToolDef } from "../registry.js";
 import { ok } from "./_helpers.js";
+import { reportProgress } from "../interaction.js";
 
-const InputShape = {};
+const InputShape = {
+  repair: z
+    .boolean()
+    .optional()
+    .describe("Attempt to fix a dead connection by starting the Unity Editor through Unity's CLI, then re-diagnose. Off by default: diagnosis alone is read-only."),
+  includeEnvironment: z
+    .boolean()
+    .optional()
+    .describe("Include the machine-side environment (installed Editors, required version, Unity CLI). Default true; it is what explains most not_connected states."),
+};
 
 type ConnectionState =
   | "connected"
@@ -49,22 +61,47 @@ export interface ConnectionDiagnostic {
   };
   findings: string[];
   nextAction: string;
+  /** Machine-side context: installed Editors, this project's required version, Unity CLI presence. */
+  environment?: EditorEnvironment;
+  /** Present when repair:true asked us to start the Editor. */
+  repair?: EnsureEditorResult;
 }
 
 export const unityDiagnoseConnection: ToolDef<typeof InputShape, ConnectionDiagnostic> = {
   name: "unity_diagnose_connection",
   description:
-    "Diagnoses the complete MCP-to-Unity connection in one read-only call: MCP and installed Unity-package versions, discovery file/port/PID/protocol, off-main-thread liveness, RPC reachability, editor stalls, and project identity. Returns a concrete state and next action even when Unity RPC is unavailable.",
-  requires: ["unity_bridge", "filesystem"],
+    "Diagnoses the complete MCP-to-Unity connection in one call: MCP and installed Unity-package versions, discovery file/port/PID/protocol, off-main-thread liveness, RPC reachability, editor stalls, project identity, and the machine-side environment (installed Editor versions vs. the one this project needs, Unity CLI availability). Returns a concrete state and next action even when Unity RPC is unavailable. Pass repair:true to have it start the Editor through Unity's CLI and re-diagnose.",
+  requires: ["unity_bridge", "filesystem", "unity_cli"],
   inputShape: InputShape,
-  async run(_args, ctx) {
-    const [unityPackage, health, rpc] = await Promise.all([
+  async run(args, ctx) {
+    let [unityPackage, health, rpc] = await Promise.all([
       findUnityPackage(ctx.projectPath),
       ctx.bridge.health?.() ?? Promise.resolve(null),
       ctx.bridge.call(BRIDGE_METHODS.systemHealth),
     ]);
-    const discovery = readBridgeDiscovery(ctx.projectPath);
+    let discovery = readBridgeDiscovery(ctx.projectPath);
     const findings: string[] = [];
+
+    // Repair first, then diagnose what is left — a report about a connection we just fixed would
+    // be stale the moment it was written.
+    let repair: EnsureEditorResult | undefined;
+    if (args.repair === true && !rpc.ok && !ctx.configMockMode) {
+      const config = await loadConfig(ctx.projectPath);
+      let step = 0;
+      repair = await ensureEditorRunning(ctx.projectPath, {
+        installMissingEditor: config.autoInstallEditor,
+        ...(config.unityCliPath ? { cliPath: config.unityCliPath } : {}),
+        onProgress: (message) => reportProgress(ctx, ++step, undefined, `repair: ${message}`),
+      });
+      findings.push(`Repair attempt: ${repair.outcome} — ${repair.message}`);
+      if (repair.ready) {
+        [health, rpc] = await Promise.all([
+          ctx.bridge.health?.() ?? Promise.resolve(null),
+          ctx.bridge.call(BRIDGE_METHODS.systemHealth),
+        ]);
+        discovery = readBridgeDiscovery(ctx.projectPath);
+      }
+    }
 
     if (!unityPackage.detected) {
       findings.push("The UnityVibeOS package was not found in this project.");
@@ -100,7 +137,7 @@ export const unityDiagnoseConnection: ToolDef<typeof InputShape, ConnectionDiagn
       health.wasFocused === false;
     if (stalled) {
       findings.push(
-        `Unity's editor loop has not ticked for ${Math.round(health.editorTickAgeMs! / 1000)}s while unfocused.`
+        `Unity's editor loop has not ticked for ${Math.round((health?.editorTickAgeMs ?? 0) / 1000)}s while unfocused.`
       );
     } else if (health && health.editorTickAgeMs === undefined) {
       findings.push(
@@ -111,7 +148,18 @@ export const unityDiagnoseConnection: ToolDef<typeof InputShape, ConnectionDiagn
     }
 
     const state = diagnoseState(ctx.projectPath, discovery, health, rpc, stalled);
-    const nextAction = actionFor(state, unityPackage, health);
+    let nextAction = actionFor(state, unityPackage, health);
+
+    // The most common cause of a persistent not_connected is machine-side, not bridge-side: the
+    // Editor version this project pins isn't installed, or Unity's CLI isn't there to start it.
+    let environment: EditorEnvironment | undefined;
+    if (args.includeEnvironment !== false && !ctx.configMockMode) {
+      environment = await describeEditorEnvironment(ctx.projectPath, { probeBridge: defaultBridgeProbe });
+      findings.push(...environment.suggestions);
+      if (state === "not_connected" && environment.suggestions.length > 0) {
+        nextAction = environment.suggestions[0];
+      }
+    }
     if (findings.length === 0) findings.push("Discovery, liveness, identity, and RPC checks passed.");
 
     return ok(
@@ -130,6 +178,8 @@ export const unityDiagnoseConnection: ToolDef<typeof InputShape, ConnectionDiagn
           : { ok: false, error: { code: rpc.error.code, message: rpc.error.message } },
         findings,
         nextAction,
+        ...(environment ? { environment } : {}),
+        ...(repair ? { repair } : {}),
       },
       { source: ctx.bridge.source, durationMs: 0 },
       unityPackage.matchesServer === false

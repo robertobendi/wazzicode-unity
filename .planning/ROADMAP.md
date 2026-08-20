@@ -26,6 +26,7 @@ Make Unity vibe-coding with Claude Code dramatically easier by exposing structur
 | 12 | Diagnostic + workflow composites | future | `unity_diagnose_*`, `*_workflow` recipes built on the shipped primitives |
 | 13 | Automation loop (`uvibe loop`) | future | task-driven autonomous loop |
 | 14 | Dashboard | future | minimal web UI |
+| 15 | Unity CLI integration | done | `@uvibe/unity-cli`; `machine` tool group (`unity_launch_editor`, `unity_install_editor`, `unity_environment`, `unity_build_player`, `unity_run_tests_headless`, `unity_project_clean`); auto-launch in orient/verify/diagnose; `uvibe launch/env/projects/build/test-headless/clean`; doctor + Studio surfaces |
 
 ## Future tools (not yet implemented)
 See `docs/MCP_TOOLS.md` "Planned" section.

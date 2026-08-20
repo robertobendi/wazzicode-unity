@@ -22,6 +22,24 @@ export const UVibeConfigSchema = z.object({
   allowCodeExecution: z.boolean().default(true),
   /** Exact menu paths, or `*` for every path in an app-managed project. */
   allowedMenuItems: z.array(z.string()).default(["*"]),
+  /**
+   * Batch-mode Editor work driven through the Unity CLI: player builds (unity_build_player) and
+   * regenerable-cache cleanup (unity_project_clean). Both spawn a second Editor process.
+   */
+  allowBuilds: z.boolean().default(true),
+  /**
+   * When a tool needs the Editor and none is running, launch it through the Unity CLI instead of
+   * dead-ending on UNITY_NOT_CONNECTED. Falls back to the old "ask the user to open Unity"
+   * behaviour whenever the CLI is absent.
+   */
+  autoLaunchEditor: z.boolean().default(true),
+  /**
+   * Let the agent download a missing Editor version. Off by default: it is multi-gigabyte and can
+   * run for an hour, so it stays an explicit choice (unity_install_editor / `uvibe launch --install`).
+   */
+  autoInstallEditor: z.boolean().default(false),
+  /** Explicit path to the Unity CLI binary; empty means env + PATH + well-known locations. */
+  unityCliPath: z.string().default(""),
   autoSnapshot: z.boolean().default(true),
   unityProjectPath: z.string().default("."),
   mcpPort: z.number().int().default(DEFAULT_MCP_PORT),

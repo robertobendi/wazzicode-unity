@@ -36,6 +36,9 @@ export const WRITE_TOOLS: Record<string, WriteTarget> = {
   unity_clear_console: "console",
   unity_execute_menu_item: "editor",
   unity_execute_code: "code",
+  unity_build_player: "build",
+  unity_project_clean: "build",
+  unity_install_editor: "build",
 };
 
 export interface ToolGateDecision {
@@ -111,6 +114,14 @@ export function gateWrite(config: UVibeConfig, toolName: string, target: WriteTa
           allowed: false,
           errorCode: "SAFETY_MODE_BLOCKED",
           reason: "Editor commands are temporarily unavailable. Reopen the project in foundry-unity to repair access automatically.",
+        };
+      }
+      if (target === "build" && !config.allowBuilds) {
+        return {
+          allowed: false,
+          errorCode: "SAFETY_MODE_BLOCKED",
+          reason:
+            "Batch-mode Editor work (player builds, cache cleanup, Editor installs) is disabled (allowBuilds=false in .unity-vibe/config.json).",
         };
       }
       if (target === "code" && !config.allowCodeExecution) {

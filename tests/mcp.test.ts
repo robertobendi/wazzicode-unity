@@ -18,6 +18,7 @@ describe("mcp-server/registry", () => {
       "unity_apply_text_edits",
       "unity_assign_reference",
       "unity_batch",
+      "unity_build_player",
       "unity_capture_editor_window",
       "unity_capture_frames",
       "unity_capture_game_view",
@@ -36,6 +37,7 @@ describe("mcp-server/registry", () => {
       "unity_diagnose_connection",
       "unity_docs",
       "unity_enter_play_mode",
+      "unity_environment",
       "unity_execute_code",
       "unity_execute_menu_item",
       "unity_exit_play_mode",
@@ -57,13 +59,16 @@ describe("mcp-server/registry", () => {
       "unity_import_asset",
       "unity_inspect_runtime_object",
       "unity_inspect_selected",
+      "unity_install_editor",
       "unity_instantiate_prefab",
+      "unity_launch_editor",
       "unity_load_scene_additive",
       "unity_manage_tools",
       "unity_open_prefab",
       "unity_open_scene",
       "unity_orient",
       "unity_paint_tilemap",
+      "unity_project_clean",
       "unity_project_summary",
       "unity_qa",
       "unity_query_project_brain",
@@ -73,6 +78,7 @@ describe("mcp-server/registry", () => {
       "unity_remove_component",
       "unity_reparent",
       "unity_run_tests",
+      "unity_run_tests_headless",
       "unity_save_prefab",
       "unity_save_scene",
       "unity_script_edit",
@@ -102,6 +108,7 @@ describe("mcp-server/registry", () => {
       "unity_apply_prefab_instance",
       "unity_apply_text_edits",
       "unity_assign_reference",
+      "unity_build_player",
       "unity_clear_console",
       "unity_create_gameobject",
       "unity_create_material",
@@ -113,8 +120,10 @@ describe("mcp-server/registry", () => {
       "unity_execute_code",
       "unity_execute_menu_item",
       "unity_import_asset",
+      "unity_install_editor",
       "unity_instantiate_prefab",
       "unity_paint_tilemap",
+      "unity_project_clean",
       "unity_remove_component",
       "unity_reparent",
       "unity_save_prefab",
@@ -428,7 +437,9 @@ describe("mcp-server/tools (mock context)", () => {
       expect(env.meta).toBeDefined();
       if (env.ok) {
         expect(env.warnings).toBeInstanceOf(Array);
-        expect(env.meta.source === "mock" || env.meta.source === "git" || env.meta.source === "project_brain").toBe(true);
+        expect(
+          ["mock", "git", "project_brain", "unity_cli", "filesystem"].includes(env.meta.source)
+        ).toBe(true);
       }
     }
   });

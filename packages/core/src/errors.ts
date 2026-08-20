@@ -25,7 +25,10 @@ export type ErrorCode =
   | "MALFORMED_BRIDGE_RESPONSE"
   | "TOOL_NOT_IMPLEMENTED"
   | "PROJECT_NOT_FOUND"
-  | "GIT_NOT_AVAILABLE";
+  | "GIT_NOT_AVAILABLE"
+  | "UNITY_CLI_UNAVAILABLE"
+  | "UNITY_CLI_FAILED"
+  | "EDITOR_HOLDS_PROJECT";
 
 export interface ErrorDetail {
   code: ErrorCode;
@@ -168,6 +171,24 @@ const ERROR_META: Record<ErrorCode, ErrorMeta> = {
     recoverable: true,
     suggestedAction: "Install git, or run from a directory inside a git repository.",
     defaultMessage: "git is unavailable or this directory is not a git repository.",
+  },
+  UNITY_CLI_UNAVAILABLE: {
+    recoverable: true,
+    suggestedAction:
+      "This action is driven by Unity's own `unity` CLI, which is not installed here. Ask the user to install it (or set unityCliPath in .unity-vibe/config.json); until then do the step by hand in the Unity Hub/Editor. Every other unity_* tool keeps working.",
+    defaultMessage: "The Unity CLI is not available on this machine.",
+  },
+  UNITY_CLI_FAILED: {
+    recoverable: true,
+    suggestedAction:
+      "Read the message and details — they carry the CLI's own error. Retry once if it looks transient (network, Hub busy); otherwise report it to the user with the exact command.",
+    defaultMessage: "The Unity CLI reported an error.",
+  },
+  EDITOR_HOLDS_PROJECT: {
+    recoverable: true,
+    suggestedAction:
+      "Unity only lets one process open a project at a time, and batch-mode work needs the project to itself. Either use the in-Editor equivalent (unity_run_tests instead of a headless run), or ask the user to quit the Unity Editor first.",
+    defaultMessage: "A Unity Editor currently holds this project, so batch-mode work cannot start.",
   },
 };
 

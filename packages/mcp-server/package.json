@@ -1,6 +1,6 @@
 {
   "name": "@uvibe/mcp-server",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -24,6 +24,7 @@
     "@uvibe/core": "workspace:*",
     "@uvibe/project-brain": "workspace:*",
     "@uvibe/safety": "workspace:*",
+    "@uvibe/unity-cli": "workspace:*",
     "zod": "^3.23.8"
   }
 }

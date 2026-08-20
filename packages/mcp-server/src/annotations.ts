@@ -42,6 +42,9 @@ const MUTATING_NON_WRITE = new Set<string>([
   "unity_set_runtime_field",
   "unity_smoke_test",
   "unity_qa",
+  // Machine-level: these start/stop OS processes rather than mutating the project.
+  "unity_launch_editor",
+  "unity_run_tests_headless",
 ]);
 
 // Writes that overwrite/erase or run code — hard to undo (no Unity Undo entry). Scene/prefab edits
@@ -61,6 +64,9 @@ const DESTRUCTIVE = new Set<string>([
   "unity_delete_gameobject",
   "unity_remove_component",
   "unity_delete_asset",
+  // Overwrites the build output directory, and deletes regenerable caches respectively.
+  "unity_build_player",
+  "unity_project_clean",
 ]);
 
 // Repeating with the same args lands on the same state (vs. create/instantiate which add each time).
@@ -74,7 +80,8 @@ const IDEMPOTENT = new Set<string>([
   "unity_reparent",
 ]);
 
-const OPEN_WORLD = new Set<string>(["unity_docs"]);
+// Reaches the network: docs fetches pages; the editor installer downloads multi-GB payloads.
+const OPEN_WORLD = new Set<string>(["unity_docs", "unity_install_editor"]);
 
 function titleOf(name: string): string {
   return name
@@ -107,11 +114,24 @@ const LARGE_OUTPUT = new Set<string>([
  */
 const REQUIRES_USER_INTERACTION = new Set<string>(["unity_execute_code", "unity_execute_menu_item"]);
 
+/**
+ * Tools that legitimately run for many minutes (a cold batch-mode Editor, a multi-GB editor
+ * download). They report MCP progress throughout, which is what keeps the client's idle timer
+ * alive; this hint tells Claude Code up front not to treat the silence as a hang.
+ */
+const LONG_RUNNING = new Set<string>([
+  "unity_build_player",
+  "unity_run_tests_headless",
+  "unity_install_editor",
+  "unity_launch_editor",
+]);
+
 /** `_meta` for a tool's tools/list entry, or undefined when it carries none. */
 export function toolMeta(tool: AnyToolDef): Record<string, unknown> | undefined {
   const meta: Record<string, unknown> = {};
   if (LARGE_OUTPUT.has(tool.name)) meta["anthropic/maxResultSizeChars"] = MAX_RESULT_SIZE_CHARS;
   if (REQUIRES_USER_INTERACTION.has(tool.name)) meta["anthropic/requiresUserInteraction"] = true;
+  if (LONG_RUNNING.has(tool.name)) meta["anthropic/longRunning"] = true;
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 

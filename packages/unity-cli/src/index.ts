@@ -1,0 +1,58 @@
+export { locateUnityCli, type CliLocation } from "./locate.js";
+export {
+  runUnityCli,
+  runUnityCliRaw,
+  launchUnityCli,
+  resolveCli,
+  parseEnvelope,
+  type RunOptions,
+  type UnityCliResult,
+  type UnityCliOk,
+  type UnityCliErr,
+  type UnityCliFailureCode,
+} from "./exec.js";
+export { cached, clearUnityCliCache, type CacheSpec } from "./cache.js";
+export {
+  cliIdentity,
+  listInstalledEditors,
+  listHubProjects,
+  licenseStatus,
+  cliDoctor,
+  openProject,
+  installEditor,
+  installModules,
+  buildPlayer,
+  runTestsBatch,
+  cleanProject,
+  registerProject,
+  UNITY_CLI_TIMEOUTS,
+  type CliIdentity,
+  type InstalledEditor,
+  type HubProject,
+  type OpenProjectOptions,
+  type InstallEditorOptions,
+  type InstallModulesOptions,
+  type BuildOptions,
+  type BatchTestOptions,
+  type CleanOptions,
+} from "./commands.js";
+export {
+  describeEditorEnvironment,
+  readProjectVersion,
+  readEditorRunningState,
+  editorHoldsProject,
+  isUnityProject,
+  type EditorEnvironment,
+  type EditorMatch,
+  type EditorRunningState,
+  type EnvironmentOptions,
+  type ProjectVersionInfo,
+} from "./environment.js";
+export {
+  ensureEditorRunning,
+  defaultBridgeProbe,
+  type EnsureEditorOptions,
+  type EnsureEditorResult,
+  type LaunchOutcome,
+} from "./launch.js";
+export { parseNUnitReport, readNUnitReport, type BatchTestReport, type BatchTestFailure } from "./nunit.js";

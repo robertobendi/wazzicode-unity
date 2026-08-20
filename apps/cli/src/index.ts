@@ -10,6 +10,7 @@ import { runGsdAuto } from "./commands/gsdAuto.js";
 import { runInstallUnityPackage } from "./commands/installUnityPackage.js";
 import { runSetup } from "./commands/setup.js";
 import { runAutonomy } from "./commands/autonomy.js";
+import { runEnv, runLaunch, runBuild, runHeadlessTests, runClean, runProjects } from "./commands/unityCli.js";
 
 const HELP = `${PRODUCT_NAME} v${PRODUCT_VERSION}
 
@@ -20,7 +21,17 @@ Commands:
   init                       Create .unity-vibe/ scaffold plus Claude (CLAUDE.md) and Codex (AGENTS.md) guidance.
   serve                      Start the MCP server over stdio (use this in Claude Code MCP config).
   brain [--ensure]           Build the project map; --ensure reuses it when the source fingerprint is current.
-  doctor                     Health check: MCP server, Unity bridge, brain, git, config.
+  doctor                     Health check: MCP server, Unity bridge, brain, git, config, Unity CLI + editors.
+  launch [--install]         Make sure the Unity Editor is running for this project (starts it via Unity's CLI).
+                             --install downloads the project's Editor version if it is missing; --no-wait returns immediately.
+  env [--license]            Machine-side Unity environment: CLI, installed editors, required version, running Editor.
+                             --projects also lists the Hub project registry; --refresh bypasses the cache.
+  build --target=<T>         Build a player in batch mode (Editor must be closed). --output=<path>, --profile=<name>,
+                             --execute-method=<Type.Method>, --install, --log=<path>.
+  test-headless              Run EditMode/PlayMode tests in a headless Editor (Editor must be closed).
+                             --mode=, --filter=, --output=<report.xml>.
+  clean [--apply]            Delete regenerable caches (Library/Temp/Logs). Dry run unless --apply.
+  projects                   List the Unity projects registered in the Hub (path, editor version, pipeline).
   verify [--mock]            Run MVP acceptance checks against the mock bridge.
   mcp-config [--write]       Print or write .mcp.json. Use --write for the project-local file Claude Code auto-discovers.
                              --target=codex prints the [mcp_servers.*] TOML block (and the "codex mcp add" line) for the Codex CLI.
@@ -46,6 +57,12 @@ const COMMANDS: Record<string, CommandHandler> = {
   "mcp-config": runMcpConfig,
   autonomy: runAutonomy,
   "install-unity-package": runInstallUnityPackage,
+  launch: runLaunch,
+  env: runEnv,
+  build: runBuild,
+  "test-headless": runHeadlessTests,
+  clean: runClean,
+  projects: runProjects,
   "gsd-auto": runGsdAuto,
 };
 
@@ -86,4 +103,10 @@ export {
   runGsdAuto,
   runInstallUnityPackage,
   runAutonomy,
+  runEnv,
+  runLaunch,
+  runBuild,
+  runHeadlessTests,
+  runClean,
+  runProjects,
 };

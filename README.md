@@ -2,7 +2,7 @@
 
 **Make Claude Code see and edit your Unity project.**
 
-A local MCP server + Unity Editor package + project brain. Claude Code gets **75 live `unity_*` tools** — inspect scenes, **write & verify C#**, run play mode, edit prefabs, and literally **see** your Game and Scene views via real screenshots. Editing works immediately; changes are checkpointed, Undo-able, and action-logged. Everything runs on `127.0.0.1`.
+A local MCP server + Unity Editor package + project brain. Claude Code gets **81 live `unity_*` tools** — inspect scenes, **write & verify C#**, run play mode, edit prefabs, and literally **see** your Game and Scene views via real screenshots. Editing works immediately; changes are checkpointed, Undo-able, and action-logged. Everything runs on `127.0.0.1`.
 
 ---
 
@@ -125,7 +125,7 @@ Enter play mode, press jump a few times, capture the game view, and tell me if i
 
 ## 🛠 What ships
 
-- **MCP server** with **75 tools** across groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`):
+- **MCP server** with **81 tools** across groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`, `machine`):
   - **Orientation & inspection** — `unity_orient` (one-call status), `unity_get_scene_hierarchy`, `unity_inspect_selected`, `unity_get_console_logs`, `unity_wait_for_compile`, `unity_check_git_status`.
   - **See it** — multimodal screenshots `unity_capture_game_view` / `unity_capture_scene_view` / `unity_capture_selected` / `unity_capture_editor_window` return real images.
   - **Write & edit C#** — `unity_read_script`, `unity_find_in_file`, `unity_create_script`, `unity_apply_text_edits`, `unity_script_edit`; verify with `unity_verify` (compile → console → tests in one call).
@@ -133,9 +133,10 @@ Enter play mode, press jump a few times, capture the game view, and tell me if i
   - **Build scenes/prefabs** — create GameObjects, add components, set/assign fields, transforms, instantiate prefabs, paint tilemaps, prefab mode, wire UI buttons, materials/ScriptableObjects, plus delete GameObjects / remove components / delete assets — 27 gated write tools, each Undo-able (or recoverable) and logged. `unity_batch` bundles a multi-step plan into one call.
   - **Play mode & runtime** — enter/exit/step, inspect runtime objects, simulate input, drive the Animator, read performance stats.
   - **Editor automation** — `unity_execute_code` (run C# in the Editor) and `unity_manage_tools` (toggle tool groups live).
+  - **Runs Unity itself** — when Unity's own `unity` CLI is installed, `unity_launch_editor` starts the right Editor version for the project (and `unity_orient`/`unity_verify` do it automatically), `unity_install_editor` downloads a missing one, `unity_environment` reports what the machine actually has, and `unity_build_player` / `unity_run_tests_headless` / `unity_project_clean` do batch-mode work with the Editor closed. Optional: without the CLI these report `UNITY_CLI_UNAVAILABLE` and everything else is unchanged.
 - **Claude Code native** — server instructions teach the toolset on connect, MCP slash commands (`/mcp__unity-vibe-os__orient | analyze_scene | diagnose_scene | verify | new_script | play_test`), `@`-mentionable resources (`unity://project-brain | conventions | action-log | scene-hierarchy | console`), and tool annotations so reads auto-run and risky writes are flagged.
 - **Unity Editor package** (`unity/UnityVibeOS`) — localhost HTTP JSON-RPC bridge, scene/selection inspectors, console + compile watch, screenshots, scene/prefab/asset mutators, script editor, reflection, in-Editor C# execution, test runner, play-mode control. Survives domain reloads; keeps working when the Editor is unfocused.
-- **CLI** (`uvibe`) — `setup`, `init`, `serve`, `brain`, `doctor`, `verify`, `mcp-config`, `install-unity-package`, `gsd-auto`.
+- **CLI** (`uvibe`) — `setup`, `init`, `serve`, `brain`, `doctor`, `verify`, `mcp-config`, `install-unity-package`, `gsd-auto`, plus the Unity-CLI-backed `launch`, `env`, `projects`, `build`, `test-headless`, `clean`.
 - **Project map** — automatically refreshed, source-backed entity/relationship graph under `.unity-vibe/knowledge/`, bounded MCP queries, and a searchable Studio visualizer; no running Unity Editor required to scan.
 - **Mock bridge** — every MCP tool works without Unity for testing.
 - **Recovery layer** — app-managed access is ready by default, with pre-task git checkpoints, Unity Undo, automatic snapshots, and an action log.
@@ -150,7 +151,7 @@ Run `uvibe doctor` and follow the suggestions it prints.
 
 Common fixes:
 
-- **Bridge unreachable** → open the Unity project in Unity Editor (the `com.uvibe.os` package was added by the bootstrap; bridge auto-starts on Editor load).
+- **Bridge unreachable** → `uvibe launch` starts the Editor for you when Unity's `unity` CLI is installed; otherwise open the Unity project yourself (the `com.uvibe.os` package was added by the bootstrap; bridge auto-starts on Editor load).
 - **Claude doesn't see the tools** → `cd` into the Unity project and restart Claude Code; approve the `unity-vibe-os` server when prompted.
 - **`tsc` errors after a pull** → re-run with `--rebuild`.
 - **Port 38578 in use** → see [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
@@ -163,10 +164,12 @@ Common fixes:
 bootstrap.mjs              one-command install
 apps/cli/                  uvibe CLI (TypeScript)
 packages/core/             protocol, schemas, errors, envelope
-packages/mcp-server/       MCP server, bridge client, mock bridge, 75 tools,
+packages/mcp-server/       MCP server, bridge client, mock bridge, 81 tools,
                            tool groups, annotations, prompts, resources, instructions
 packages/project-brain/    Unity-project detector + brain generator
 packages/safety/           config, safety modes + per-target gates, snapshot + action log
+packages/unity-cli/        optional adapter for Unity's own `unity` CLI — editor discovery/launch/
+                           install, batch-mode build + tests, cache clean, environment report
 unity/UnityVibeOS/         Unity Editor package (C#) — installs in Unity projects
 docs/                      architecture, MCP tools, Unity package, safety, manual checklist
 .planning/                 plan/phases/status/verify/decisions (GSD-style)

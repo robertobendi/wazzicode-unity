@@ -4,7 +4,7 @@ All tools return a `ToolEnvelope`. Success:
 
 ```json
 { "ok": true, "data": {...}, "warnings": [],
-  "meta": { "source": "unity_bridge|mock|git|project_brain|filesystem",
+  "meta": { "source": "unity_bridge|mock|git|project_brain|filesystem|unity_cli",
             "durationMs": 0, "detailLevel": "summary|normal|full" } }
 ```
 
@@ -16,9 +16,9 @@ Failure:
   "meta": { ... } }
 ```
 
-Stable error codes: `UNITY_NOT_CONNECTED`, `UNITY_COMPILING`, `UNITY_RELOADING`, `TEST_FRAMEWORK_MISSING`, `PLAY_MODE_REQUIRED`, `PROJECT_IDENTITY_MISMATCH`, `FEATURE_UNAVAILABLE`, `OBJECT_NOT_FOUND`, `ASSET_NOT_FOUND`, `INVALID_ARGUMENT`, `SAFETY_MODE_BLOCKED`, `WRITE_REQUIRES_SNAPSHOT`, `UNSUPPORTED_UNITY_VERSION`, `INTERNAL_ERROR`, `MOCK_MODE_ACTIVE`, `BRIDGE_TIMEOUT`, `MALFORMED_BRIDGE_RESPONSE`, `TOOL_NOT_IMPLEMENTED`, `PROJECT_NOT_FOUND`, `GIT_NOT_AVAILABLE`.
+Stable error codes: `UNITY_NOT_CONNECTED`, `UNITY_COMPILING`, `UNITY_RELOADING`, `TEST_FRAMEWORK_MISSING`, `PLAY_MODE_REQUIRED`, `PROJECT_IDENTITY_MISMATCH`, `FEATURE_UNAVAILABLE`, `OBJECT_NOT_FOUND`, `ASSET_NOT_FOUND`, `INVALID_ARGUMENT`, `SAFETY_MODE_BLOCKED`, `WRITE_REQUIRES_SNAPSHOT`, `UNSUPPORTED_UNITY_VERSION`, `INTERNAL_ERROR`, `MOCK_MODE_ACTIVE`, `BRIDGE_TIMEOUT`, `MALFORMED_BRIDGE_RESPONSE`, `TOOL_NOT_IMPLEMENTED`, `PROJECT_NOT_FOUND`, `GIT_NOT_AVAILABLE`, `UNITY_CLI_UNAVAILABLE`, `UNITY_CLI_FAILED`, `EDITOR_HOLDS_PROJECT`.
 
-## Implemented (75 tools)
+## Implemented (81 tools)
 
 ### Context & inspection
 
@@ -68,6 +68,27 @@ Screenshot tools return `{source, width, height, mimeType, pngBase64, savedTo?, 
 | Tool | Source | Notes |
 |---|---|---|
 | `unity_run_tests` | `unity_bridge` | Runs EditMode/PlayMode tests and returns structured pass/fail + messages/stack traces. Starts the run then waits server-side (`test.await` long-poll) to completion, surviving the PlayMode domain reload (run state held in `SessionState`); falls back to `test.status` polling on older packages. Returns `TEST_FRAMEWORK_MISSING` if the package is absent. |
+
+### Editor lifecycle & batch mode (Unity CLI)
+
+These are the only tools that do **not** talk to the bridge. They drive Unity's own `unity` CLI, so
+they work when no Editor is running — which is exactly when they are needed. The CLI is optional:
+without it every tool here returns `UNITY_CLI_UNAVAILABLE` carrying the manual instructions, and
+nothing else in the server changes.
+
+| Tool | Source | Notes |
+|---|---|---|
+| `unity_launch_editor` | `unity_cli` | Ensures an Editor is running for this project and its bridge answers. Resolves the pinned version from `ProjectVersion.txt`, starts it, polls the bridge, and reports which step blocked (`already_running`, `became_ready`, `launched`, `editor_not_installed`, `cli_unavailable`, `editor_running_without_bridge`, `launch_failed`, `launch_timeout`). Waits for an Editor that is *already* booting instead of starting a second one. |
+| `unity_environment` | `unity_cli` | Read-only machine report: installed Editor versions, the version this project needs and whether it is installed, whether an Editor holds the project (bridge / live PID / `Temp/UnityLockfile`), CLI availability, optional licence state and Hub project registry, plus ordered suggestions. |
+| `unity_install_editor` | `unity_cli` | Installs an Editor version (+ optional modules) — defaults to the project's own version and passes its changeset so archived releases resolve. `dryRun:true` reports the plan. Gated by the `build` write target. |
+| `unity_build_player` | `unity_cli` | Real player build in batch mode. Returns `{succeeded, outputPath, logFile, errors[], logTail[]}` — error lines lifted out of a 20k-line Unity log. Needs the Editor **closed** (`EDITOR_HOLDS_PROJECT` otherwise). Gated by the `build` write target. |
+| `unity_run_tests_headless` | `unity_cli` | Test Framework run in a headless Editor, with the NUnit report parsed into the same counts/failures shape `unity_run_tests` returns. For CI or a closed Editor only — a cold batch start is far slower than the in-Editor path. |
+| `unity_project_clean` | `unity_cli` | Deletes regenerable caches (`Library`, `Temp`, `Logs`) — the standard corrupt-import repair. Dry run by default; needs the Editor closed. Gated by the `build` write target. |
+
+`unity_orient` and `unity_verify` use the same launch machinery implicitly: if the bridge is silent
+when they start and `autoLaunchEditor` is on (default), they start the Editor, wait, and then do
+their normal work — reporting what they did in `warnings[]`. Pass `autoLaunch:false` to opt out.
+`unity_diagnose_connection` takes `repair:true` to do it explicitly and re-diagnose afterwards.
 
 ### Play mode & runtime inspection
 

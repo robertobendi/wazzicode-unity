@@ -17,6 +17,7 @@ const KNOWN = [
   { id: "mcp_config", label: "Connecting your agent to Unity" },
   { id: "gitignore", label: "Tidying project settings" },
   { id: "doctor", label: "Double-checking everything" },
+  { id: "launch_editor", label: "Opening Unity" },
 ] as const;
 
 type RowState = "pending" | "running" | "done" | "fail";

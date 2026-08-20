@@ -23,7 +23,7 @@ export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unk
   description: string;
   inputShape: TShape;
   /** Stable hint of what this tool needs. Used by docs and `uvibe doctor`. */
-  requires: Array<"unity_bridge" | "filesystem" | "git" | "project_brain">;
+  requires: Array<ToolRequirement>;
   /** Mutates project state. The server gates these behind safetyMode and logs them. */
   write?: boolean;
   /** What kind of state a write tool touches; drives per-target safety flags. */
@@ -35,7 +35,7 @@ export interface ToolDef<TShape extends ZodRawShape = ZodRawShape, TOutput = unk
 }
 
 /** What a tool declares it needs to run. Used by docs and `uvibe doctor`. */
-export type ToolRequirement = "unity_bridge" | "filesystem" | "git" | "project_brain";
+export type ToolRequirement = "unity_bridge" | "filesystem" | "git" | "project_brain" | "unity_cli";
 
 /**
  * Registry-side view of a tool with its generics erased. `ToolDef<Shape, Out>` is NOT

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CompileStatus, ConsoleLogsResult, TestRunStatus, ToolEnvelope } from "@uvibe/core";
 import { ToolContext, ToolDef } from "../registry.js";
 import { isUnknownMethodError, ok } from "./_helpers.js";
+import { autoLaunchEditor } from "./_editorReady.js";
 import { reportProgress, withRelayedProgress } from "../interaction.js";
 import { unityWaitForCompile } from "./unityWaitForCompile.js";
 import { unityRefreshAssets } from "./unityRefreshAssets.js";
@@ -20,6 +21,10 @@ const InputShape = {
   testMode: z.enum(["EditMode", "PlayMode"]).optional().describe("Test mode (default EditMode)."),
   testFilter: z.string().optional().describe("Scope tests to a full-name filter."),
   compileTimeoutMs: z.number().int().min(500).max(300_000).optional(),
+  autoLaunch: z
+    .boolean()
+    .optional()
+    .describe("Start the Unity Editor through Unity's CLI when none is running (default: the autoLaunchEditor config flag, on)."),
 };
 
 export const unityVerify: ToolDef<typeof InputShape, unknown> = {
@@ -37,6 +42,15 @@ export const unityVerify: ToolDef<typeof InputShape, unknown> = {
     // Sub-tools report through the same counter, so the compile wait and test run keep the
     // client's idle timer alive without restarting the numbering.
     const sub = withRelayedProgress(ctx, tick);
+
+    // A verdict is worthless if there is no Editor to verify against, and an Editor that died
+    // mid-session is the common case here (the user quit Unity between edits). Bring it back
+    // before deciding anything, rather than returning UNITY_NOT_CONNECTED as a "failure".
+    if (args.autoLaunch !== false && !(await ctx.bridge.isConnected())) {
+      const launch = await autoLaunchEditor(ctx, { progressLabel: "verify" });
+      if (launch.attempted && launch.summary) warnings.push(launch.summary);
+    }
+
     tick("refreshing assets…");
 
     const refreshEnv = (await unityRefreshAssets.run({}, sub)) as ToolEnvelope<CompileStatus>;

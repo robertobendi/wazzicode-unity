@@ -17,7 +17,7 @@ export const SERVER_INSTRUCTIONS = `Unity Vibe OS — the unity_* tools read and
 5. Send a known multi-step edit as ONE unity_batch call, not many round trips.
 6. Captures return real images: unity_capture_game_view for a still, unity_capture_frames for motion (animation, movement, timing). On macOS never call unity_capture_editor_window — it returns FEATURE_UNAVAILABLE.
 
-BRIDGE STATE: UNITY_RELOADING = mid domain reload; recoverable and auto-retried, just proceed. UNITY_NOT_CONNECTED = no Editor open for this project; ask the user to open Unity. UNITY_EDITOR_STALLED = Unity frozen while unfocused; retrying is USELESS — ask the user to focus Unity or enable Window ▸ Unity Vibe OS ▸ Keep Unity awake. Never retry a stalled or timed-out call more than twice.
+BRIDGE STATE: UNITY_RELOADING = mid domain reload; recoverable and auto-retried, just proceed. UNITY_NOT_CONNECTED = no Editor open for this project; unity_orient already tries to start one — if it still fails, call unity_launch_editor and only ask the user when that says it cannot. UNITY_EDITOR_STALLED = Unity frozen while unfocused; retrying is USELESS — ask the user to focus Unity or enable Window ▸ Unity Vibe OS ▸ Keep Unity awake. Never retry a stalled or timed-out call more than twice.
 
 Architecture / ownership / "what handles this?" → unity_query_project_brain (or the unity://project-brain resource). unity_manage_tools trims unused tool groups.`;
 

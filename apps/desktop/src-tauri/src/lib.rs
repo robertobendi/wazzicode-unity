@@ -128,6 +128,9 @@ pub fn run() {
             commands::onboarding::onboarding_check_cli,
             commands::onboarding::onboarding_install_cli,
             commands::onboarding::onboarding_setup_project,
+            commands::unity_editor::unity_editor_environment,
+            commands::unity_editor::unity_editor_launch,
+            commands::unity_editor::unity_hub_projects,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

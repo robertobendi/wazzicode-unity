@@ -573,6 +573,14 @@ fn setup_blocking(
     // (g) Verify with doctor --json.
     let summary = run_doctor_summary(&app, &uvibe_cmd, &uvibe_prefix, &proj, &mut steps);
 
+    // (h) Start the Unity Editor. Nothing in Studio works until one is running, and Unity's CLI
+    // can do it — so setup finishes with a live project rather than an instruction. `--no-wait`
+    // keeps this to a couple of seconds: the status poller reports the bridge when it comes up,
+    // and a machine without the Unity CLI simply reports that and moves on.
+    if summary.as_ref().map(|s| s.bridge_reachable) != Some(true) {
+        steps.push(run_launch_step(&app, &uvibe_cmd, &uvibe_prefix, &proj));
+    }
+
     Ok(SetupResult { steps, summary })
 }
 
@@ -619,6 +627,43 @@ fn run_uvibe_step(
             ok: false,
             detail: e.to_string(),
         },
+    }
+}
+
+/// Best-effort "open the Unity Editor" step.
+///
+/// Deliberately never fails the setup: the project is fully prepared whether or not Unity could
+/// be started here, and the most common reason it can't is simply that Unity's `unity` CLI is not
+/// installed on this machine. `--no-wait` keeps it to a couple of seconds — the bridge status
+/// poller reports the Editor when it finishes loading.
+fn run_launch_step(app: &AppHandle, cmd: &str, prefix: &[String], proj: &str) -> SetupStep {
+    emit_line(app, "launch_editor", "Opening the Unity Editor…");
+    let args = ["launch", "--project", proj, "--no-wait", "--json"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let detail = match crate::mcpconfig::resolved_uvibe_command(cmd, prefix, &args) {
+        Err(e) => e.to_string(),
+        Ok(command) => match proc::output_with_timeout(command, Duration::from_secs(60)) {
+            Err(e) => e.to_string(),
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                match serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+                    Ok(v) => v
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("started")
+                        .to_string(),
+                    Err(_) => "Unity CLI unavailable — open the project in Unity yourself.".into(),
+                }
+            }
+        },
+    };
+    emit_line(app, "launch_editor", &detail);
+    SetupStep {
+        id: "launch_editor".into(),
+        ok: true,
+        detail,
     }
 }
 

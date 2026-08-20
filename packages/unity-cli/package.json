@@ -1,5 +1,5 @@
 {
-  "name": "@uvibe/safety",
+  "name": "@uvibe/unity-cli",
   "version": "0.6.0",
   "private": true,
   "type": "module",
@@ -19,7 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@uvibe/core": "workspace:*",
-    "zod": "^3.23.8"
+    "@uvibe/bridge-client": "workspace:*",
+    "@uvibe/core": "workspace:*"
   }
 }

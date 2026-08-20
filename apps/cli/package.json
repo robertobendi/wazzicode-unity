@@ -1,6 +1,6 @@
 {
   "name": "@uvibe/cli",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -21,6 +21,7 @@
     "@uvibe/core": "workspace:*",
     "@uvibe/mcp-server": "workspace:*",
     "@uvibe/project-brain": "workspace:*",
-    "@uvibe/safety": "workspace:*"
+    "@uvibe/safety": "workspace:*",
+    "@uvibe/unity-cli": "workspace:*"
   }
 }

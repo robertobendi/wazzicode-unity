@@ -25,6 +25,11 @@ import type {
 } from "@/types/projectMap";
 import type { UnityDiagnosticsSnapshot } from "@/types/unityDiagnostics";
 import type {
+  HubProject,
+  UnityEnvironment,
+  UnityLaunchResult,
+} from "@/types/unityEnvironment";
+import type {
   CliStatus,
   OnboardingStatus,
   SetupResult,
@@ -106,6 +111,25 @@ export const api = {
     invoke<UnityDiagnosticsSnapshot>("unity_diagnostics", { project }),
   unityClearConsole: (project: string) =>
     invoke<void>("unity_clear_console", { project }),
+
+  // Unity Editor lifecycle, via Unity's own `unity` CLI (wrapped by uvibe). A machine without
+  // that CLI still gets a well-formed answer: `cli.available: false` / outcome "cli_unavailable".
+  unityEditorEnvironment: (project: string) =>
+    invoke<UnityEnvironment>("unity_editor_environment", { project }),
+  /** Start the Editor. `wait: false` returns as soon as the launch is underway. */
+  unityEditorLaunch: (
+    project: string,
+    opts: { install?: boolean; wait?: boolean } = {},
+  ) =>
+    invoke<UnityLaunchResult>("unity_editor_launch", {
+      project,
+      install: opts.install ?? false,
+      wait: opts.wait ?? true,
+    }),
+  unityHubProjects: () =>
+    invoke<{ available: boolean; projects: HubProject[]; error?: string }>(
+      "unity_hub_projects",
+    ),
 
   // Resource funnel: copy dropped/pasted files into the project inbox.
   stagePaths: (project: string, paths: string[]) =>

@@ -10,6 +10,7 @@ import {
 import { createHttpBridgeClient, readBridgeDiscovery } from "@uvibe/bridge-client";
 import { loadConfig } from "@uvibe/safety";
 import { brainAgeMs } from "@uvibe/project-brain";
+import { describeEditorEnvironment, type EditorEnvironment } from "@uvibe/unity-cli";
 import { CommandResult, GlobalOptions } from "../options.js";
 
 export interface DoctorReport {
@@ -51,6 +52,11 @@ export interface DoctorReport {
     exists: boolean;
     ageMs?: number;
   };
+  /**
+   * Machine-side facts from Unity's own CLI: which Editors are installed, whether this project's
+   * version is one of them, and whether the CLI is there to fix it. Absent in mock mode.
+   */
+  editorEnvironment?: EditorEnvironment;
   suggestions: string[];
 }
 
@@ -128,6 +134,14 @@ export async function collectDoctorReport(
     : await probeBridge(projectPath, disco !== null);
   const git = await probeGit(projectPath);
   const ageMs = await brainAgeMs(projectPath);
+  // Cheap (~30ms, cached): CLI presence + installed editors are read from the Hub's own metadata,
+  // and everything else here comes off the filesystem. Skipped in mock mode with the bridge probe.
+  const editorEnvironment = opts.mock
+    ? undefined
+    : await describeEditorEnvironment(projectPath, {
+        ...(cfg.unityCliPath ? { cliPath: cfg.unityCliPath } : {}),
+        probeBridge: async () => bridge.reachable === true,
+      });
 
   const suggestions: string[] = [];
   if (!cfgExists) suggestions.push("Run `uvibe init` to create `.unity-vibe/config.json`.");
@@ -153,6 +167,13 @@ export async function collectDoctorReport(
     suggestions.push(
       "The UnityVibeOS package in Unity predates the background keep-awake driver — update it (`uvibe install-unity-package`) or tool calls will hang while Unity is unfocused."
     );
+  if (editorEnvironment) {
+    // The environment's own suggestions explain most "bridge unreachable" reports: no Editor
+    // running, or the pinned Editor version isn't installed at all.
+    for (const suggestion of editorEnvironment.suggestions) {
+      if (!suggestions.includes(suggestion)) suggestions.push(suggestion);
+    }
+  }
   if (ageMs === null) suggestions.push("Run `uvibe brain` to generate the project brain.");
   if (!git.isRepo) suggestions.push("Initialize git in the project so write tools can snapshot before edits.");
 
@@ -165,6 +186,7 @@ export async function collectDoctorReport(
     bridge: { host: bridgeHost, port: bridgePort, ...bridge },
     git,
     brain: { exists: ageMs !== null, ageMs: ageMs ?? undefined },
+    ...(editorEnvironment ? { editorEnvironment } : {}),
     suggestions,
   };
 }
@@ -196,6 +218,22 @@ export function formatDoctorReport(r: DoctorReport): string {
   lines.push(`Unity bridge:   ${tick(r.bridge.reachable && !r.bridge.editorStalled)} ${bridgeLine}`);
   lines.push(`Git:            ${tick(r.git.isRepo)} ${r.git.isRepo ? `${r.git.branch ?? "(detached)"} — ${r.git.clean ? "clean" : "dirty"}` : r.git.available ? "(not a repo)" : "(git unavailable)"}`);
   lines.push(`Brain:          ${tick(r.brain.exists)} ${r.brain.exists ? `${formatAge(r.brain.ageMs!)} old` : "(missing — run `uvibe brain`)"}`);
+  const env = r.editorEnvironment;
+  if (env) {
+    lines.push(
+      `Unity CLI:      ${tick(env.cli.available)} ${
+        env.cli.available ? `${env.cli.version ?? "unknown version"} (${env.cli.path})` : "(not installed — `uvibe launch`/`uvibe build` unavailable)"
+      }`
+    );
+    const installed = env.editors.map((editor) => editor.version).join(", ");
+    lines.push(
+      `Editors:        ${tick(env.match.installed)} ${
+        env.project.required.editorVersion
+          ? `${env.project.required.editorVersion} ${env.match.installed ? "installed" : "MISSING"}${installed ? ` — have ${installed}` : ""}`
+          : installed || "(none found)"
+      }`
+    );
+  }
   if (r.suggestions.length) {
     lines.push("");
     lines.push("Suggestions:");

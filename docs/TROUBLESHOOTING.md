@@ -7,6 +7,26 @@
 - If a previous Unity instance crashed and the port is still bound, run `Window → Unity Vibe OS → Restart Bridge`.
 - Some firewalls block even loopback HTTP. Confirm with `curl http://127.0.0.1:38578/health`.
 
+## `uvibe launch` says the Editor started but the bridge never answers
+
+Check what the Unity process is actually doing:
+
+- **It is still importing.** A first open of a large project routinely exceeds the 5-minute default. Re-run `uvibe launch` (or `unity_launch_editor`) — it detects the already-running Editor and waits instead of starting a second one.
+- **The package is missing from the project that opened.** `uvibe doctor` reports `Unity package: (not detected)`; fix with `uvibe install-unity-package`.
+- **The Unity process is alive but has no window.** On macOS check with `lsappinfo list | grep -A5 '"Unity" ASN'`: `type="BackgroundOnly"` means Unity was started without a desktop session — from an ssh session, a CI runner, or an agent shell that has no GUI session — so it never boots the editor loop and never starts the bridge. Nothing in the project is wrong; start Unity from Terminal, the Unity Hub, or the Studio app instead.
+
+## Unity CLI commands report `UNITY_CLI_UNAVAILABLE`
+
+`unity_launch_editor`, `unity_install_editor`, `unity_build_player`, `unity_run_tests_headless` and `unity_project_clean` are driven by Unity's own `unity` CLI, which is a separate, optional install.
+
+- Confirm what the machine has: `uvibe env` (also shows installed Editor versions and whether this project's pinned version is one of them).
+- Point at a non-standard install with `unityCliPath` in `.unity-vibe/config.json`, or the `UVIBE_UNITY_CLI` environment variable.
+- Everything else — the whole bridge toolset — works without it.
+
+## `EDITOR_HOLDS_PROJECT` from build / headless tests / clean
+
+Unity allows exactly one process per project, and batch-mode work needs the project to itself. Either quit the Editor, or use the in-Editor equivalents (`unity_verify` / `unity_run_tests`) which are faster anyway. `uvibe env` shows what is holding the project: an answering bridge, a live Editor PID, or a `Temp/UnityLockfile` (which can also be a stale lock left by a crash — deleting it while no Unity is running is safe).
+
 ## "Cannot find module @uvibe/core" when running tests
 
 - Run `pnpm install` first. Symlinks live in each workspace package's `node_modules/`.

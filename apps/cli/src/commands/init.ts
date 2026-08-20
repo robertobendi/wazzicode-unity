@@ -20,6 +20,9 @@ const GITIGNORE_ENTRIES = [
   ".unity-vibe/action_log.jsonl",
   ".unity-vibe/snapshots/",
   ".unity-vibe/screenshots/",
+  // Unity CLI answers cached per machine, and headless test reports.
+  ".unity-vibe/cache/",
+  ".unity-vibe/test-results/",
 ];
 
 export async function runInit(g: GlobalOptions): Promise<CommandResult> {
@@ -137,6 +140,9 @@ function renderAgentBlock(projectPath: string, begin: string, end: string): stri
     "- `unity_check_git_status` — repo state before any change.",
     "- `unity_generate_project_brain` — explicitly rebuild the maintained project map.",
     "- `unity_query_project_brain` — query the maintained project map with bounded, source-backed results.",
+    "- `unity_launch_editor` — start the Unity Editor for this project (right version, waits for the bridge) when none is running.",
+    "- `unity_environment` — what the machine has: installed Editor versions vs. the one this project needs, whether an Editor holds the project, Unity CLI availability.",
+    "- `unity_build_player`, `unity_run_tests_headless`, `unity_project_clean` — batch-mode work with the Editor closed (real player builds, headless tests, cache repair).",
     "",
     "### Workflow rules",
     "",
@@ -150,7 +156,9 @@ function renderAgentBlock(projectPath: string, begin: string, end: string): stri
     "",
     "### Bridge",
     "",
-    "Unity bridge runs at `127.0.0.1:38578`. It auto-starts when the Unity Editor is open with the `com.uvibe.os` package installed. If a `unity_*` tool returns `UNITY_NOT_CONNECTED`, ask the user to open Unity.",
+    "Unity bridge runs at `127.0.0.1:38578`. It auto-starts when the Unity Editor is open with the `com.uvibe.os` package installed.",
+    "",
+    "If a `unity_*` tool returns `UNITY_NOT_CONNECTED`, do not stop and ask the user to open Unity: `unity_orient` and `unity_verify` already try to start the Editor themselves, and `unity_launch_editor` does it on demand. Ask the user only when that tool reports it cannot — e.g. `UNITY_CLI_UNAVAILABLE` (Unity's own `unity` CLI is not installed here) or the Editor version this project pins is missing.",
     "",
     "### Re-verify",
     "",

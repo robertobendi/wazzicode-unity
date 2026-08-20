@@ -20,7 +20,8 @@ This repository builds **Unity Vibe OS**, a local Unity-aware operating layer fo
 - Project and agent access are managed automatically by Unity Vibe Studio. Use the tools directly without asking the user to change permissions or run setup commands.
 - Use `unity_check_git_status` before suggesting any change that modifies tracked files.
 - Use `unity_generate_project_brain` (or `uvibe brain`) to refresh `.unity-vibe/` after major work.
-- Tools are organized into groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`) and all are active. Call `unity_manage_tools` to `list_groups` or temporarily activate/deactivate one when you need a smaller tool list. Toggling updates the tool list live (no reconnect).
+- **Never end a task with "please open Unity".** `unity_orient` and `unity_verify` start the Editor themselves when the bridge is silent (see "Unity CLI integration" below); if you need it explicitly, call `unity_launch_editor`. Only ask the user when that tool reports it cannot — e.g. `UNITY_CLI_UNAVAILABLE`, or the pinned Editor version isn't installed and installing it wasn't authorized.
+- Tools are organized into groups (`core`, `scripting`, `reflection`, `runtime`, `testing`, `codegen`, `machine`) and all are active. Call `unity_manage_tools` to `list_groups` or temporarily activate/deactivate one when you need a smaller tool list. Toggling updates the tool list live (no reconnect).
 - `unity_get_scene_hierarchy` is capped at `maxNodes` (default 5000); a big scene returns `truncated:true` (and `childrenOmitted` on depth-clipped nodes) — narrow with `scenePath`/`maxDepth` rather than dumping everything.
 
 ### Canonical edit loop (follow this without being told)
@@ -58,6 +59,19 @@ For writing and editing C# (you can author game code directly — don't hand it 
 
 `unity_execute_code` compiles and runs a C# snippet *inside* the Editor (the snippet is the body of `static object Execute()`; `return` a value to get it back, and logs are captured). Reach for it for one-off Editor automation that has no dedicated tool — bulk operations, recomputing data, probing an API — instead of writing a throwaway script. Studio makes it available automatically and protects the task with checkpoints and an action log. It needs the project's Api Compatibility Level set to ".NET Framework"; otherwise it returns `FEATURE_UNAVAILABLE` and you should use `unity_create_script` + `unity_verify` instead.
 
+### Unity CLI integration (`@uvibe/unity-cli`)
+
+Unity ships its own `unity` CLI (editor discovery/installs, `unity open`, batch-mode build/test, the Hub project registry). `packages/unity-cli` wraps it as an **optional accelerator** and the `machine` tool group exposes it. Design rules — keep them:
+
+- **Optional, never a dependency.** The CLI is user-installed and still beta. Every entry point returns a typed failure (`UNITY_CLI_UNAVAILABLE`) instead of throwing, and the rest of the product behaves exactly as before without it. It is not part of `bootstrap.mjs`.
+- **Always `--json --non-interactive --no-banner`, never `--no-pager`.** A fresh CLI install prompts for analytics consent on first run — an inherited stdin would hang a tool call forever — and the beta's subcommands reject `--no-pager` even though it is documented as global (paging is suppressed via `UNITY_NO_PAGER` in the child env).
+- **Every call is time-bounded.** `unity license status` has been observed to hang indefinitely; `unity doctor` takes ~13s because it verifies the account over the network. Timeouts live in `commands.ts` and slow answers are TTL-cached (in memory *and* on disk, keyed by binary path).
+- **Liveness comes from our own bridge, not `unity status`.** The CLI's `status` only sees Editors running Unity's *Pipeline* package. `Library/UnityVibeOS/bridge.json` + the PID + `Temp/UnityLockfile` are what we trust.
+- **Batch mode requires a closed Editor.** Unity allows one process per project, so `unity_build_player` / `unity_run_tests_headless` / `unity_project_clean` fail fast with `EDITOR_HOLDS_PROJECT` rather than letting Unity fail deep inside. They are the fallback for "no Editor available", never a replacement for `unity_verify`.
+- **Auto-launch is config-gated and reported.** `autoLaunchEditor` (default true) lets `unity_orient` / `unity_verify` / `unity_diagnose_connection({repair:true})` start the Editor; `autoInstallEditor` (default **false**) governs multi-GB downloads. Anything auto-started is announced in the tool's `warnings[]`.
+
+`uvibe env` is the fastest way to see what a machine actually has; `uvibe launch` is the same operation from a terminal.
+
 ### Editor focus
 
 - The bridge keeps Unity processing tool calls (and running play mode) even when the Editor window is **not focused**, so you don't have to click into Unity for compiles, play-mode steps, or captures to proceed. This "Keep Unity Awake" driver is on by default; the user can toggle it under `Window ▸ Unity Vibe OS ▸ Keep Unity Awake (background)` (it costs some background CPU). If a user reports tool calls only completing when they click Unity, that toggle is off.
@@ -73,14 +87,20 @@ This server is built for Claude Code specifically and leans on MCP features Clau
 ### When the bridge is unavailable
 
 - `UNITY_RELOADING` — the bridge is mid script-domain reload (post-compile or entering play). It is **recoverable**; tool calls already retry for ~20s. Just wait; don't treat it as fatal.
-- `UNITY_NOT_CONNECTED` — no Unity Editor with the UnityVibeOS package is running for this project. Ask the user to open Unity, then `uvibe doctor`.
+- `UNITY_NOT_CONNECTED` — no Unity Editor with the UnityVibeOS package is running for this project. Don't stop: call `unity_launch_editor` (or `uvibe launch`) to start it. Ask the user only if that fails.
+- `UNITY_CLI_UNAVAILABLE` — the action needs Unity's own `unity` CLI, which isn't installed on this machine. Do the step manually (Hub/Editor) and tell the user; every bridge tool is unaffected.
+- `UNITY_CLI_FAILED` — the CLI ran and reported an error; its own message and output are in `message`/`details`.
+- `EDITOR_HOLDS_PROJECT` — batch-mode work (build, headless tests, cache clean) needs the project to itself. Use the in-Editor tool, or have the user quit Unity.
 - `UNITY_EDITOR_STALLED` — Unity's editor loop is frozen (window unfocused with "Keep Unity awake (background)" off or the package too old to have it). Retrying is useless: nothing progresses until Unity wakes. Stop and ask the user to focus the Unity window or enable `Window ▸ Unity Vibe OS ▸ Keep Unity awake (background)`. The client detects this via the bridge's GET `/health` (served off the main thread, so it answers even while frozen) and `unity_orient` warns up front when keep-awake is off.
 - `PROJECT_IDENTITY_MISMATCH` — a Unity Editor answered but for a different project (the client auto-discovers the bridge via `Library/UnityVibeOS/bridge.json` and verifies project identity). Ask the user to open the correct project.
 - `TEST_FRAMEWORK_MISSING` — `unity_run_tests` needs `com.unity.test-framework`; suggest installing it.
 
 ## Useful CLI
 
-- `uvibe doctor` — health check (MCP, bridge, brain, git, config).
+- `uvibe doctor` — health check (MCP, bridge, brain, git, config, Unity CLI + installed editors).
+- `uvibe launch [--install]` — make sure the Editor is running for this project (starts it via Unity's CLI).
+- `uvibe env [--license] [--projects]` — machine-side Unity environment; `uvibe projects` lists the Hub registry.
+- `uvibe build --target=<T> --output=<path>` / `uvibe test-headless` / `uvibe clean [--apply]` — batch-mode work, Editor closed.
 - `uvibe brain` — refresh project brain.
 - `uvibe verify --mock` — MVP acceptance checks against the mock bridge.
 - `uvibe mcp-config` — print Claude MCP config snippet. `--target=codex` prints the `[mcp_servers.*]` TOML block (plus the `codex mcp add` one-liner) for the OpenAI Codex CLI, which reads TOML rather than `.mcp.json`.
@@ -114,6 +134,7 @@ Plan / phase / status / verify / decisions live in `.planning/`. The format mirr
   - **asset** (`allowAssetWrites`, default true): `unity_create_scriptable_object`, `unity_create_material`, `unity_import_asset`, `unity_slice_sprite`, `unity_animator_edit_transition`, `unity_delete_asset`.
   - **script** (`allowScriptWrites`, default true): `unity_create_script`, `unity_apply_text_edits`, `unity_script_edit`. Read-side `unity_read_script`/`unity_get_script_sha`/`unity_find_in_file` are ungated. Script writes hit disk and trigger a recompile (not Unity-Undoable — recovery is git / autoSnapshot), so follow with `unity_verify`.
   - **console**: `unity_clear_console`. **editor** (`allowMenuItems` + `allowedMenuItems` allowlist): `unity_execute_menu_item`.
+  - **build** (`allowBuilds`, default true): `unity_build_player`, `unity_project_clean`, `unity_install_editor` — batch-mode Editor work that runs *outside* the live Editor (player builds, deleting regenerable caches, downloading an Editor). Blocked entirely in `read_only`/`suggest`. `unity_run_tests_headless` uses the same batch-mode machinery but only reads, so it is ungated.
   - Non-write but state-touching: `unity_open_scene`/`unity_load_scene_additive`/`unity_open_prefab` (navigation; allowed in `read_only`, guarded against discarding unsaved changes) and `unity_simulate_input`/`unity_set_animator_parameter`/`unity_get_animator_state` (runtime/ephemeral).
   - Studio enables the tools automatically. Scene/prefab mutations are wrapped in Unity's Undo system (Ctrl+Z); asset/script writes recover through the pre-task git checkpoint or automatic snapshot. Every write is recorded to `.unity-vibe/action_log.jsonl`.
 - The Test Framework integration lives in a separate assembly guarded by `UNITY_INCLUDE_TESTS`, so the core bridge still compiles when `com.unity.test-framework` is absent.

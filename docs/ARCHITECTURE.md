@@ -27,7 +27,8 @@
 | `@uvibe/mcp-server` | MCP server (stdio), 8 MVP tools, HTTP bridge client, mock bridge. Depends on core, project-brain, safety. |
 | `@uvibe/project-brain` | Filesystem-only Unity detector + brain generator. Writes `.unity-vibe/`. Depends on core, safety. |
 | `@uvibe/safety` | Config schema, safety-mode evaluator, snapshot + action-log primitives. |
-| `@uvibe/cli` (`uvibe`) | Init/serve/brain/doctor/verify/mcp-config commands. Each is testable as a function (no spawn). |
+| `@uvibe/unity-cli` | Optional adapter for Unity's own `unity` CLI: binary discovery, JSON-envelope exec with hard timeouts, TTL cache, editor/environment queries, the launch state machine, batch-mode build/test/clean, NUnit report parsing. Never throws and never a hard dependency — every entry point degrades when the CLI is absent. Depends on core + bridge-client (it needs the bridge only to *probe* liveness). |
+| `@uvibe/cli` (`uvibe`) | Init/serve/brain/doctor/verify/mcp-config commands, plus the Unity-CLI-backed launch/env/projects/build/test-headless/clean. Each is testable as a function (no spawn). |
 | `unity/UnityVibeOS` | Unity Editor C# package. HttpListener bridge + inspectors. |
 
 ## Two envelopes

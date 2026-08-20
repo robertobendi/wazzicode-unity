@@ -14,3 +14,4 @@ pub mod screenshot;
 pub mod sessions;
 pub mod settings;
 pub mod status;
+pub mod unity_editor;

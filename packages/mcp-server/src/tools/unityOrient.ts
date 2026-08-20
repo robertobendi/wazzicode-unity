@@ -11,6 +11,7 @@ import {
 } from "../knowledgeProjection.js";
 import { ToolDef } from "../registry.js";
 import { BRIDGE_METHODS, bridgeCall, ok } from "./_helpers.js";
+import { autoLaunchEditor } from "./_editorReady.js";
 import { unityCheckGitStatus } from "./unityCheckGitStatus.js";
 
 /**
@@ -29,6 +30,10 @@ const InputShape = {
     .max(1_000)
     .optional()
     .describe("The user's current request. When provided, orientation includes bounded relevant matches from the maintained project map."),
+  autoLaunch: z
+    .boolean()
+    .optional()
+    .describe("Start the Unity Editor through Unity's CLI when none is running (default: the autoLaunchEditor config flag, on). Pass false to orient without touching the Editor."),
 };
 
 export const unityOrient: ToolDef<typeof InputShape, unknown> = {
@@ -40,6 +45,15 @@ export const unityOrient: ToolDef<typeof InputShape, unknown> = {
   async run(args, ctx) {
     const problemLimit = args.problemLimit ?? 20;
     const warnings: string[] = [];
+
+    // Orientation is the mandated first call of every task, which makes it the one honest place to
+    // fix "no Editor is running" instead of reporting it. If the bridge is silent and the Unity CLI
+    // is installed, start the Editor and wait — the whole fan-out below then returns live state
+    // rather than six "unavailable" markers.
+    if (args.autoLaunch !== false && !(await ctx.bridge.isConnected())) {
+      const launch = await autoLaunchEditor(ctx, { progressLabel: "orient" });
+      if (launch.attempted && launch.summary) warnings.push(launch.summary);
+    }
     const section = (label: string, env: ToolEnvelope<unknown>): unknown => {
       if (env.ok) return env.data;
       warnings.push(`${label}: ${env.error.code}`);

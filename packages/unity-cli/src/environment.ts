@@ -1,0 +1,220 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { readBridgeDiscovery } from "@uvibe/bridge-client";
+import type { BridgeDiscovery } from "@uvibe/core";
+import { cliIdentity, licenseStatus, listInstalledEditors, type CliIdentity, type InstalledEditor } from "./commands.js";
+import type { RunOptions } from "./exec.js";
+
+/**
+ * The machine-side facts a Unity session depends on and that the bridge itself cannot answer:
+ * which Editor versions exist, whether *this* project's version is one of them, whether an Editor
+ * currently holds the project, and whether the CLI that could fix any of it is installed.
+ *
+ * Everything degrades: with no Unity CLI the report still carries the project's required version
+ * and the running-Editor state, both of which are read straight from disk.
+ */
+
+export interface ProjectVersionInfo {
+  /** e.g. "6000.3.8f1" */
+  editorVersion?: string;
+  /** Revision hash from m_EditorVersionWithRevision — needed to install an archived version. */
+  changeset?: string;
+}
+
+export interface EditorRunningState {
+  /** The UnityVibeOS bridge answered — an Editor is open on this project with our package. */
+  bridgeConnected: boolean;
+  /** Discovery file written by the bridge, if any. */
+  discovery: BridgeDiscovery | null;
+  /** The PID from the discovery file is still alive. */
+  editorProcessAlive: boolean;
+  /**
+   * Unity writes Temp/UnityLockfile while it holds a project. It answers "is a batch-mode build
+   * going to fail?" even when our package isn't installed. It can survive a crash, so it is
+   * reported as evidence, never as proof.
+   */
+  lockfilePresent: boolean;
+  lockfileAgeMs?: number;
+}
+
+export interface EditorMatch {
+  installed: boolean;
+  exact?: InstalledEditor;
+  /** Same major.minor, different patch — usually openable, always a project-version upgrade prompt. */
+  nearby: InstalledEditor[];
+}
+
+export interface EditorEnvironment {
+  cli: CliIdentity;
+  project: {
+    path: string;
+    isUnityProject: boolean;
+    required: ProjectVersionInfo;
+  };
+  editors: InstalledEditor[];
+  editorsError?: string;
+  match: EditorMatch;
+  running: EditorRunningState;
+  license?: { available: boolean; state?: string; detail?: Record<string, unknown>; error?: string };
+  /** Human-actionable, ordered most-blocking first. Empty means "nothing stands in the way". */
+  suggestions: string[];
+}
+
+export interface EnvironmentOptions extends RunOptions {
+  /** License lookup is the slowest and least reliable call; off unless asked for. */
+  includeLicense?: boolean;
+  force?: boolean;
+  /** Injectable for tests: reports whether the bridge answers for this project. */
+  probeBridge?: (projectPath: string) => Promise<boolean>;
+}
+
+export async function readProjectVersion(projectPath: string): Promise<ProjectVersionInfo> {
+  try {
+    const raw = await fs.readFile(path.join(projectPath, "ProjectSettings", "ProjectVersion.txt"), "utf8");
+    const version = /m_EditorVersion:\s*(\S+)/.exec(raw)?.[1];
+    const changeset = /m_EditorVersionWithRevision:\s*\S+\s*\(([^)]+)\)/.exec(raw)?.[1];
+    return { ...(version ? { editorVersion: version } : {}), ...(changeset ? { changeset } : {}) };
+  } catch {
+    return {};
+  }
+}
+
+export async function isUnityProject(projectPath: string): Promise<boolean> {
+  try {
+    await fs.access(path.join(projectPath, "ProjectSettings", "ProjectVersion.txt"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function pidAlive(pid: number | undefined): boolean {
+  if (!pid || pid <= 0) return false;
+  try {
+    // Signal 0 performs the permission/existence check without delivering a signal.
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the process exists but belongs to someone else — still alive.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Is an Editor holding this project right now? Cheap, and it never spawns anything. */
+export async function readEditorRunningState(
+  projectPath: string,
+  probeBridge?: (projectPath: string) => Promise<boolean>
+): Promise<EditorRunningState> {
+  const discovery = readBridgeDiscovery(projectPath);
+  let lockfilePresent = false;
+  let lockfileAgeMs: number | undefined;
+  try {
+    const stat = await fs.stat(path.join(projectPath, "Temp", "UnityLockfile"));
+    lockfilePresent = true;
+    lockfileAgeMs = Math.max(0, Date.now() - stat.mtimeMs);
+  } catch {
+    // No lockfile: no Editor has this project open (or it exited cleanly).
+  }
+  const bridgeConnected = probeBridge ? await probeBridge(projectPath) : false;
+  return {
+    bridgeConnected,
+    discovery,
+    editorProcessAlive: pidAlive(discovery?.pid),
+    lockfilePresent,
+    ...(lockfileAgeMs !== undefined ? { lockfileAgeMs } : {}),
+  };
+}
+
+/** True when the project is locked by an Editor, so batch-mode build/test/clean would fail. */
+export function editorHoldsProject(running: EditorRunningState): boolean {
+  return running.bridgeConnected || running.editorProcessAlive || running.lockfilePresent;
+}
+
+function matchEditors(required: string | undefined, editors: InstalledEditor[]): EditorMatch {
+  if (!required) return { installed: editors.length > 0, nearby: [] };
+  const exact = editors.find((editor) => editor.version === required);
+  if (exact) return { installed: true, exact, nearby: [] };
+  const minor = required.split(".").slice(0, 2).join(".");
+  return {
+    installed: false,
+    nearby: editors.filter((editor) => editor.version.startsWith(`${minor}.`)),
+  };
+}
+
+export async function describeEditorEnvironment(
+  projectPath: string,
+  opts: EnvironmentOptions = {}
+): Promise<EditorEnvironment> {
+  const [cli, projectIsUnity, required, running] = await Promise.all([
+    cliIdentity(opts),
+    isUnityProject(projectPath),
+    readProjectVersion(projectPath),
+    readEditorRunningState(projectPath, opts.probeBridge),
+  ]);
+
+  let editors: InstalledEditor[] = [];
+  let editorsError: string | undefined;
+  if (cli.available) {
+    const listed = await listInstalledEditors(opts);
+    if (listed.ok) editors = listed.data;
+    else editorsError = listed.message;
+  }
+
+  let license: EditorEnvironment["license"];
+  if (opts.includeLicense && cli.available) {
+    const status = await licenseStatus(opts);
+    license = status.ok
+      ? {
+          available: true,
+          state: pickLicenseState(status.data),
+          detail: status.data,
+        }
+      : { available: false, error: status.message };
+  }
+
+  const match = matchEditors(required.editorVersion, editors);
+  const suggestions: string[] = [];
+
+  if (!projectIsUnity) {
+    suggestions.push(
+      `${projectPath} does not look like a Unity project (no ProjectSettings/ProjectVersion.txt).`
+    );
+  }
+  if (!cli.available) {
+    suggestions.push(
+      "Install the Unity CLI (`unity`) to let the agent open the Editor, install missing versions, and build without you. Everything else keeps working without it."
+    );
+  } else if (projectIsUnity && required.editorVersion && !match.installed) {
+    suggestions.push(
+      match.nearby.length
+        ? `Unity ${required.editorVersion} is not installed (nearby: ${match.nearby.map((e) => e.version).join(", ")}). Install it with unity_install_editor or \`uvibe launch --install\`.`
+        : `Unity ${required.editorVersion} is not installed. Install it with unity_install_editor or \`uvibe launch --install\`.`
+    );
+  }
+  if (projectIsUnity && cli.available && match.installed && !running.bridgeConnected && !running.editorProcessAlive) {
+    suggestions.push("No Editor is open for this project — `uvibe launch` (or unity_launch_editor) can start it.");
+  }
+  if (license && license.available === false) {
+    suggestions.push(`Unity license state is unknown (${license.error}). Sign in with \`unity auth login\` if builds fail.`);
+  }
+
+  return {
+    cli,
+    project: { path: projectPath, isUnityProject: projectIsUnity, required },
+    editors,
+    ...(editorsError ? { editorsError } : {}),
+    match,
+    running,
+    ...(license ? { license } : {}),
+    suggestions,
+  };
+}
+
+/** The beta CLI's license payload shape isn't stable; pull a state-ish field without assuming one. */
+function pickLicenseState(data: Record<string, unknown>): string | undefined {
+  for (const key of ["state", "status", "licenseState", "type"]) {
+    const value = data[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}

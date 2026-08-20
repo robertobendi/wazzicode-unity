@@ -14,6 +14,7 @@ export default defineConfig({
       "@uvibe/mcp-server": r("./packages/mcp-server/src/index.ts"),
       "@uvibe/project-brain": r("./packages/project-brain/src/index.ts"),
       "@uvibe/safety": r("./packages/safety/src/index.ts"),
+      "@uvibe/unity-cli": r("./packages/unity-cli/src/index.ts"),
       "@uvibe/cli": r("./apps/cli/src/index.ts"),
     },
   },
