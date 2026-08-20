@@ -162,9 +162,13 @@ function findUnityProject(start) {
   return null;
 }
 
+// Topological: each entry only imports from the ones above it. A package missing here
+// builds *after* its dependents and the whole bootstrap fails on a fresh clone with
+// "Cannot find module '@uvibe/…'" — which is why bootstrap-smoke exists.
 const PACKAGES_BUILD_ORDER = [
   "packages/core",
   "packages/bridge-client",
+  "packages/unity-cli",
   "packages/safety",
   "packages/project-brain",
   "packages/mcp-server",
