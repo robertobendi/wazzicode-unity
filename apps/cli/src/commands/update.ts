@@ -23,6 +23,11 @@ import { mcpEntryIsStale, writeMcpConfig } from "./mcpConfig.js";
  * works with or without that CLI installed.
  */
 
+/** `--flag`, `--flag=true`, `--flag true` all mean yes; anything else (incl. `--flag=false`) means no. */
+function truthy(value: string | boolean | undefined): boolean {
+  return value === true || value === "true";
+}
+
 export interface ProjectUpdate {
   project: string;
   /** Editor package outcome. */
@@ -40,8 +45,10 @@ export interface ProjectUpdate {
 }
 
 export async function runUpdate(g: GlobalOptions, parsed: ParsedArgs): Promise<CommandResult> {
-  const dryRun = parsed.flags["dry-run"] === true;
-  const projects = await collectProjects(g.project, parsed.flags.all !== false);
+  const dryRun = truthy(parsed.flags["dry-run"]);
+  // Default to the project in hand. Sweeping every project on the machine is a bigger action than
+  // the command name implies, so it is opt-in — and it is what Studio calls on project open.
+  const projects = await collectProjects(g.project, truthy(parsed.flags.all));
   const results: ProjectUpdate[] = [];
 
   for (const project of projects) {

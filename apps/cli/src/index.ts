@@ -33,9 +33,10 @@ Commands:
                              --mode=, --filter=, --output=<report.xml>.
   clean [--apply]            Delete regenerable caches (Library/Temp/Logs). Dry run unless --apply.
   projects                   List the Unity projects registered in the Hub (path, editor version, pipeline).
-  update [--dry-run]         Bring every Unity project on this machine up to date: refresh a stale
-                             embedded Editor package and repair a .mcp.json whose paths no longer
-                             resolve. --project=<path> only, or --no-all to skip the Hub registry.
+  update [--all] [--dry-run] Bring this project's install up to date: refresh a stale embedded Editor
+                             package, re-render the CLAUDE.md/AGENTS.md block, and repair a .mcp.json
+                             whose paths no longer resolve. --all sweeps every project the Unity Hub
+                             knows about; --dry-run reports without writing.
   verify [--mock]            Run MVP acceptance checks against the mock bridge.
   mcp-config [--write]       Print or write .mcp.json. Use --write for the project-local file Claude Code auto-discovers.
                              --target=codex prints the [mcp_servers.*] TOML block (and the "codex mcp add" line) for the Codex CLI.

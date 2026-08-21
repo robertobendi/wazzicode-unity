@@ -190,7 +190,7 @@ describe("cli/update", () => {
     await writePackage(path.join(project, "Packages", "com.uvibe.os"), STALE);
     const result = await runUpdate(
       { project, mock: true, json: true },
-      { command: "update", positional: [], flags: { "dry-run": true, all: false } }
+      { command: "update", positional: [], flags: { "dry-run": true } }
     );
     const payload = JSON.parse(result.stdout!);
     expect(payload.projects).toHaveLength(1);
@@ -203,7 +203,7 @@ describe("cli/update", () => {
     await writePackage(path.join(project, "Packages", "com.uvibe.os"), STALE);
     const result = await runUpdate(
       { project, mock: true, json: true },
-      { command: "update", positional: [], flags: { all: false } }
+      { command: "update", positional: [], flags: {} }
     );
     const payload = JSON.parse(result.stdout!);
     expect(payload.projects[0].package.action).toBe("updated");
@@ -305,7 +305,7 @@ describe("agent instructions", () => {
     await fs.writeFile(path.join(project, "CLAUDE.md"), OLD_BLOCK, "utf8");
     const result = await runUpdate(
       { project, mock: true, json: true },
-      { command: "update", positional: [], flags: { all: false } }
+      { command: "update", positional: [], flags: {} }
     );
     const payload = JSON.parse(result.stdout!);
     expect(payload.projects[0].instructions.action).toBe("updated");

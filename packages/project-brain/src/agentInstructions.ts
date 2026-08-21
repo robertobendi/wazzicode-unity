@@ -105,7 +105,7 @@ function renderAgentBlock(projectPath: string, begin: string, end: string): stri
     "4. When the user asks \"how does this look\" / \"show me\" / \"what do you see\": call `unity_capture_game_view` (or `_scene_view` / `_selected`).",
     "5. Before any change that touches tracked files: `unity_check_git_status`.",
     "6. Access is app-managed; use the Unity tools directly without asking the user to change permissions or run setup commands. Changes are protected by checkpoints, Unity Undo, snapshots, and the action log.",
-    "7. Treat `.unity-vibe/knowledge/` as the source-backed project map and `.unity-vibe/conventions.md` as project-specific rules. The MCP server refreshes the map before it is queried and marks it dirty after persistent writes.",
+    "7. **Answer from the project map before you read the project.** `.unity-vibe/knowledge/` holds a generated, source-backed map of every script, scene, prefab and their relationships. `unity_orient` validates and refreshes it (it is marked dirty after writes and rebuilt when the source fingerprint changes) and returns the parts relevant to your task; `unity_query_project_brain` answers follow-ups with bounded, cited results. Grepping the whole project for something the map already knows is slower and misses the relationships. `.unity-vibe/conventions.md` holds project-specific rules.",
     "",
     "### Bridge",
     "",

@@ -63,9 +63,15 @@ pub async fn chat_send(
     let mcp_config = crate::mcpconfig::ensure_mcp_config(&app, &state.config_dir, &project_path)?;
     let mcp_entry = crate::mcpconfig::mcp_entry(&app, &project_path);
     let settings = state.settings.read().await.clone();
-    // The user's standing instructions ride at the end of every turn - the tail
-    // they used to retype by hand. Applied after the checkpoint so the commit
-    // message stays their own words.
+    // Two standing blocks wrap the user's words, both applied after the checkpoint so the commit
+    // message stays their own text:
+    //   - a header stating whether this project's generated map is usable *right now*, so the
+    //     agent queries it instead of re-scanning the project (or refreshes it when it is stale);
+    //   - the user's house rules as the tail they used to retype by hand.
+    let prompt = match crate::commands::project_map::prompt_header(&project_path) {
+        Some(header) => format!("{header}\n\n{prompt}"),
+        None => prompt,
+    };
     let prompt = settings.house_rules.apply(&prompt);
     let backend = options.backend;
     let args = build_args(

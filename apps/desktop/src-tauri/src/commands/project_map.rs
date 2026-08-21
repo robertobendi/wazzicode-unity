@@ -200,6 +200,103 @@ pub fn project_map_is_initialized(project: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// State of the generated map, as far as a cheap manifest read can tell.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MapState {
+    /// Usable and believed current.
+    Fresh { age_ms: u64 },
+    /// Usable, but changes have landed since it was built (writes mark it dirty).
+    Stale { age_ms: u64, reasons: usize },
+    /// Missing, unreadable, or written by a different schema version.
+    Unusable,
+}
+
+/// Read the map's state without loading entities/relations — cheap enough to run on every turn.
+pub fn map_state(project: &Path) -> (MapState, Option<KnowledgeManifest>) {
+    if !project_map_is_initialized(project) {
+        return (MapState::Unusable, None);
+    }
+    let manifest: KnowledgeManifest = match std::fs::read(
+        project.join(".unity-vibe").join("knowledge").join("manifest.json"),
+    )
+    .ok()
+    .and_then(|raw| serde_json::from_slice(&raw).ok())
+    {
+        Some(manifest) => manifest,
+        None => return (MapState::Unusable, None),
+    };
+    let age_ms = now_ms().saturating_sub(manifest.generated_at);
+    let state = if manifest.dirty.value {
+        MapState::Stale {
+            age_ms,
+            reasons: manifest.dirty.reasons.len(),
+        }
+    } else {
+        MapState::Fresh { age_ms }
+    };
+    (state, Some(manifest))
+}
+
+/// The per-turn project-map header prepended to every prompt.
+///
+/// The map exists, is maintained, and is queryable — but an agent only benefits from it if it
+/// *knows* that on the turn it is answering. Server instructions are delivered once on connect and
+/// share a 2KB budget with everything else, so they are not a reliable carrier. This states the
+/// map's real state (and, when it is stale, says so rather than claiming freshness) plus the two
+/// calls that use it, on every message. Kept to a few lines: it rides on every turn.
+pub fn prompt_header(project: &Path) -> Option<String> {
+    let (state, manifest) = map_state(project);
+    Some(render_prompt_header(&state, manifest.as_ref()))
+}
+
+pub fn render_prompt_header(state: &MapState, manifest: Option<&KnowledgeManifest>) -> String {
+    match (state, manifest) {
+        (MapState::Fresh { age_ms }, Some(manifest)) => {
+            let counts = &manifest.coverage.counts;
+            let coverage = if manifest.coverage.complete {
+                "complete".to_string()
+            } else {
+                format!(
+                    "partial {}/{}",
+                    manifest.coverage.scanned, manifest.coverage.discovered
+                )
+            };
+            format!(
+                "[Project map] This project has a generated, source-backed map: {} first-party scripts, {} scenes, {} prefabs, {} entities ({}, refreshed {}). Read it instead of re-scanning the project: start with unity_orient({{task:\"<my request>\"}}), which validates and refreshes the map and returns the parts relevant to this task, then unity_query_project_brain for follow-ups.",
+                counts.first_party_scripts,
+                counts.scenes,
+                counts.prefabs,
+                counts.entities,
+                coverage,
+                human_age(*age_ms)
+            )
+        }
+        (MapState::Stale { age_ms, reasons }, Some(_)) => format!(
+            "[Project map] This project has a generated map, but it is marked stale ({} change(s) since it was built, {} old) — do not trust it as-is. Call unity_orient({{task:\"<my request>\"}}) first: it refreshes the map before answering. Then use unity_query_project_brain.",
+            reasons,
+            human_age(*age_ms)
+        ),
+        _ => "[Project map] No usable generated map for this project yet. unity_orient builds one on its first call — use it before reading files, and prefer it over scanning the project by hand."
+            .to_string(),
+    }
+}
+
+fn human_age(ms: u64) -> String {
+    let seconds = ms / 1000;
+    if seconds < 90 {
+        return "just now".to_string();
+    }
+    let minutes = seconds / 60;
+    if minutes < 90 {
+        return format!("{minutes}m");
+    }
+    let hours = minutes / 60;
+    if hours < 48 {
+        return format!("{hours}h");
+    }
+    format!("{}d", hours / 24)
+}
+
 #[tauri::command]
 pub async fn read_project_map(
     app: AppHandle,
@@ -1181,6 +1278,77 @@ fn process_detail(primary: &[u8], fallback: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn manifest_fixture(complete: bool, dirty: bool) -> KnowledgeManifest {
+        serde_json::from_value(serde_json::json!({
+            "schemaVersion": 1,
+            "generatedAt": 1_000_000u64,
+            "project": { "id": "project:.", "path": ".", "name": "Crowfish", "isUnityProject": true },
+            "coverage": {
+                "cap": 25000, "discovered": 3581, "scanned": if complete { 3581 } else { 1200 },
+                "complete": complete, "truncated": !complete, "errors": [],
+                "counts": { "files": 3581, "firstPartyScripts": 411, "packageScripts": 54,
+                            "scenes": 23, "prefabs": 794, "entities": 2095, "relations": 4762 },
+                "scopes": {
+                    "firstParty": { "root": "Assets", "discovered": 3509, "scanned": 3509, "scripts": 411 },
+                    "packages": { "root": "Packages", "discovered": 72, "scanned": 72, "scripts": 54 }
+                }
+            },
+            "fingerprint": { "algorithm": "sha256", "source": "a", "content": "b" },
+            "dirty": { "value": dirty, "reasons": if dirty {
+                serde_json::json!([{ "at": 1u64, "change": "unity_create_script: Assets/X.cs" }])
+            } else { serde_json::json!([]) } }
+        }))
+        .expect("fixture manifest parses")
+    }
+
+    #[test]
+    fn a_fresh_map_header_states_what_the_map_covers_and_how_to_use_it() {
+        let manifest = manifest_fixture(true, false);
+        let header = render_prompt_header(&MapState::Fresh { age_ms: 240_000 }, Some(&manifest));
+        assert!(header.contains("411 first-party scripts"));
+        assert!(header.contains("complete"));
+        assert!(header.contains("unity_orient"));
+        assert!(header.contains("unity_query_project_brain"));
+        // The whole point: it must steer away from re-reading the project by hand.
+        assert!(header.contains("instead of re-scanning"));
+    }
+
+    #[test]
+    fn a_stale_map_header_says_so_instead_of_claiming_freshness() {
+        let manifest = manifest_fixture(true, true);
+        let header = render_prompt_header(
+            &MapState::Stale { age_ms: 7_200_000, reasons: 3 },
+            Some(&manifest),
+        );
+        assert!(header.contains("stale"));
+        assert!(header.contains("3 change(s)"));
+        assert!(header.contains("unity_orient"));
+        // Claiming a stale map is current is worse than having no map at all.
+        assert!(!header.contains("Read it instead"));
+    }
+
+    #[test]
+    fn a_missing_map_header_points_at_the_call_that_builds_one() {
+        let header = render_prompt_header(&MapState::Unusable, None);
+        assert!(header.contains("No usable generated map"));
+        assert!(header.contains("unity_orient"));
+    }
+
+    #[test]
+    fn a_partial_scan_is_reported_as_partial() {
+        let manifest = manifest_fixture(false, false);
+        let header = render_prompt_header(&MapState::Fresh { age_ms: 1_000 }, Some(&manifest));
+        assert!(header.contains("partial 1200/3581"));
+    }
+
+    #[test]
+    fn ages_read_like_a_human_wrote_them() {
+        assert_eq!(human_age(5_000), "just now");
+        assert_eq!(human_age(600_000), "10m");
+        assert_eq!(human_age(7_200_000), "2h");
+        assert_eq!(human_age(345_600_000), "4d");
+    }
 
     #[test]
     fn an_answer_keeps_only_entity_ids_that_exist() {

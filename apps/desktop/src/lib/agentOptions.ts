@@ -83,8 +83,19 @@ interface ResolveRunOptionsInput {
   settings: Settings | null;
 }
 
-/** Existing conversations keep their original controls; new tasks use the
- * explicit composer snapshot, then fall back to the selected defaults. */
+/**
+ * What a turn actually runs with.
+ *
+ * Model and effort are per *message*: you can change them at any point, including while a task is
+ * in flight — the running turn keeps what it started with (its options were already resolved and
+ * handed to the CLI), and the change takes effect from your next message. That mirrors how the
+ * underlying CLIs behave: both accept `-m` per invocation, and Claude Code lets you switch models
+ * mid-conversation too.
+ *
+ * The backend is not per-message. A CLI session id is only meaningful to the backend that created
+ * it, so swapping Claude↔Codex mid-conversation would silently drop the conversation's context;
+ * an existing conversation keeps the backend it started on.
+ */
 export function resolveChatRunOptions({
   sessionRunOptions,
   sessionBackend,
@@ -92,10 +103,13 @@ export function resolveChatRunOptions({
   settings,
 }: ResolveRunOptionsInput): AgentRunOptions {
   if (sessionRunOptions) {
-    return normalizeAgentRunOptions(
+    const current = normalizeAgentRunOptions(
       sessionRunOptions,
       sessionBackend ?? sessionRunOptions.backend,
     );
+    if (!requested) return current;
+    const wanted = normalizeAgentRunOptions(requested, current.backend);
+    return { backend: current.backend, model: wanted.model, effort: wanted.effort };
   }
   if (sessionBackend) return automaticRunOptions(sessionBackend);
   if (requested) return normalizeAgentRunOptions(requested);

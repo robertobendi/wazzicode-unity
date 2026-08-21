@@ -5,7 +5,8 @@ use crate::state::AppState;
 use crate::store::settings::{save, Settings};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use tauri::State;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, State};
 
 /// What the ProjectPicker needs to decide whether a folder is a usable Unity
 /// project and how far along its Vibe OS setup is.
@@ -73,11 +74,21 @@ pub fn inspect_project(path: String) -> ProjectInfo {
 /// Set the focused project and record it in the recents list (dedup,
 /// most-recent-first, capped at 8).
 #[tauri::command]
-pub async fn set_current_project(path: String, state: State<'_, AppState>) -> AppResult<Settings> {
+pub async fn set_current_project(
+    app: AppHandle,
+    path: String,
+    state: State<'_, AppState>,
+) -> AppResult<Settings> {
     // Project access is an implementation detail of Studio, not a setup task the
     // user should have to understand — so a project that has never been set up
     // gets a working config here rather than an error later.
     ensure_project_access(Path::new(&path))?;
+
+    // Opening a project is the moment to make sure its install still matches this build: a
+    // project set up against an older release carries an older Editor package and older agent
+    // instructions, and both change behaviour silently. Fire-and-forget so opening never blocks
+    // or fails on it; the UI hears about it only when something actually changed.
+    spawn_project_self_heal(app, path.clone());
 
     let mut settings = state.settings.write().await;
     settings.current_project = Some(path.clone());
@@ -162,6 +173,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn self_heal_summary_names_each_repair_and_stays_silent_when_nothing_changed() {
+        let nothing = serde_json::json!({
+            "projects": [{
+                "package": { "action": "current", "from": "0.6.0" },
+                "mcpConfig": { "action": "current" },
+                "instructions": { "action": "current" }
+            }]
+        });
+        // An install that was already current must not toast at the user for opening a project.
+        assert!(summarize_self_heal(&nothing).is_empty());
+
+        let repaired = serde_json::json!({
+            "projects": [{
+                "package": { "action": "updated", "from": "0.5.2", "to": "0.6.0" },
+                "mcpConfig": { "action": "rewritten" },
+                "instructions": { "action": "updated" }
+            }]
+        });
+        let lines = summarize_self_heal(&repaired);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("0.5.2 → 0.6.0"));
+        assert!(lines[1].contains(".mcp.json"));
+        assert!(lines[2].contains("agent instructions"));
+    }
+
+    #[test]
+    fn self_heal_summary_tolerates_output_it_does_not_recognise() {
+        assert!(summarize_self_heal(&serde_json::json!({})).is_empty());
+        assert!(summarize_self_heal(&serde_json::json!({ "projects": "nope" })).is_empty());
+    }
+
+    #[test]
     fn project_access_preserves_an_existing_config_verbatim() {
         let root =
             std::env::temp_dir().join(format!("unity-vibe-studio-access-{}", nanoid::nanoid!(10)));
@@ -237,4 +280,99 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(root);
     }
+}
+
+/// Payload of the `project:self-heal` event: what opening this project had to repair.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfHealReport {
+    pub project: String,
+    /// Human-readable summary of each repair, empty when the install was already current.
+    pub repaired: Vec<String>,
+}
+
+/// Run `uvibe update` for one project in the background and announce anything it fixed.
+///
+/// Deliberately silent on failure: a machine without the CLI resolved, a project mid-move, or a
+/// permission problem must not stop the user opening their project. Whatever it could not fix is
+/// still reported by `uvibe doctor` and by unity_diagnose_connection.
+fn spawn_project_self_heal(app: AppHandle, project: String) {
+    tauri::async_runtime::spawn(async move {
+        let (cmd, prefix) = crate::mcpconfig::resolve_uvibe(&app);
+        let args = vec![
+            "update".to_string(),
+            "--project".to_string(),
+            project.clone(),
+            "--json".to_string(),
+        ];
+        let command = match crate::mcpconfig::resolved_uvibe_command(&cmd, &prefix, &args) {
+            Ok(command) => command,
+            Err(error) => {
+                log::warn!("project self-heal could not start: {error}");
+                return;
+            }
+        };
+        let output = tokio::task::spawn_blocking(move || {
+            crate::proc::output_with_timeout(command, Duration::from_secs(120))
+        })
+        .await;
+        let stdout = match output {
+            Ok(Ok(out)) => String::from_utf8_lossy(&out.stdout).to_string(),
+            Ok(Err(error)) => {
+                log::warn!("project self-heal failed: {error}");
+                return;
+            }
+            Err(error) => {
+                log::warn!("project self-heal task failed: {error}");
+                return;
+            }
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(stdout.trim()) else {
+            return;
+        };
+        let repaired = summarize_self_heal(&value);
+        if repaired.is_empty() {
+            return;
+        }
+        log::info!("project self-heal repaired: {}", repaired.join("; "));
+        let _ = app.emit("project:self-heal", SelfHealReport { project, repaired });
+    });
+}
+
+/// Turn `uvibe update --json` into the one-line-per-repair list the UI shows. Pure, so the
+/// wording is testable without spawning anything.
+pub fn summarize_self_heal(value: &serde_json::Value) -> Vec<String> {
+    let mut repaired = Vec::new();
+    let Some(projects) = value.get("projects").and_then(|p| p.as_array()) else {
+        return repaired;
+    };
+    for project in projects {
+        if project.pointer("/package/action").and_then(|a| a.as_str()) == Some("updated") {
+            let from = project
+                .pointer("/package/from")
+                .and_then(|v| v.as_str())
+                .unwrap_or("an older build");
+            let to = project
+                .pointer("/package/to")
+                .and_then(|v| v.as_str())
+                .unwrap_or("this build");
+            repaired.push(format!("Updated the Unity package ({from} → {to})"));
+        }
+        if project.pointer("/mcpConfig/action").and_then(|a| a.as_str()) == Some("rewritten") {
+            repaired.push("Repaired the agent connection (.mcp.json)".to_string());
+        }
+        match project
+            .pointer("/instructions/action")
+            .and_then(|a| a.as_str())
+        {
+            Some("updated") | Some("appended") => {
+                repaired.push("Refreshed the project's agent instructions".to_string())
+            }
+            Some("created") => {
+                repaired.push("Wrote the project's agent instructions".to_string())
+            }
+            _ => {}
+        }
+    }
+    repaired
 }
