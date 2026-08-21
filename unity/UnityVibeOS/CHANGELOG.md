@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.7.0 — 2026-08-21
+
+- Version only: no C# changes. The package version tracks the MCP server's `PRODUCT_VERSION` so
+  `unity_diagnose_connection` can tell them apart; 0.7.0 is a server-side release (install
+  self-update, Editor launch diagnosis, per-turn project-map header) that needs nothing new from
+  the Editor side. A project carrying 0.6.0 is refreshed automatically on the next server start.
+
 ## 0.6.0 — 2026-08-20
 
 - Version only: no C# changes. The package version is compared against the MCP server's
