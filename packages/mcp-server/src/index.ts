@@ -9,6 +9,7 @@ import { ensureBrainCurrent, readKnowledgeBase, type KnowledgeBase } from "@uvib
 import { createMockBridgeClient } from "./mockBridge.js";
 import { allTools } from "./tools/index.js";
 import { AnyToolDef, ToolContext } from "./registry.js";
+import { ensureUnityPackageCurrent } from "./selfUpdate.js";
 import { executeTool } from "./execute.js";
 import { ToolGroupController, defaultActiveGroups } from "./groups.js";
 import { toolAnnotations, toolMeta } from "./annotations.js";
@@ -219,6 +220,13 @@ export function createServer(ctx: ToolContext): McpServer {
 
 export async function startMcpServer(opts: ServeOptions = {}): Promise<void> {
   const ctx = buildContext(opts);
+  // Before anything else: the Editor package and this server ship together and speak one
+  // protocol version, so a project carrying a stale embedded copy is a defect the server can
+  // fix by itself. Startup is the right moment — Unity re-imports once, instead of mid-task.
+  await ensureUnityPackageCurrent(ctx.projectPath, {
+    mock: ctx.configMockMode,
+    log: (message) => process.stderr.write(`${message}\n`),
+  });
   try {
     await ensureBrainCurrent(ctx.projectPath);
     const knowledge = await readKnowledgeBase(ctx.projectPath);
@@ -260,6 +268,7 @@ export { selectReturnedFrames, hammingDistance } from "./tools/unityCaptureFrame
 export type { ToolContext, ToolDef } from "./registry.js";
 export { ToolGroupController, defaultActiveGroups, groupOf, isKnownGroup, TOOL_GROUPS } from "./groups.js";
 export { toolAnnotations, toolMeta, type ToolAnnotations } from "./annotations.js";
+export { ensureUnityPackageCurrent, syncEditorPackage } from "./selfUpdate.js";
 export {
   reportProgress,
   confirmWithUser,

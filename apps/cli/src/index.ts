@@ -11,6 +11,7 @@ import { runInstallUnityPackage } from "./commands/installUnityPackage.js";
 import { runSetup } from "./commands/setup.js";
 import { runAutonomy } from "./commands/autonomy.js";
 import { runEnv, runLaunch, runBuild, runHeadlessTests, runClean, runProjects } from "./commands/unityCli.js";
+import { runUpdate } from "./commands/update.js";
 
 const HELP = `${PRODUCT_NAME} v${PRODUCT_VERSION}
 
@@ -32,6 +33,9 @@ Commands:
                              --mode=, --filter=, --output=<report.xml>.
   clean [--apply]            Delete regenerable caches (Library/Temp/Logs). Dry run unless --apply.
   projects                   List the Unity projects registered in the Hub (path, editor version, pipeline).
+  update [--dry-run]         Bring every Unity project on this machine up to date: refresh a stale
+                             embedded Editor package and repair a .mcp.json whose paths no longer
+                             resolve. --project=<path> only, or --no-all to skip the Hub registry.
   verify [--mock]            Run MVP acceptance checks against the mock bridge.
   mcp-config [--write]       Print or write .mcp.json. Use --write for the project-local file Claude Code auto-discovers.
                              --target=codex prints the [mcp_servers.*] TOML block (and the "codex mcp add" line) for the Codex CLI.
@@ -63,6 +67,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   "test-headless": runHeadlessTests,
   clean: runClean,
   projects: runProjects,
+  update: runUpdate,
   "gsd-auto": runGsdAuto,
 };
 
@@ -109,4 +114,5 @@ export {
   runHeadlessTests,
   runClean,
   runProjects,
+  runUpdate,
 };

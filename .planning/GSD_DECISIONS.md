@@ -52,3 +52,20 @@ state machine when the bridge is silent (config `autoLaunchEditor`, default on) 
 `warnings[]`; `unity_launch_editor` does it explicitly. Editor *installs* stay opt-in
 (`autoInstallEditor`, default off) because they are multi-gigabyte. A launch waits for an Editor
 that is already booting rather than starting a second one, which Unity's project lock would refuse.
+
+## D-013 — The server repairs Editor-package drift instead of reporting it
+`unity_diagnose_connection` already knew when a project's `com.uvibe.os` copy didn't match
+`PRODUCT_VERSION`; it told the user to run an install command. That is a file copy behind a manual
+step, on a mismatch that can break bridge calls outright. `@uvibe/unity-package` now owns install +
+drift detection (previously duplicated between the CLI command and the diagnose tool), and the
+server refreshes the copy on start, in `unity_orient`, and under `repair:true`.
+
+Two boundaries make it safe. **Only embedded copies** are rewritten: a symlink or a `file:`
+manifest reference resolves to the source tree, so a stale reading there means the *source* is old
+and copying over it would destroy work. And **never under a running Editor** mid-session — the
+resulting import + domain reload would restart the bridge underneath the task in flight, so
+`unity_orient` reports drift when Unity is open and fixes it when Unity is closed.
+
+`uvibe update` extends the same repair across every project in the Unity Hub registry, and also
+rewrites a `.mcp.json` whose absolute paths no longer resolve — the silent failure you get after
+moving or renaming the checkout.

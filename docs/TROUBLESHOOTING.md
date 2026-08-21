@@ -15,6 +15,20 @@ Check what the Unity process is actually doing:
 - **The package is missing from the project that opened.** `uvibe doctor` reports `Unity package: (not detected)`; fix with `uvibe install-unity-package`.
 - **The Unity process is alive but has no window.** On macOS check with `lsappinfo list | grep -A5 '"Unity" ASN'`: `type="BackgroundOnly"` means Unity was started without a desktop session — from an ssh session, a CI runner, or an agent shell that has no GUI session — so it never boots the editor loop and never starts the bridge. Nothing in the project is wrong; start Unity from Terminal, the Unity Hub, or the Studio app instead.
 
+## "The MCP server is X but the installed Unity package is Y"
+
+The two ship together and speak one protocol version, so this is a real defect rather than cosmetic
+drift. It normally fixes itself: the server refreshes the project's **embedded** copy on start, and
+`unity_orient` does the same mid-session while Unity is closed. If you still see it:
+
+- **Unity is open.** Package files are not rewritten under a running Editor (the import + domain
+  reload would restart the bridge mid-task). Close Unity, or restart the MCP server.
+- **The install isn't embedded.** A symlink or a `file:` manifest entry points at the source tree —
+  `uvibe env`/`unity_diagnose_connection` report `installMode`. Nothing to copy: update the source.
+- **Auto-update is off.** `autoUpdateUnityPackage: false` in `.unity-vibe/config.json`.
+- **Other projects on this machine.** `uvibe update` sweeps every project the Unity Hub knows about;
+  `--dry-run` shows what it would change.
+
 ## Unity CLI commands report `UNITY_CLI_UNAVAILABLE`
 
 `unity_launch_editor`, `unity_install_editor`, `unity_build_player`, `unity_run_tests_headless` and `unity_project_clean` are driven by Unity's own `unity` CLI, which is a separate, optional install.

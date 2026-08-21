@@ -15,6 +15,7 @@ export default defineConfig({
       "@uvibe/project-brain": r("./packages/project-brain/src/index.ts"),
       "@uvibe/safety": r("./packages/safety/src/index.ts"),
       "@uvibe/unity-cli": r("./packages/unity-cli/src/index.ts"),
+      "@uvibe/unity-package": r("./packages/unity-package/src/index.ts"),
       "@uvibe/cli": r("./apps/cli/src/index.ts"),
     },
   },

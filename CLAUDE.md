@@ -59,6 +59,29 @@ For writing and editing C# (you can author game code directly — don't hand it 
 
 `unity_execute_code` compiles and runs a C# snippet *inside* the Editor (the snippet is the body of `static object Execute()`; `return` a value to get it back, and logs are captured). Reach for it for one-off Editor automation that has no dedicated tool — bulk operations, recomputing data, probing an API — instead of writing a throwaway script. Studio makes it available automatically and protects the task with checkpoints and an action log. It needs the project's Api Compatibility Level set to ".NET Framework"; otherwise it returns `FEATURE_UNAVAILABLE` and you should use `unity_create_script` + `unity_verify` instead.
 
+### Editor-package self-update (`@uvibe/unity-package`)
+
+The MCP server and the `com.uvibe.os` Editor package are one product in two processes: they share
+a protocol version, and the server calls bridge methods that only exist in a matching package. A
+project carrying a stale embedded copy used to produce a warning and a manual install command —
+for a problem that is a file copy. Now it heals itself:
+
+- **On server start** (`startMcpServer` → `ensureUnityPackageCurrent`) the embedded copy is
+  refreshed whenever its version differs from `PRODUCT_VERSION`. Unity re-imports it once, before
+  any task is in flight.
+- **In `unity_orient`**, the same check runs mid-session — but it only *rewrites* while the Editor
+  is closed. Replacing package files under a running Editor forces an import + domain reload that
+  would restart the bridge underneath the task, so with Unity open it reports instead.
+- **`unity_diagnose_connection({repair:true})`** refreshes a stale package before it tries anything
+  else, since a mismatched package is a likely cause of whatever else looks broken.
+- **`uvibe update`** sweeps *every* project (Unity Hub registry + `--project`), refreshing stale
+  packages and repairing a `.mcp.json` whose absolute paths stopped resolving after the checkout
+  moved. `--dry-run` reports without writing.
+
+Only an **embedded** copy is ever rewritten. A symlink or a `file:` manifest reference resolves to
+the source tree itself — if that reads as stale, the source is what's old, and copying over it
+would be wrong. Config: `autoUpdateUnityPackage` (default true).
+
 ### Unity CLI integration (`@uvibe/unity-cli`)
 
 Unity ships its own `unity` CLI (editor discovery/installs, `unity open`, batch-mode build/test, the Hub project registry). `packages/unity-cli` wraps it as an **optional accelerator** and the `machine` tool group exposes it. Design rules — keep them:
@@ -101,6 +124,7 @@ This server is built for Claude Code specifically and leans on MCP features Clau
 - `uvibe launch [--install]` — make sure the Editor is running for this project (starts it via Unity's CLI).
 - `uvibe env [--license] [--projects]` — machine-side Unity environment; `uvibe projects` lists the Hub registry.
 - `uvibe build --target=<T> --output=<path>` / `uvibe test-headless` / `uvibe clean [--apply]` — batch-mode work, Editor closed.
+- `uvibe update [--dry-run]` — refresh every project's Editor package and repair stale `.mcp.json` paths.
 - `uvibe brain` — refresh project brain.
 - `uvibe verify --mock` — MVP acceptance checks against the mock bridge.
 - `uvibe mcp-config` — print Claude MCP config snippet. `--target=codex` prints the `[mcp_servers.*]` TOML block (plus the `codex mcp add` one-liner) for the OpenAI Codex CLI, which reads TOML rather than `.mcp.json`.

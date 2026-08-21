@@ -40,7 +40,7 @@ export async function runMcpConfig(g: GlobalOptions, parsed: ParsedArgs): Promis
     const file = path.join(project, ".mcp.json");
     let merged: McpConfigShape;
     try {
-      merged = await mergeMcpJson(file, entry);
+      merged = await writeMcpConfig(project, { mock: g.mock, bare });
     } catch (e) {
       // A malformed .mcp.json is the user's file, holding their other MCP
       // servers. Overwriting it would delete them silently, so refuse.
@@ -49,7 +49,6 @@ export async function runMcpConfig(g: GlobalOptions, parsed: ParsedArgs): Promis
         stderr: `Refusing to update ${file}: ${e instanceof Error ? e.message : String(e)}\n`,
       };
     }
-    await writeJsonAtomically(file, merged);
     if (g.json) {
       return { exitCode: 0, stdout: JSON.stringify({ wrote: file, config: merged }, null, 2) + "\n" };
     }
@@ -73,6 +72,52 @@ export async function runMcpConfig(g: GlobalOptions, parsed: ParsedArgs): Promis
   ].join("\n");
 
   return { exitCode: 0, stdout: banner + text + "\n" };
+}
+
+/**
+ * Write (merge) our server entry into a project's `.mcp.json`. Shared with `uvibe update`, which
+ * repairs configs across every project on the machine.
+ */
+export async function writeMcpConfig(
+  project: string,
+  opts: { mock: boolean; bare: boolean }
+): Promise<McpConfigShape> {
+  const file = path.join(project, ".mcp.json");
+  const merged = await mergeMcpJson(file, buildEntry({ project: path.resolve(project), ...opts }));
+  await writeJsonAtomically(file, merged);
+  return merged;
+}
+
+/**
+ * Why a project's stored entry would no longer start the server — or null when it is fine.
+ *
+ * The entry pins absolute paths (the Node binary and `apps/cli/bin/uvibe`) so the user does not
+ * need `uvibe` on PATH. That is fast and explicit, but it rots: move or rename the checkout and
+ * every project silently loses its Unity tools, with no error until the agent wonders where they
+ * went. A path that no longer exists is the signal.
+ */
+export function mcpEntryIsStale(rawJson: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    return null; // Not ours to rewrite — runMcpConfig refuses on malformed files for the same reason.
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.mcpServers)) return null;
+  const entry = parsed.mcpServers["unity-vibe-os"];
+  if (!isRecord(entry)) return null;
+
+  const command = typeof entry.command === "string" ? entry.command : "";
+  const args = Array.isArray(entry.args) ? entry.args.filter((a): a is string => typeof a === "string") : [];
+  // A bare command name is resolved through PATH at launch; we can't judge it from here.
+  if (command.includes("/") || command.includes("\\")) {
+    if (!existsSync(command)) return `command not found: ${command}`;
+  }
+  const script = args.find((a) => a.includes("uvibe"));
+  if (script && (script.includes("/") || script.includes("\\")) && !existsSync(script)) {
+    return `server script not found: ${script}`;
+  }
+  return null;
 }
 
 /**

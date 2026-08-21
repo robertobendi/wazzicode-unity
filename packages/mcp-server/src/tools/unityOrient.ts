@@ -12,6 +12,7 @@ import {
 import { ToolDef } from "../registry.js";
 import { BRIDGE_METHODS, bridgeCall, ok } from "./_helpers.js";
 import { autoLaunchEditor } from "./_editorReady.js";
+import { syncEditorPackage } from "../selfUpdate.js";
 import { unityCheckGitStatus } from "./unityCheckGitStatus.js";
 
 /**
@@ -47,10 +48,20 @@ export const unityOrient: ToolDef<typeof InputShape, unknown> = {
     const warnings: string[] = [];
 
     // Orientation is the mandated first call of every task, which makes it the one honest place to
-    // fix "no Editor is running" instead of reporting it. If the bridge is silent and the Unity CLI
-    // is installed, start the Editor and wait — the whole fan-out below then returns live state
-    // rather than six "unavailable" markers.
-    if (args.autoLaunch !== false && !(await ctx.bridge.isConnected())) {
+    // repair the session instead of reporting it broken. Two repairs, in this order:
+    const connected = await ctx.bridge.isConnected();
+
+    // 1. A stale embedded Editor package. Done first, while Unity is still closed: replacing
+    //    package files under a running Editor forces an import + domain reload mid-task.
+    const packageNote = await syncEditorPackage(ctx.projectPath, {
+      mock: ctx.configMockMode,
+      unityRunning: connected,
+    });
+    if (packageNote) warnings.push(packageNote);
+
+    // 2. No Editor at all. If the Unity CLI is installed, start it and wait — the whole fan-out
+    //    below then returns live state rather than six "unavailable" markers.
+    if (args.autoLaunch !== false && !connected) {
       const launch = await autoLaunchEditor(ctx, { progressLabel: "orient" });
       if (launch.attempted && launch.summary) warnings.push(launch.summary);
     }

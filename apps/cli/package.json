@@ -22,6 +22,7 @@
     "@uvibe/mcp-server": "workspace:*",
     "@uvibe/project-brain": "workspace:*",
     "@uvibe/safety": "workspace:*",
-    "@uvibe/unity-cli": "workspace:*"
+    "@uvibe/unity-cli": "workspace:*",
+    "@uvibe/unity-package": "workspace:*"
   }
 }

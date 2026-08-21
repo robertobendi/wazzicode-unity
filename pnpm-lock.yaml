@@ -38,6 +38,9 @@ importers:
       '@uvibe/unity-cli':
         specifier: workspace:*
         version: link:../../packages/unity-cli
+      '@uvibe/unity-package':
+        specifier: workspace:*
+        version: link:../../packages/unity-package
 
   apps/desktop:
     dependencies:
@@ -132,6 +135,9 @@ importers:
       '@uvibe/unity-cli':
         specifier: workspace:*
         version: link:../unity-cli
+      '@uvibe/unity-package':
+        specifier: workspace:*
+        version: link:../unity-package
       zod:
         specifier: ^3.23.8
         version: 3.25.76
@@ -162,6 +168,12 @@ importers:
       '@uvibe/bridge-client':
         specifier: workspace:*
         version: link:../bridge-client
+      '@uvibe/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/unity-package:
+    dependencies:
       '@uvibe/core':
         specifier: workspace:*
         version: link:../core

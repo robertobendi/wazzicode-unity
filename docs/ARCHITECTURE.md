@@ -28,6 +28,7 @@
 | `@uvibe/project-brain` | Filesystem-only Unity detector + brain generator. Writes `.unity-vibe/`. Depends on core, safety. |
 | `@uvibe/safety` | Config schema, safety-mode evaluator, snapshot + action-log primitives. |
 | `@uvibe/unity-cli` | Optional adapter for Unity's own `unity` CLI: binary discovery, JSON-envelope exec with hard timeouts, TTL cache, editor/environment queries, the launch state machine, batch-mode build/test/clean, NUnit report parsing. Never throws and never a hard dependency — every entry point degrades when the CLI is absent. Depends on core + bridge-client (it needs the bridge only to *probe* liveness). |
+| `@uvibe/unity-package` | Installs the `com.uvibe.os` Editor package into a Unity project (embed / manifest / symlink) and reports version drift against `PRODUCT_VERSION`. Shared by `uvibe install-unity-package`, `uvibe update`, and the MCP server's start-up self-update, so all three agree on what "installed" and "stale" mean. |
 | `@uvibe/cli` (`uvibe`) | Init/serve/brain/doctor/verify/mcp-config commands, plus the Unity-CLI-backed launch/env/projects/build/test-headless/clean. Each is testable as a function (no spawn). |
 | `unity/UnityVibeOS` | Unity Editor C# package. HttpListener bridge + inspectors. |
 

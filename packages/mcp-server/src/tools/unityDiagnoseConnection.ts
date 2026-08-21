@@ -1,4 +1,3 @@
-import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -14,6 +13,12 @@ import {
 import { readBridgeDiscovery } from "@uvibe/bridge-client";
 import { loadConfig } from "@uvibe/safety";
 import { ensureEditorRunning, describeEditorEnvironment, defaultBridgeProbe, type EditorEnvironment, type EnsureEditorResult } from "@uvibe/unity-cli";
+import {
+  ensureEditorPackageCurrent,
+  readEditorPackageStatus,
+  type EditorPackageStatus,
+  type InstallMode,
+} from "@uvibe/unity-package";
 import { ToolDef } from "../registry.js";
 import { ok } from "./_helpers.js";
 import { reportProgress } from "../interaction.js";
@@ -22,7 +27,7 @@ const InputShape = {
   repair: z
     .boolean()
     .optional()
-    .describe("Attempt to fix a dead connection by starting the Unity Editor through Unity's CLI, then re-diagnose. Off by default: diagnosis alone is read-only."),
+    .describe("Attempt to fix what it finds — refresh a stale embedded Editor package, and start the Unity Editor through Unity's CLI — then re-diagnose. Off by default: diagnosis alone is read-only."),
   includeEnvironment: z
     .boolean()
     .optional()
@@ -43,6 +48,10 @@ interface PackageInfo {
   version?: string;
   manifestRef?: string;
   matchesServer?: boolean;
+  /** How it is wired in — only an embedded copy can be refreshed in place. */
+  installMode?: InstallMode;
+  /** Set when repair:true refreshed a stale embedded copy. */
+  updatedTo?: string;
 }
 
 export interface ConnectionDiagnostic {
@@ -74,17 +83,32 @@ export const unityDiagnoseConnection: ToolDef<typeof InputShape, ConnectionDiagn
   requires: ["unity_bridge", "filesystem", "unity_cli"],
   inputShape: InputShape,
   async run(args, ctx) {
-    let [unityPackage, health, rpc] = await Promise.all([
-      findUnityPackage(ctx.projectPath),
+    let [packageStatus, health, rpc] = await Promise.all([
+      readEditorPackageStatus(ctx.projectPath),
       ctx.bridge.health?.() ?? Promise.resolve(null),
       ctx.bridge.call(BRIDGE_METHODS.systemHealth),
     ]);
+    let unityPackage = toPackageInfo(packageStatus);
     let discovery = readBridgeDiscovery(ctx.projectPath);
     const findings: string[] = [];
 
     // Repair first, then diagnose what is left — a report about a connection we just fixed would
     // be stale the moment it was written.
     let repair: EnsureEditorResult | undefined;
+    if (args.repair === true && !ctx.configMockMode && unityPackage.detected && unityPackage.installMode === "embedded" && unityPackage.matchesServer === false) {
+      // Version drift first: it is the one repair that works whether or not Unity is running,
+      // and a mismatched package is a likely cause of whatever else looks broken.
+      const refreshed = await ensureEditorPackageCurrent(ctx.projectPath, { enabled: true });
+      if (refreshed.updated) {
+        findings.push(
+          `Refreshed the embedded Editor package from ${refreshed.previousVersion ?? "an older build"} to ${refreshed.status.version ?? PRODUCT_VERSION}.`
+        );
+        unityPackage = toPackageInfo(refreshed.status);
+        unityPackage.updatedTo = refreshed.status.version ?? PRODUCT_VERSION;
+      } else if (refreshed.error) {
+        findings.push(`Could not refresh the embedded Editor package: ${refreshed.error}`);
+      }
+    }
     if (args.repair === true && !rpc.ok && !ctx.configMockMode) {
       const config = await loadConfig(ctx.projectPath);
       let step = 0;
@@ -246,53 +270,16 @@ function actionFor(
   }
 }
 
-async function findUnityPackage(projectPath: string): Promise<PackageInfo> {
-  const packagesDir = path.join(projectPath, "Packages");
-  const manifestPath = path.join(packagesDir, "manifest.json");
-  let manifestRef: string | undefined;
-  try {
-    const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as {
-      dependencies?: Record<string, unknown>;
-    };
-    const value = manifest.dependencies?.["com.uvibe.os"];
-    if (typeof value === "string") manifestRef = value;
-  } catch {
-    // A missing/malformed manifest is itself represented by the package not being found.
-  }
-
-  const candidates = [
-    path.join(packagesDir, "com.uvibe.os"),
-    path.join(projectPath, "Assets", "UnityVibeOS"),
-    path.join(projectPath, "unity", "UnityVibeOS"),
-  ];
-  if (manifestRef?.startsWith("file:")) {
-    try {
-      const raw = decodeURIComponent(manifestRef.slice("file:".length));
-      candidates.unshift(path.isAbsolute(raw) ? raw : path.resolve(packagesDir, raw));
-    } catch {
-      // Leave an invalid file reference visible in manifestRef without resolving it.
-    }
-  }
-
-  for (const candidate of candidates) {
-    try {
-      const manifest = JSON.parse(
-        await fs.readFile(path.join(candidate, "package.json"), "utf8")
-      ) as { name?: unknown; version?: unknown };
-      if (manifest.name !== "com.uvibe.os") continue;
-      const version = typeof manifest.version === "string" ? manifest.version : undefined;
-      return {
-        detected: true,
-        path: candidate,
-        version,
-        manifestRef,
-        matchesServer: version === undefined ? undefined : version === PRODUCT_VERSION,
-      };
-    } catch {
-      // Try the next supported install location.
-    }
-  }
-  return { detected: Boolean(manifestRef), manifestRef };
+/** Project the shared package status onto this tool's stable output shape. */
+function toPackageInfo(status: EditorPackageStatus): PackageInfo {
+  return {
+    detected: status.detected,
+    ...(status.path !== undefined ? { path: status.path } : {}),
+    ...(status.version !== undefined ? { version: status.version } : {}),
+    ...(status.manifestRef !== undefined ? { manifestRef: status.manifestRef } : {}),
+    ...(status.current !== undefined ? { matchesServer: status.current } : {}),
+    ...(status.installMode !== undefined ? { installMode: status.installMode } : {}),
+  };
 }
 
 function samePath(a: string, b: string): boolean {

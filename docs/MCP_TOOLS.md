@@ -88,7 +88,10 @@ nothing else in the server changes.
 `unity_orient` and `unity_verify` use the same launch machinery implicitly: if the bridge is silent
 when they start and `autoLaunchEditor` is on (default), they start the Editor, wait, and then do
 their normal work — reporting what they did in `warnings[]`. Pass `autoLaunch:false` to opt out.
-`unity_diagnose_connection` takes `repair:true` to do it explicitly and re-diagnose afterwards.
+`unity_diagnose_connection` takes `repair:true` to do it explicitly and re-diagnose afterwards — and
+repairs version drift first, refreshing a stale **embedded** `com.uvibe.os` copy before it looks at
+the connection. The same refresh runs automatically on server start and, while Unity is closed, in
+`unity_orient` (config `autoUpdateUnityPackage`); `uvibe update` sweeps every project on the machine.
 
 ### Play mode & runtime inspection
 

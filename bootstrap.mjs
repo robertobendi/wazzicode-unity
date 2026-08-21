@@ -169,6 +169,7 @@ const PACKAGES_BUILD_ORDER = [
   "packages/core",
   "packages/bridge-client",
   "packages/unity-cli",
+  "packages/unity-package",
   "packages/safety",
   "packages/project-brain",
   "packages/mcp-server",

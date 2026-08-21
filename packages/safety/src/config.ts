@@ -40,6 +40,13 @@ export const UVibeConfigSchema = z.object({
   autoInstallEditor: z.boolean().default(false),
   /** Explicit path to the Unity CLI binary; empty means env + PATH + well-known locations. */
   unityCliPath: z.string().default(""),
+  /**
+   * Refresh the project's embedded `com.uvibe.os` Editor package whenever it is older (or newer)
+   * than the MCP server driving it. The two halves speak one protocol version, so a drifted copy
+   * is a real defect — and the fix is a file copy the server can do itself. Only ever touches an
+   * embedded copy; symlink / `file:` manifest installs resolve to the source tree and are left alone.
+   */
+  autoUpdateUnityPackage: z.boolean().default(true),
   autoSnapshot: z.boolean().default(true),
   unityProjectPath: z.string().default("."),
   mcpPort: z.number().int().default(DEFAULT_MCP_PORT),
