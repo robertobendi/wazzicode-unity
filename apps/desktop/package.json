@@ -1,7 +1,7 @@
 {
   "name": "@uvibe/desktop",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "description": "foundry-unity — chat-first desktop app for AI-assisted Unity work.",
   "scripts": {

@@ -1,5 +1,6 @@
 import { useChatStore } from "@/stores/useChatStore";
 import { useStatusStore } from "@/stores/useStatusStore";
+import OpenUnityButton from "./OpenUnityButton";
 
 /**
  * Non-blocking amber banner shown when Unity drops out mid-run. Disconnection
@@ -7,15 +8,16 @@ import { useStatusStore } from "@/stores/useStatusStore";
  */
 export default function ConnectionBanner() {
   const running = useChatStore((s) => s.running);
+  const project = useChatStore((s) => s.project);
   const state = useStatusStore((s) => s.status.state);
 
   if (!running) return null;
 
   const message =
     state === "identity_mismatch"
-      ? "A different Unity project is open. Open this project in Unity so the task can continue."
+      ? "A different Unity project is open in the Editor, so the task can't continue."
       : state === "disconnected"
-        ? "Unity disconnected. Open this project in Unity; the task will retry when it reconnects."
+        ? "Unity isn't running. The task retries as soon as it reconnects."
         : null;
   if (!message) return null;
 
@@ -26,6 +28,12 @@ export default function ConnectionBanner() {
       className="mx-3 mt-2 animate-appear rounded-xl border border-warning/20 bg-warning/10 px-4 py-2 text-center text-xs text-warning backdrop-blur-xl"
     >
       {message}
+      {/* Naming the fix without offering it is what made this banner a dead end. */}
+      {state === "disconnected" && project && (
+        <span className="ml-2 inline-flex align-middle">
+          <OpenUnityButton project={project} alwaysVisible />
+        </span>
+      )}
     </div>
   );
 }

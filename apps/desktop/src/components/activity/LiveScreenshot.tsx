@@ -1,6 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useLiveScreenshot } from "@/hooks/useLiveScreenshot";
 import { RefreshIcon } from "@/components/shell/icons";
+import OpenUnityButton from "@/components/shell/OpenUnityButton";
 import type { BridgeState } from "@/types/status";
 
 /** Latest Unity Game, Scene, or selected-object view. */
@@ -68,7 +69,12 @@ export default function LiveScreenshot({
             className="h-full w-full animate-appear object-contain"
           />
         ) : (
-          <Placeholder bridgeState={bridgeState} error={error} view={viewLabel} />
+          <Placeholder
+            bridgeState={bridgeState}
+            error={error}
+            view={viewLabel}
+            project={project}
+          />
         )}
         {src && error && (
           <div
@@ -84,10 +90,12 @@ export default function LiveScreenshot({
 }
 
 function Placeholder({
+  project,
   bridgeState,
   error,
   view,
 }: {
+  project: string | null;
   bridgeState: BridgeState;
   error: string | null;
   view: "Game" | "Scene" | "Selected";
@@ -100,10 +108,13 @@ function Placeholder({
         ? "Unity is reloading scripts. Capture will resume when it reconnects."
         : bridgeState === "identity_mismatch"
           ? "A different Unity project is open. Open this project to capture it."
-          : `Open Unity to see the ${view} view here.`;
+          : `Unity isn't running, so there is no ${view} view to show.`;
   return (
-    <div className="flex h-full items-center justify-center px-4 text-center text-xs text-fg-dim">
-      {text}
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-fg-dim">
+      <span>{text}</span>
+      {bridgeState === "disconnected" && project && (
+        <OpenUnityButton project={project} alwaysVisible />
+      )}
     </div>
   );
 }

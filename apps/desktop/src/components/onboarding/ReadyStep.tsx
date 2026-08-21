@@ -1,10 +1,11 @@
 import { useBridgeStatus } from "@/hooks/useBridgeStatus";
+import OpenUnityButton from "@/components/shell/OpenUnityButton";
 import { useStatusStore } from "@/stores/useStatusStore";
 import { PrimaryButton, StepHeading } from "./_shared";
 
 /**
- * Step 5 — the finish line. Polls the Unity bridge live: prompts the employee to
- * open Unity, and flips to a green "All set" the moment it connects.
+ * Step 5 — the finish line. Polls the Unity bridge live: offers to start Unity (through Unity's
+ * own CLI) and flips to a green "All set" the moment it connects.
  * Finish is enabled regardless (Unity can connect later).
  */
 export default function ReadyStep({
@@ -25,7 +26,7 @@ export default function ReadyStep({
       <StepHeading title={connected ? "All set" : "Almost there"}>
         {connected
           ? "Unity is connected. You can start chatting to make changes to your game."
-          : "One last thing — open Unity and load your project so the app can talk to it."}
+          : "One last thing — Unity has to be running. Start it here, or open it yourself."}
       </StepHeading>
 
       <div
@@ -47,10 +48,15 @@ export default function ReadyStep({
           </span>
           <div>
             <div className="text-sm font-medium text-fg">
-              {connected ? "Unity connected" : `Open Unity and load ${projectName}`}
+              {connected ? "Unity connected" : `Waiting for Unity — ${projectName}`}
             </div>
             <div className="mt-0.5 text-xs text-fg-dim">{status.friendly}</div>
           </div>
+          {!connected && project && (
+            <div className="ml-auto">
+              <OpenUnityButton project={project} alwaysVisible />
+            </div>
+          )}
         </div>
       </div>
 

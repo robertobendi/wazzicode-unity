@@ -88,7 +88,7 @@ pub async fn stop_status_loop(state: &AppState) {
 }
 
 /// How many consecutive disconnected polls to ride out as a calm "connecting"
-/// state before escalating to "Open Unity and load <project>". Covers the app
+/// state before escalating to "Unity isn't running". Covers the app
 /// launching a moment before the Editor writes bridge.json, and transient reads
 /// of a half-written discovery file. At POLL_INTERVAL that's ~8s of grace.
 const CONNECT_GRACE_TICKS: u32 = 4;
@@ -102,7 +102,7 @@ async fn run_loop(app: AppHandle, project: PathBuf) {
     loop {
         let mut update = poll_once(&project, &client).await;
         // Soften the very first disconnected polls: a freshly launched app that
-        // beat the Editor to bridge.json shouldn't flash "Open Unity" — show
+        // beat the Editor to bridge.json shouldn't flash "not running" — show
         // "Connecting…" until the miss actually persists.
         if update.state == BridgeState::Disconnected {
             miss_streak = miss_streak.saturating_add(1);
@@ -126,7 +126,9 @@ pub async fn poll_once(project: &Path, client: &reqwest::Client) -> StatusUpdate
             state: BridgeState::Disconnected,
             compiling: false,
             play_mode: false,
-            friendly: format!("Open Unity and load {name}"),
+            // The status bar carries an "Open Unity" button beside this text, and the agent can
+            // start the Editor itself — so state the fact rather than issuing an instruction.
+            friendly: format!("Unity isn't running for {name}"),
         };
     };
     let host = disco.host.unwrap_or_else(|| DEFAULT_HOST.into());

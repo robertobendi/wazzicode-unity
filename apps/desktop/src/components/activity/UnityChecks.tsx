@@ -574,7 +574,7 @@ function disconnectedChecksText(state: BridgeState): string {
   if (state === "identity_mismatch") {
     return "A different Unity project is open. Open this project to read its diagnostics.";
   }
-  return "Open this project in Unity to read diagnostics.";
+  return "Unity isn't running, so there are no diagnostics to read.";
 }
 
 function testTime(updatedAt: number | undefined): string {

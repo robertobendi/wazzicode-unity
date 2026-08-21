@@ -10,7 +10,14 @@ import { useToastStore } from "@/stores/useToastStore";
  * Editor version for the project, so this button does it — and when that CLI isn't installed it
  * says so once, in a toast, instead of failing silently.
  */
-export default function OpenUnityButton({ project }: { project: string }) {
+export default function OpenUnityButton({
+  project,
+  alwaysVisible = false,
+}: {
+  project: string;
+  /** Hover-reveal suits the status bar; a banner or empty state needs it visible outright. */
+  alwaysVisible?: boolean;
+}) {
   const [starting, setStarting] = useState(false);
   const toast = useToastStore((s) => s.show);
 
@@ -37,7 +44,11 @@ export default function OpenUnityButton({ project }: { project: string }) {
       type="button"
       onClick={() => void open()}
       disabled={starting}
-      className="rounded-md border border-white/10 px-2 py-0.5 text-[11px] text-fg-muted transition hover:border-white/20 hover:text-fg disabled:opacity-60"
+      className={`rounded-md border px-2 py-0.5 text-[11px] transition disabled:opacity-60 ${
+        alwaysVisible
+          ? "border-current/30 text-current hover:bg-white/10"
+          : "border-white/10 text-fg-muted hover:border-white/20 hover:text-fg"
+      }`}
     >
       {starting ? "Starting Unity…" : "Open Unity"}
     </button>

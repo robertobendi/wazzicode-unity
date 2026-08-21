@@ -27,7 +27,9 @@ export function mapErrorMessage(
   const text = raw.toLowerCase();
 
   if (text.includes("unity_not_connected")) {
-    return "Unity isn't connected. Open Unity and load your project.";
+    // The status bar carries an Open Unity button, and the agent can start the Editor itself —
+            // so this says what is wrong, not "go and do it yourself".
+    return "Unity isn't running. Start it from the status bar, or just ask me to open it.";
   }
   if (text.includes("unity_reloading")) {
     return "Unity is busy recompiling. Give it a moment and try again.";
