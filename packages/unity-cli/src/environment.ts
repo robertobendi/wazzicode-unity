@@ -30,8 +30,13 @@ export interface ProjectVersionInfo {
  * written none of them, so it is invisible to those checks: launch again and you get a second
  * Editor, and again, and again. This is the only signal that catches it.
  */
+export function processScanSupported(): boolean {
+  // No cheap argv scan on Windows, so there the on-disk signals stay authoritative.
+  return process.platform !== "win32";
+}
+
 export async function findEditorProcesses(projectPath: string): Promise<number[]> {
-  if (process.platform === "win32") return []; // No cheap argv scan; the file signals still apply.
+  if (!processScanSupported()) return [];
   const normalized = path.resolve(projectPath).toLowerCase();
   const listing = await new Promise<string>((resolve) => {
     execFile("ps", ["-axo", "pid=,args="], { maxBuffer: 8 * 1024 * 1024 }, (error, stdout) =>
@@ -60,13 +65,22 @@ export interface EditorRunningState {
   editorProcessAlive: boolean;
   /**
    * Unity writes Temp/UnityLockfile while it holds a project. It answers "is a batch-mode build
-   * going to fail?" even when our package isn't installed. It can survive a crash, so it is
-   * reported as evidence, never as proof.
+   * going to fail?" even when our package isn't installed. It survives a crash or a kill -9, so
+   * it is evidence, never proof — see `stale` below.
    */
   lockfilePresent: boolean;
   lockfileAgeMs?: number;
   /** PIDs of Editor processes opened on this project, including ones that never finished booting. */
   editorProcesses: number[];
+  /** False on platforms where we cannot list processes (Windows); the files stay authoritative there. */
+  processScanSupported: boolean;
+  /**
+   * The on-disk signals claim an Editor is here, but nothing is: no live process, no answering
+   * bridge. Unity leaves `Temp/UnityLockfile` behind on a crash or a force-quit, and our own
+   * `bridge.json` outlives the process that wrote it. Believing those files is how a launcher ends
+   * up waiting out its whole timeout for an Editor that exited half an hour ago.
+   */
+  stale: boolean;
 }
 
 export interface EditorMatch {
@@ -154,24 +168,33 @@ export async function readEditorRunningState(
     probeBridge ? probeBridge(projectPath) : Promise.resolve(false),
     listEditorProcesses(projectPath),
   ]);
+  const alive = pidAlive(discovery?.pid) || editorProcesses.length > 0;
+  const scannable = processScanSupported();
   return {
     bridgeConnected,
     discovery,
-    editorProcessAlive: pidAlive(discovery?.pid) || editorProcesses.length > 0,
+    editorProcessAlive: alive,
     lockfilePresent,
     ...(lockfileAgeMs !== undefined ? { lockfileAgeMs } : {}),
     editorProcesses,
+    processScanSupported: scannable,
+    stale: scannable && !alive && !bridgeConnected && (lockfilePresent || discovery !== null),
   };
 }
 
-/** True when the project is locked by an Editor, so batch-mode build/test/clean would fail. */
+/**
+ * True when the project is locked by an Editor, so batch-mode build/test/clean would fail.
+ *
+ * A lockfile with no process behind it does NOT count: it is debris from a crash or a kill, and
+ * treating it as a live Editor blocks both batch-mode work and launching.
+ */
 export function editorHoldsProject(running: EditorRunningState): boolean {
-  return (
-    running.bridgeConnected ||
-    running.editorProcessAlive ||
-    running.lockfilePresent ||
-    running.editorProcesses.length > 0
-  );
+  if (running.bridgeConnected) return true;
+  if (running.editorProcessAlive || running.editorProcesses.length > 0) return true;
+  // Where we cannot see processes, the lockfile is the only signal there is — trusting debris
+  // costs a wait, but ignoring a real lock lets Unity fail deep inside a batch-mode run.
+  if (!running.processScanSupported && running.lockfilePresent) return true;
+  return false;
 }
 
 function matchEditors(required: string | undefined, editors: InstalledEditor[]): EditorMatch {

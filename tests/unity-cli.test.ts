@@ -224,12 +224,26 @@ describe("unity-cli/editor process detection", () => {
     expect(await findEditorProcesses(projectDir)).toEqual([]);
   });
 
+  it("does not treat debris as an Editor: a lockfile with no process is stale", async () => {
+    await fs.mkdir(path.join(projectDir, "Temp"), { recursive: true });
+    await fs.writeFile(path.join(projectDir, "Temp", "UnityLockfile"), "", "utf8");
+    try {
+      const state = await readEditorRunningState(projectDir, async () => false, async () => []);
+      expect(state.lockfilePresent).toBe(true);
+      expect(state.stale).toBe(true);
+      expect(editorHoldsProject(state)).toBe(false);
+    } finally {
+      await fs.rm(path.join(projectDir, "Temp"), { recursive: true, force: true });
+    }
+  });
+
   it("treats a live Editor process as holding the project even with no lockfile", async () => {
     // The real failure this guards: a *booting* Editor has written neither bridge.json nor
     // Temp/UnityLockfile, so every retry used to spawn another one.
     const state = await readEditorRunningState(projectDir, async () => false);
     expect(state.editorProcesses).toEqual([]);
     expect(editorHoldsProject({ ...state, editorProcesses: [4242] })).toBe(true);
+    expect(editorHoldsProject({ ...state, bridgeConnected: true })).toBe(true);
     expect(editorHoldsProject(state)).toBe(false);
   });
 });
@@ -298,6 +312,7 @@ describe("unity-cli/ensureEditorRunning", () => {
       timeoutMs: 600,
       pollMs: 100,
       force: true,
+      wedgeGraceMs: 0,
       // Stand in for the process table: a Unity is alive for this project but has opened nothing.
       listEditorProcesses: async () => [4242],
     });
@@ -306,6 +321,30 @@ describe("unity-cli/ensureEditorRunning", () => {
     expect(result.nextAction).toContain("background-only");
     // Crucially it must NOT have started a sixth Editor on top of the wedged one.
     expect((await calls()).some((c) => c[0] === "open")).toBe(false);
+  });
+
+  it("launches through a stale lockfile left by an Editor that already exited", async () => {
+    // The regression this pins: Unity leaves Temp/UnityLockfile behind on a crash or a kill, and
+    // trusting it made the launcher wait out its entire timeout for an Editor that was long gone.
+    process.env.FAKE_UNITY_EDITORS = JSON.stringify([{ version: "6000.0.30f1" }]);
+    await fs.mkdir(path.join(projectDir, "Temp"), { recursive: true });
+    await fs.writeFile(path.join(projectDir, "Temp", "UnityLockfile"), "", "utf8");
+    try {
+      let probes = 0;
+      const result = await ensureEditorRunning(projectDir, {
+        cliPath: fakeCli,
+        probeBridge: async () => ++probes > 2,
+        listEditorProcesses: async () => [], // nothing alive — the lockfile is debris
+        timeoutMs: 10_000,
+        pollMs: 100,
+        force: true,
+      });
+      expect(result.outcome).toBe("launched");
+      expect(result.ready).toBe(true);
+      expect((await calls()).some((c) => c[0] === "open")).toBe(true);
+    } finally {
+      await fs.rm(path.join(projectDir, "Temp"), { recursive: true, force: true });
+    }
   });
 
   it("reports a non-Unity directory rather than launching anything", async () => {
@@ -354,8 +393,16 @@ describe("mcp/machine tools", () => {
 
   it("refuses batch-mode work while an Editor holds the project", async () => {
     process.env.UVIBE_UNITY_CLI = fakeCli;
+    // A *live* Editor is what blocks batch mode. (A lockfile with no process behind it is debris
+    // and must not block anything — covered in "does not treat debris as an Editor".)
     await fs.mkdir(path.join(projectDir, "Temp"), { recursive: true });
     await fs.writeFile(path.join(projectDir, "Temp", "UnityLockfile"), "", "utf8");
+    await fs.mkdir(path.join(projectDir, "Library", "UnityVibeOS"), { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, "Library", "UnityVibeOS", "bridge.json"),
+      JSON.stringify({ port: 38578, host: "127.0.0.1", projectPath: projectDir, pid: process.pid }),
+      "utf8"
+    );
     try {
       const ctx = buildContext({ projectPath: projectDir });
       const tool = allTools.find((t) => t.name === "unity_build_player")!;
@@ -364,6 +411,7 @@ describe("mcp/machine tools", () => {
       if (!env.ok) expect(env.error.code).toBe("EDITOR_HOLDS_PROJECT");
     } finally {
       await fs.rm(path.join(projectDir, "Temp"), { recursive: true, force: true });
+      await fs.rm(path.join(projectDir, "Library"), { recursive: true, force: true });
       delete process.env.UVIBE_UNITY_CLI;
     }
   });

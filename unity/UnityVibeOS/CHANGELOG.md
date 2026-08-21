@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.7.1 — 2026-08-21
+
+- Version only: no C# changes. Tracks the server release that fixes the stale-lockfile launch hang.
+
 ## 0.7.0 — 2026-08-21
 
 - Version only: no C# changes. The package version tracks the MCP server's `PRODUCT_VERSION` so

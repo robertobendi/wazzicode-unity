@@ -50,11 +50,18 @@ export interface EnsureEditorOptions extends EnvironmentOptions {
   installMissingEditor?: boolean;
   /** Return as soon as the launch is underway instead of waiting for the bridge. */
   waitForBridge?: boolean;
+  /** Grace before "no lockfile" is read as wedged rather than still booting. Tests shorten it. */
+  wedgeGraceMs?: number;
   onProgress?: (message: string) => void;
 }
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 const DEFAULT_POLL_MS = 2_000;
+/**
+ * How long an Editor gets to open the project before "no lockfile" means wedged rather than busy.
+ * A cold Unity start on a large project regularly takes half a minute before it writes one.
+ */
+const WEDGE_GRACE_MS = 90_000;
 
 /** Does the UnityVibeOS bridge answer for this project right now? */
 export async function defaultBridgeProbe(projectPath: string): Promise<boolean> {
@@ -76,6 +83,7 @@ export async function ensureEditorRunning(
   const probe = opts.probeBridge ?? defaultBridgeProbe;
   const waitForBridge = opts.waitForBridge ?? true;
   const progress = (message: string) => opts.onProgress?.(message);
+  const wedgeGraceMs = opts.wedgeGraceMs ?? WEDGE_GRACE_MS;
   const envOpts: EnvironmentOptions = { ...opts, probeBridge: probe };
 
   if (!(await isUnityProject(projectPath))) {
@@ -103,15 +111,19 @@ export async function ensureEditorRunning(
     };
   }
 
-  // An Editor already holds the project (booting, importing, mid-compile, running without our
-  // package, or wedged). Launching a second one is never right: Unity's project lock would refuse
-  // it, and a *booting* Editor has written no lockfile yet, so retrying used to stack up Editor
-  // processes — five of them, in the case that prompted this guard.
-  if (
-    environment.running.editorProcessAlive ||
-    environment.running.lockfilePresent ||
-    environment.running.editorProcesses.length > 0
-  ) {
+  // Debris from a dead Editor is not an Editor. Unity leaves Temp/UnityLockfile behind on a crash
+  // or a force-quit and our own bridge.json outlives the process that wrote it, so a launcher that
+  // trusts those files waits out its entire timeout for something that exited long ago — which is
+  // exactly what it did. Say so, then carry on and launch.
+  if (environment.running.stale) {
+    progress("ignoring a stale lockfile/bridge file from an Editor that is no longer running…");
+  }
+
+  // A real Editor already holds the project (booting, importing, mid-compile, or running without
+  // our package). Launching a second one is never right: Unity's project lock would refuse it, and
+  // a *booting* Editor has written no lockfile yet, so retrying used to stack up Editor processes —
+  // five of them, in the case that prompted this guard.
+  if (environment.running.editorProcessAlive || environment.running.editorProcesses.length > 0) {
     progress("a Unity Editor already holds this project — waiting for its bridge…");
     // With waitForBridge:false the caller wants an immediate answer, so this collapses to a single
     // probe rather than sitting on the full budget for an Editor someone else already started.
@@ -135,11 +147,13 @@ export async function ensureEditorRunning(
       };
     }
     // Distinguish "still working" from "never started". An Editor that has not written
-    // Temp/UnityLockfile has not opened the project at all — on macOS these show up as
-    // background-only apps burning no CPU, which is what happens when Unity is launched from a
-    // session with no desktop (ssh, CI, an agent shell). Retrying that forever is useless.
+    // Temp/UnityLockfile has not opened the project — but a healthy Unity takes tens of seconds to
+    // get there on a cold start, so this only counts once it has had a fair chance. Undercalling
+    // it costs a wait; overcalling it kills a perfectly good boot.
     const wedged =
-      environment.running.editorProcesses.length > 0 && !environment.running.lockfilePresent;
+      environment.running.editorProcesses.length > 0 &&
+      !environment.running.lockfilePresent &&
+      Date.now() - startedAt > wedgeGraceMs;
     if (wedged) {
       return {
         outcome: "editor_wedged",
@@ -261,7 +275,11 @@ export async function ensureEditorRunning(
       ...(required && opts.installMissingEditor ? { installedEditorVersion: required } : {}),
     };
   }
-  if (environment.running.editorProcesses.length > 0 && !environment.running.lockfilePresent) {
+  if (
+    environment.running.editorProcesses.length > 0 &&
+    !environment.running.lockfilePresent &&
+    waitedMs > wedgeGraceMs
+  ) {
     return {
       outcome: "editor_wedged",
       ready: false,

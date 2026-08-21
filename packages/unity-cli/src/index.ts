@@ -42,6 +42,7 @@ export {
   readProjectVersion,
   readEditorRunningState,
   findEditorProcesses,
+  processScanSupported,
   editorHoldsProject,
   isUnityProject,
   type EditorEnvironment,
