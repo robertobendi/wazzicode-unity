@@ -7,6 +7,7 @@ import {
   resolvePackageSource,
 } from "@uvibe/unity-package";
 import { PRODUCT_VERSION } from "@uvibe/core";
+import { refreshAgentInstructions, type AgentInstructionsOutcome } from "@uvibe/project-brain";
 import { CommandResult, GlobalOptions, ParsedArgs } from "../options.js";
 import { mcpEntryIsStale, writeMcpConfig } from "./mcpConfig.js";
 
@@ -34,6 +35,8 @@ export interface ProjectUpdate {
     detail?: string;
   };
   mcpConfig: { action: "rewritten" | "current" | "absent" | "failed"; detail?: string };
+  /** The CLAUDE.md / AGENTS.md block — the agent's standing brief in that project. */
+  instructions: { action: AgentInstructionsOutcome | "failed"; detail?: string };
 }
 
 export async function runUpdate(g: GlobalOptions, parsed: ParsedArgs): Promise<CommandResult> {
@@ -45,9 +48,7 @@ export async function runUpdate(g: GlobalOptions, parsed: ParsedArgs): Promise<C
     results.push(await updateOne(project, { dryRun }));
   }
 
-  const changed = results.filter(
-    (r) => r.package.action === "updated" || r.mcpConfig.action === "rewritten"
-  );
+  const changed = results.filter(changedProject);
   if (g.json) {
     return {
       exitCode: 0,
@@ -76,9 +77,13 @@ export async function runUpdate(g: GlobalOptions, parsed: ParsedArgs): Promise<C
           : r.mcpConfig.action === "absent"
             ? "no .mcp.json"
             : `.mcp.json ${r.mcpConfig.action}${r.mcpConfig.detail ? ` — ${r.mcpConfig.detail}` : ""}`;
-    const mark = r.package.action === "updated" || r.mcpConfig.action === "rewritten" ? "↑" : "·";
+    const instructions =
+      r.instructions.action === "current"
+        ? "instructions ok"
+        : `instructions ${r.instructions.action}${r.instructions.detail ? ` — ${r.instructions.detail}` : ""}`;
+    const mark = changedProject(r) ? "↑" : "·";
     lines.push(`${mark} ${r.project}`);
-    lines.push(`    ${pkg}; ${mcp}`);
+    lines.push(`    ${pkg}; ${mcp}; ${instructions}`);
   }
   lines.push("");
   lines.push(
@@ -89,6 +94,15 @@ export async function runUpdate(g: GlobalOptions, parsed: ParsedArgs): Promise<C
         : "Everything is already up to date."
   );
   return { exitCode: 0, stdout: lines.join("\n") + "\n" };
+}
+
+/** Did this project actually need anything? Drives the summary line and the per-project marker. */
+function changedProject(r: ProjectUpdate): boolean {
+  return (
+    r.package.action === "updated" ||
+    r.mcpConfig.action === "rewritten" ||
+    (r.instructions.action !== "current" && r.instructions.action !== "failed")
+  );
 }
 
 async function updateOne(project: string, opts: { dryRun: boolean }): Promise<ProjectUpdate> {
@@ -102,6 +116,7 @@ async function updateOne(project: string, opts: { dryRun: boolean }): Promise<Pr
       action: "current",
     },
     mcpConfig: { action: "absent" },
+    instructions: { action: "current" },
   };
 
   if (!status.detected) {
@@ -149,6 +164,26 @@ async function updateOne(project: string, opts: { dryRun: boolean }): Promise<Pr
       result.mcpConfig.action = "failed";
       result.mcpConfig.detail = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  // A project set up against an older release keeps that release's instructions, which is how a
+  // project ends up telling the agent to ask the user to open Unity long after it learned to do
+  // it itself. Rewriting touches only the text between the markers.
+  try {
+    if (opts.dryRun) {
+      const current = await fs.readFile(path.join(project, "CLAUDE.md"), "utf8").catch(() => null);
+      result.instructions.action = current === null ? "created" : "current";
+      if (current !== null && !current.includes("unity_launch_editor")) {
+        result.instructions.action = "updated";
+      }
+    } else {
+      const refreshed = await refreshAgentInstructions(project);
+      result.instructions.action =
+        refreshed.claudeMd !== "current" ? refreshed.claudeMd : refreshed.agentsMd;
+    }
+  } catch (error) {
+    result.instructions.action = "failed";
+    result.instructions.detail = error instanceof Error ? error.message : String(error);
   }
 
   return result;

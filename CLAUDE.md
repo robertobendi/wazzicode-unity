@@ -59,7 +59,7 @@ For writing and editing C# (you can author game code directly — don't hand it 
 
 `unity_execute_code` compiles and runs a C# snippet *inside* the Editor (the snippet is the body of `static object Execute()`; `return` a value to get it back, and logs are captured). Reach for it for one-off Editor automation that has no dedicated tool — bulk operations, recomputing data, probing an API — instead of writing a throwaway script. Studio makes it available automatically and protects the task with checkpoints and an action log. It needs the project's Api Compatibility Level set to ".NET Framework"; otherwise it returns `FEATURE_UNAVAILABLE` and you should use `unity_create_script` + `unity_verify` instead.
 
-### Editor-package self-update (`@uvibe/unity-package`)
+### Install self-update (`@uvibe/unity-package`, `refreshAgentInstructions`)
 
 The MCP server and the `com.uvibe.os` Editor package are one product in two processes: they share
 a protocol version, and the server calls bridge methods that only exist in a matching package. A
@@ -81,6 +81,15 @@ for a problem that is a file copy. Now it heals itself:
 Only an **embedded** copy is ever rewritten. A symlink or a `file:` manifest reference resolves to
 the source tree itself — if that reads as stale, the source is what's old, and copying over it
 would be wrong. Config: `autoUpdateUnityPackage` (default true).
+
+The **agent instruction block** rots the same way, and matters more: the marker-delimited section in
+a project's `CLAUDE.md` / `AGENTS.md` is the standing brief the agent actually follows there, so a
+project set up before the Editor could be launched automatically kept telling the agent to stop and
+ask the user to open Unity — no matter what the tools could do. `refreshAgentInstructions`
+(`@uvibe/project-brain`) re-renders that block on server start, in `uvibe init`, and in
+`uvibe update`; everything outside the markers is preserved. Config: `autoUpdateAgentInstructions`
+(default true). When editing the block, keep superseded phrasings out of it entirely — a stale
+sentence that survives inside the new block is indistinguishable from the old rule.
 
 ### Unity CLI integration (`@uvibe/unity-cli`)
 

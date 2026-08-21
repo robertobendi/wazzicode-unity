@@ -47,6 +47,14 @@ export const UVibeConfigSchema = z.object({
    * embedded copy; symlink / `file:` manifest installs resolve to the source tree and are left alone.
    */
   autoUpdateUnityPackage: z.boolean().default(true),
+  /**
+   * Rewrite the marker-delimited Unity Vibe OS block in the project's CLAUDE.md / AGENTS.md when
+   * this build renders it differently. That block is the agent's standing brief inside the user's
+   * own project, so a stale one keeps producing old behaviour — a project set up before the Editor
+   * could be launched automatically still tells the agent to ask the user to open Unity. Only the
+   * text between the markers is touched.
+   */
+  autoUpdateAgentInstructions: z.boolean().default(true),
   autoSnapshot: z.boolean().default(true),
   unityProjectPath: z.string().default("."),
   mcpPort: z.number().int().default(DEFAULT_MCP_PORT),

@@ -15,6 +15,23 @@ Check what the Unity process is actually doing:
 - **The package is missing from the project that opened.** `uvibe doctor` reports `Unity package: (not detected)`; fix with `uvibe install-unity-package`.
 - **The Unity process is alive but has no window.** On macOS check with `lsappinfo list | grep -A5 '"Unity" ASN'`: `type="BackgroundOnly"` means Unity was started without a desktop session — from an ssh session, a CI runner, or an agent shell that has no GUI session — so it never boots the editor loop and never starts the bridge. Nothing in the project is wrong; start Unity from Terminal, the Unity Hub, or the Studio app instead.
 
+## The agent still asks you to open Unity
+
+Two things have to be current, and both are per-project:
+
+1. **The running MCP server.** Claude Code starts it once per session, so a session opened before
+   you updated the checkout keeps serving the old build — with no `unity_launch_editor` tool and no
+   auto-launch. `ps aux | grep "uvibe serve"` shows when it started. Restart Claude Code in that
+   project.
+2. **The project's `CLAUDE.md` / `AGENTS.md` block.** It is written at install time, so a project
+   set up against an older release still carries that release's rules — including "ask the user to
+   open Unity". Newer builds re-render it on server start; `uvibe update` does it on demand for
+   every project.
+
+If both are current and it still stops, read what `unity_launch_editor` actually returned:
+`UNITY_CLI_UNAVAILABLE` (Unity's CLI isn't installed), `editor_not_installed` (the pinned Editor
+version is missing), or `launch_timeout` — see the entry above for the background-only case.
+
 ## "The MCP server is X but the installed Unity package is Y"
 
 The two ship together and speak one protocol version, so this is a real defect rather than cosmetic

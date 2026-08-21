@@ -9,6 +9,7 @@ import {
   readEditorPackageStatus,
 } from "@uvibe/unity-package";
 import { ensureUnityPackageCurrent, syncEditorPackage } from "@uvibe/mcp-server";
+import { refreshAgentInstructions } from "@uvibe/project-brain";
 import { writeConfig, DEFAULT_CONFIG } from "@uvibe/safety";
 import { runUpdate } from "@uvibe/cli";
 import { mcpEntryIsStale } from "../apps/cli/src/commands/mcpConfig.js";
@@ -237,5 +238,77 @@ describe("cli/mcp config staleness", () => {
     expect(mcpEntryIsStale(good)).toBeNull();
     expect(mcpEntryIsStale('{"mcpServers":{"other":{"command":"x"}}}')).toBeNull();
     expect(mcpEntryIsStale("not json")).toBeNull();
+  });
+});
+
+describe("agent instructions", () => {
+  /** What a project set up before the Editor could be launched automatically still carries. */
+  const OLD_BLOCK = [
+    "# CLAUDE.md — cosyrange",
+    "",
+    "My own notes about this game. Do not delete.",
+    "",
+    "<!-- BEGIN unity-vibe-os -->",
+    "## Unity Vibe OS",
+    "",
+    "### Bridge",
+    "",
+    "If a `unity_*` tool returns `UNITY_NOT_CONNECTED`, ask the user to open Unity.",
+    "<!-- END unity-vibe-os -->",
+    "",
+    "More of my notes.",
+    "",
+  ].join("\n");
+
+  it("replaces a stale block and keeps everything outside the markers", async () => {
+    await fs.writeFile(path.join(project, "CLAUDE.md"), OLD_BLOCK, "utf8");
+    const outcome = await refreshAgentInstructions(project);
+    expect(outcome.claudeMd).toBe("updated");
+    const updated = await fs.readFile(path.join(project, "CLAUDE.md"), "utf8");
+    expect(updated).toContain("My own notes about this game. Do not delete.");
+    expect(updated).toContain("More of my notes.");
+    expect(updated).toContain("unity_launch_editor");
+    expect(updated).not.toContain("ask the user to open Unity");
+  });
+
+  it("is idempotent — a second pass reports nothing to do", async () => {
+    await fs.writeFile(path.join(project, "CLAUDE.md"), OLD_BLOCK, "utf8");
+    await refreshAgentInstructions(project);
+    const second = await refreshAgentInstructions(project);
+    expect(second.claudeMd).toBe("current");
+    expect(second.agentsMd).toBe("current");
+  });
+
+  it("creates the files when a project has none", async () => {
+    const outcome = await refreshAgentInstructions(project);
+    expect(outcome.claudeMd).toBe("created");
+    expect(outcome.agentsMd).toBe("created");
+    expect(await fs.readFile(path.join(project, "AGENTS.md"), "utf8")).toContain("unity_orient");
+  });
+
+  it("is refreshed by the server's start-up self-update", async () => {
+    await fs.writeFile(path.join(project, "CLAUDE.md"), OLD_BLOCK, "utf8");
+    const messages: string[] = [];
+    await ensureUnityPackageCurrent(project, { log: (m) => messages.push(m) });
+    expect(messages.join(" ")).toContain("agent instructions");
+    expect(await fs.readFile(path.join(project, "CLAUDE.md"), "utf8")).toContain("unity_launch_editor");
+  });
+
+  it("honours autoUpdateAgentInstructions:false", async () => {
+    await fs.writeFile(path.join(project, "CLAUDE.md"), OLD_BLOCK, "utf8");
+    await writeConfig(project, { ...DEFAULT_CONFIG, autoUpdateAgentInstructions: false });
+    await ensureUnityPackageCurrent(project, {});
+    expect(await fs.readFile(path.join(project, "CLAUDE.md"), "utf8")).toContain("ask the user to open Unity");
+  });
+
+  it("is part of the `uvibe update` sweep", async () => {
+    await fs.writeFile(path.join(project, "CLAUDE.md"), OLD_BLOCK, "utf8");
+    const result = await runUpdate(
+      { project, mock: true, json: true },
+      { command: "update", positional: [], flags: { all: false } }
+    );
+    const payload = JSON.parse(result.stdout!);
+    expect(payload.projects[0].instructions.action).toBe("updated");
+    expect(await fs.readFile(path.join(project, "CLAUDE.md"), "utf8")).toContain("unity_launch_editor");
   });
 });

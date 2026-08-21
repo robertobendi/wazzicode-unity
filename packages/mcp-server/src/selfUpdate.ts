@@ -4,6 +4,7 @@ import {
   readEditorPackageStatus,
   type EnsureCurrentResult,
 } from "@uvibe/unity-package";
+import { refreshAgentInstructions } from "@uvibe/project-brain";
 
 /**
  * Keep the project's Unity Editor package in step with this server.
@@ -33,6 +34,25 @@ export async function ensureUnityPackageCurrent(
       );
     } else if (result.skipped === "failed") {
       opts.log?.(`Unity Vibe OS: could not refresh the Editor package — ${result.error}`);
+    }
+
+    // The other half of a stale install, and the one that actually changes behaviour: the
+    // CLAUDE.md / AGENTS.md block the agent reads as its standing brief in this project.
+    if (config.autoUpdateAgentInstructions) {
+      try {
+        const refreshed = await refreshAgentInstructions(projectPath);
+        const changed = [
+          refreshed.claudeMd !== "current" ? `CLAUDE.md (${refreshed.claudeMd})` : null,
+          refreshed.agentsMd !== "current" ? `AGENTS.md (${refreshed.agentsMd})` : null,
+        ].filter(Boolean);
+        if (changed.length > 0) {
+          opts.log?.(`Unity Vibe OS: refreshed the agent instructions — ${changed.join(", ")}.`);
+        }
+      } catch (error) {
+        opts.log?.(
+          `Unity Vibe OS: could not refresh the agent instructions — ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }
     return result;
   } catch (error) {
