@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   clearUnityCliCache,
+  editorHoldsProject,
   describeEditorEnvironment,
   ensureEditorRunning,
   isUnityProject,
@@ -11,6 +12,7 @@ import {
   locateUnityCli,
   parseEnvelope,
   parseNUnitReport,
+  findEditorProcesses,
   readEditorRunningState,
   readProjectVersion,
   runUnityCli,
@@ -217,6 +219,21 @@ describe("unity-cli/environment", () => {
   });
 });
 
+describe("unity-cli/editor process detection", () => {
+  it("finds nothing for a project no Editor has open", async () => {
+    expect(await findEditorProcesses(projectDir)).toEqual([]);
+  });
+
+  it("treats a live Editor process as holding the project even with no lockfile", async () => {
+    // The real failure this guards: a *booting* Editor has written neither bridge.json nor
+    // Temp/UnityLockfile, so every retry used to spawn another one.
+    const state = await readEditorRunningState(projectDir, async () => false);
+    expect(state.editorProcesses).toEqual([]);
+    expect(editorHoldsProject({ ...state, editorProcesses: [4242] })).toBe(true);
+    expect(editorHoldsProject(state)).toBe(false);
+  });
+});
+
 describe("unity-cli/ensureEditorRunning", () => {
   it("does nothing when the bridge already answers", async () => {
     const result = await ensureEditorRunning(projectDir, {
@@ -271,6 +288,24 @@ describe("unity-cli/ensureEditorRunning", () => {
     });
     expect(result.outcome).toBe("launch_timeout");
     expect(result.ready).toBe(false);
+  });
+
+  it("calls out a wedged Editor instead of reporting a plain timeout", async () => {
+    process.env.FAKE_UNITY_EDITORS = JSON.stringify([{ version: "6000.0.30f1" }]);
+    const result = await ensureEditorRunning(projectDir, {
+      cliPath: fakeCli,
+      probeBridge: async () => false,
+      timeoutMs: 600,
+      pollMs: 100,
+      force: true,
+      // Stand in for the process table: a Unity is alive for this project but has opened nothing.
+      listEditorProcesses: async () => [4242],
+    });
+    expect(result.outcome).toBe("editor_wedged");
+    expect(result.message).toContain("4242");
+    expect(result.nextAction).toContain("background-only");
+    // Crucially it must NOT have started a sixth Editor on top of the wedged one.
+    expect((await calls()).some((c) => c[0] === "open")).toBe(false);
   });
 
   it("reports a non-Unity directory rather than launching anything", async () => {

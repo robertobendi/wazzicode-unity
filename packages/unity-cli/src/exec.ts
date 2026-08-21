@@ -262,6 +262,39 @@ export async function launchUnityCli(
   });
 }
 
+/**
+ * Ask macOS to launch an app bundle (`/usr/bin/open`). Separate from launchUnityCli because it is
+ * not the Unity CLI at all: `open` returns immediately once LaunchServices has accepted the
+ * request, and a non-zero exit is the only failure worth reporting.
+ */
+export function launchViaLaunchServices(
+  args: string[],
+  opts: RunOptions = {}
+): Promise<{ started: boolean; exitedEarly: boolean; message?: string; binary?: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("/usr/bin/open", args, {
+      cwd: opts.cwd,
+      env: { ...process.env, ...FORCED_ENV },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (error: Error) =>
+      resolve({ started: false, exitedEarly: true, message: error.message, binary: "/usr/bin/open" })
+    );
+    child.on("exit", (code) =>
+      resolve({
+        started: code === 0,
+        exitedEarly: true,
+        ...(code === 0 ? {} : { message: truncate(stderr) ?? `open exited with code ${code}` }),
+        binary: "/usr/bin/open",
+      })
+    );
+  });
+}
+
 interface Collected {
   stdout: string;
   stderr: string;

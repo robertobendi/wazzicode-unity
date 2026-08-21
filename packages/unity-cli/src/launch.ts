@@ -22,6 +22,8 @@ export type LaunchOutcome =
   | "became_ready"
   | "launched"
   | "editor_running_without_bridge"
+  /** A process is alive for this project but never initialised — see the wedged-Editor note below. */
+  | "editor_wedged"
   | "editor_not_installed"
   | "cli_unavailable"
   | "launch_failed"
@@ -101,9 +103,15 @@ export async function ensureEditorRunning(
     };
   }
 
-  // An Editor already holds the project (booting, importing, mid-compile, or running without our
-  // package). Launching a second one would fail on Unity's project lock, so we wait instead.
-  if (environment.running.editorProcessAlive || environment.running.lockfilePresent) {
+  // An Editor already holds the project (booting, importing, mid-compile, running without our
+  // package, or wedged). Launching a second one is never right: Unity's project lock would refuse
+  // it, and a *booting* Editor has written no lockfile yet, so retrying used to stack up Editor
+  // processes — five of them, in the case that prompted this guard.
+  if (
+    environment.running.editorProcessAlive ||
+    environment.running.lockfilePresent ||
+    environment.running.editorProcesses.length > 0
+  ) {
     progress("a Unity Editor already holds this project — waiting for its bridge…");
     // With waitForBridge:false the caller wants an immediate answer, so this collapses to a single
     // probe rather than sitting on the full budget for an Editor someone else already started.
@@ -123,6 +131,25 @@ export async function ensureEditorRunning(
         waitedMs: Date.now() - startedAt,
         message: "The Unity Editor that was already open finished starting up; the bridge is answering.",
         nextAction: "Nothing to do — continue with the unity_* tools.",
+        environment,
+      };
+    }
+    // Distinguish "still working" from "never started". An Editor that has not written
+    // Temp/UnityLockfile has not opened the project at all — on macOS these show up as
+    // background-only apps burning no CPU, which is what happens when Unity is launched from a
+    // session with no desktop (ssh, CI, an agent shell). Retrying that forever is useless.
+    const wedged =
+      environment.running.editorProcesses.length > 0 && !environment.running.lockfilePresent;
+    if (wedged) {
+      return {
+        outcome: "editor_wedged",
+        ready: false,
+        waitedMs: Date.now() - startedAt,
+        message: `A Unity process for this project is running (pid ${environment.running.editorProcesses.join(", ")}) but never opened it — no Temp/UnityLockfile after ${Math.round(
+          (Date.now() - startedAt) / 1000
+        )}s.`,
+        nextAction:
+          "That Editor will not recover: quit it (kill the pid) and start Unity from the Hub, Finder, or the Studio app. A Unity started from a session with no desktop — ssh, CI, an agent shell — registers as a background-only app on macOS and never boots its editor loop.",
         environment,
       };
     }
@@ -192,6 +219,8 @@ export async function ensureEditorRunning(
   const launch = await openProject(projectPath, {
     ...opts,
     ...(required ? { editorVersion: required } : {}),
+    // Prefer the app bundle we already resolved, so macOS can launch it the way AppKit expects.
+    ...(environment.match.exact?.location ? { editorAppPath: environment.match.exact.location } : {}),
   });
   if (!launch.started) {
     return {
@@ -228,6 +257,18 @@ export async function ensureEditorRunning(
       waitedMs,
       message: `Launched the Unity Editor and the bridge answered after ${Math.round(waitedMs / 1000)}s.`,
       nextAction: "Nothing to do — continue with the unity_* tools.",
+      environment,
+      ...(required && opts.installMissingEditor ? { installedEditorVersion: required } : {}),
+    };
+  }
+  if (environment.running.editorProcesses.length > 0 && !environment.running.lockfilePresent) {
+    return {
+      outcome: "editor_wedged",
+      ready: false,
+      waitedMs,
+      message: `The Editor was launched (pid ${environment.running.editorProcesses.join(", ")}) but never opened the project — no Temp/UnityLockfile after ${Math.round(waitedMs / 1000)}s.`,
+      nextAction:
+        "It will not recover on its own: quit that process and start Unity from the Hub, Finder, or the Studio app. A Unity launched from a session with no desktop — ssh, CI, an agent shell — registers as a background-only app on macOS and never boots its editor loop. Do not keep retrying; each attempt leaves another dead Editor behind.",
       environment,
       ...(required && opts.installMissingEditor ? { installedEditorVersion: required } : {}),
     };

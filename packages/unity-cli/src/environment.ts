@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { readBridgeDiscovery } from "@uvibe/bridge-client";
@@ -21,6 +22,35 @@ export interface ProjectVersionInfo {
   changeset?: string;
 }
 
+/**
+ * Unity processes holding this project, found by scanning the process table.
+ *
+ * Everything else here reads files Unity writes *after* it has initialised — the bridge discovery
+ * file, `Temp/UnityLockfile`. An Editor that is still booting (or that started and wedged) has
+ * written none of them, so it is invisible to those checks: launch again and you get a second
+ * Editor, and again, and again. This is the only signal that catches it.
+ */
+export async function findEditorProcesses(projectPath: string): Promise<number[]> {
+  if (process.platform === "win32") return []; // No cheap argv scan; the file signals still apply.
+  const normalized = path.resolve(projectPath).toLowerCase();
+  const listing = await new Promise<string>((resolve) => {
+    execFile("ps", ["-axo", "pid=,args="], { maxBuffer: 8 * 1024 * 1024 }, (error, stdout) =>
+      resolve(error ? "" : stdout)
+    );
+  });
+  const pids: number[] = [];
+  for (const line of listing.split("\n")) {
+    const lower = line.toLowerCase();
+    // The Editor binary, opened on this project — not the Hub, not our own CLI invocation.
+    if (!lower.includes("unity.app/contents/macos/unity") && !/\bunity(\.x86_64)?\b/.test(lower)) continue;
+    if (!lower.includes("-projectpath")) continue;
+    if (!lower.includes(normalized)) continue;
+    const pid = Number.parseInt(line.trim().split(/\s+/)[0] ?? "", 10);
+    if (Number.isFinite(pid) && pid > 0) pids.push(pid);
+  }
+  return pids;
+}
+
 export interface EditorRunningState {
   /** The UnityVibeOS bridge answered — an Editor is open on this project with our package. */
   bridgeConnected: boolean;
@@ -35,6 +65,8 @@ export interface EditorRunningState {
    */
   lockfilePresent: boolean;
   lockfileAgeMs?: number;
+  /** PIDs of Editor processes opened on this project, including ones that never finished booting. */
+  editorProcesses: number[];
 }
 
 export interface EditorMatch {
@@ -66,6 +98,8 @@ export interface EnvironmentOptions extends RunOptions {
   force?: boolean;
   /** Injectable for tests: reports whether the bridge answers for this project. */
   probeBridge?: (projectPath: string) => Promise<boolean>;
+  /** Injectable for tests: PIDs of Editor processes open on this project. */
+  listEditorProcesses?: (projectPath: string) => Promise<number[]>;
 }
 
 export async function readProjectVersion(projectPath: string): Promise<ProjectVersionInfo> {
@@ -103,7 +137,8 @@ function pidAlive(pid: number | undefined): boolean {
 /** Is an Editor holding this project right now? Cheap, and it never spawns anything. */
 export async function readEditorRunningState(
   projectPath: string,
-  probeBridge?: (projectPath: string) => Promise<boolean>
+  probeBridge?: (projectPath: string) => Promise<boolean>,
+  listEditorProcesses: (projectPath: string) => Promise<number[]> = findEditorProcesses
 ): Promise<EditorRunningState> {
   const discovery = readBridgeDiscovery(projectPath);
   let lockfilePresent = false;
@@ -115,19 +150,28 @@ export async function readEditorRunningState(
   } catch {
     // No lockfile: no Editor has this project open (or it exited cleanly).
   }
-  const bridgeConnected = probeBridge ? await probeBridge(projectPath) : false;
+  const [bridgeConnected, editorProcesses] = await Promise.all([
+    probeBridge ? probeBridge(projectPath) : Promise.resolve(false),
+    listEditorProcesses(projectPath),
+  ]);
   return {
     bridgeConnected,
     discovery,
-    editorProcessAlive: pidAlive(discovery?.pid),
+    editorProcessAlive: pidAlive(discovery?.pid) || editorProcesses.length > 0,
     lockfilePresent,
     ...(lockfileAgeMs !== undefined ? { lockfileAgeMs } : {}),
+    editorProcesses,
   };
 }
 
 /** True when the project is locked by an Editor, so batch-mode build/test/clean would fail. */
 export function editorHoldsProject(running: EditorRunningState): boolean {
-  return running.bridgeConnected || running.editorProcessAlive || running.lockfilePresent;
+  return (
+    running.bridgeConnected ||
+    running.editorProcessAlive ||
+    running.lockfilePresent ||
+    running.editorProcesses.length > 0
+  );
 }
 
 function matchEditors(required: string | undefined, editors: InstalledEditor[]): EditorMatch {
@@ -149,7 +193,7 @@ export async function describeEditorEnvironment(
     cliIdentity(opts),
     isUnityProject(projectPath),
     readProjectVersion(projectPath),
-    readEditorRunningState(projectPath, opts.probeBridge),
+    readEditorRunningState(projectPath, opts.probeBridge, opts.listEditorProcesses),
   ]);
 
   let editors: InstalledEditor[] = [];

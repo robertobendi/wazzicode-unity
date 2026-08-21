@@ -3,6 +3,7 @@ import {
   runUnityCli,
   runUnityCliRaw,
   launchUnityCli,
+  launchViaLaunchServices,
   resolveCli,
   type RunOptions,
   type UnityCliResult,
@@ -142,13 +143,29 @@ export async function cliDoctor(
 export interface OpenProjectOptions extends RunOptions {
   editorVersion?: string;
   editorPath?: string;
+  /** macOS: the resolved `Unity.app` bundle, so the launch can go through LaunchServices. */
+  editorAppPath?: string;
   buildTarget?: string;
   /** Extra arguments forwarded to the Editor itself. */
   extraArgs?: string;
 }
 
-/** Launch the Editor for a project. Returns as soon as the launch is underway — see launchUnityCli. */
+/**
+ * Launch the Editor for a project. Returns as soon as the launch is underway — see launchUnityCli.
+ *
+ * On macOS, when we know the Editor's app bundle, this goes through LaunchServices (`open -a`)
+ * rather than `unity open`. Both end up running the same binary, but only LaunchServices performs
+ * the launch handshake AppKit expects: an Editor started outside it sits forever inside
+ * `AEProcessAppleEvent` waiting for a launch Apple Event that never arrives — alive, registered as
+ * a background-only app, burning no CPU, never writing Temp/UnityLockfile or its log. Verified
+ * with a sampled stack on a wedged 6000.3.8f1.
+ */
 export function openProject(projectPath: string, opts: OpenProjectOptions = {}) {
+  if (process.platform === "darwin" && opts.editorAppPath) {
+    const macArgs = ["-na", opts.editorAppPath, "--args", "-projectPath", projectPath];
+    if (opts.buildTarget) macArgs.push("-buildTarget", opts.buildTarget);
+    return launchViaLaunchServices(macArgs, opts);
+  }
   const args = ["open", projectPath];
   if (opts.editorVersion) args.push("--editor-version", opts.editorVersion);
   if (opts.editorPath) args.push("--editor-path", opts.editorPath);
