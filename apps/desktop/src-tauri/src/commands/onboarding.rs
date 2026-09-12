@@ -50,6 +50,7 @@ pub struct OnboardingStatus {
     pub agent_backend: Backend,
     pub claude_cli: CliStatus,
     pub codex_cli: CliStatus,
+    pub opencode_cli: CliStatus,
     pub node_sidecar: NodeSidecar,
     pub current_project: Option<String>,
     /// Inspection of `current_project` (if any), so the wizard can pre-fill.
@@ -97,11 +98,12 @@ pub async fn onboarding_status(
     let bundled = crate::mcpconfig::has_bundled_sidecar(&app);
 
     let cur = current_project.clone();
-    let (claude_cli, codex_cli, project_ready) = tokio::task::spawn_blocking(move || {
+    let (claude_cli, codex_cli, opencode_cli, project_ready) = tokio::task::spawn_blocking(move || {
         let claude = check_cli_blocking(Backend::Claude);
         let codex = check_cli_blocking(Backend::Codex);
+        let opencode = check_cli_blocking(Backend::Opencode);
         let pr = cur.map(crate::commands::project::inspect_project);
-        (claude, codex, pr)
+        (claude, codex, opencode, pr)
     })
     .await
     .map_err(|e| AppError::Other(format!("status task failed: {e}")))?;
@@ -110,6 +112,7 @@ pub async fn onboarding_status(
         agent_backend,
         claude_cli,
         codex_cli,
+        opencode_cli,
         node_sidecar: NodeSidecar { bundled },
         current_project,
         project_ready,
@@ -238,6 +241,7 @@ fn check_cli_capabilities(backend: Backend) -> Result<(), String> {
     let (primary_args, secondary_args): (&[&str], Option<&[&str]>) = match backend {
         Backend::Claude => (&["--help"], None),
         Backend::Codex => (&["exec", "--help"], Some(&["debug", "models", "--help"])),
+        Backend::Opencode => (&["run", "--help"], None),
     };
     let primary = cli_help(backend.bin(), primary_args)?;
     let secondary = secondary_args
@@ -280,6 +284,9 @@ fn capabilities_supported(backend: Backend, primary: &str, secondary: &str) -> b
                 .all(|feature| primary.contains(feature))
                 && secondary.contains("--bundled")
         }
+        Backend::Opencode => ["--format", "--pure", "--dangerously-skip-permissions", "--agent"]
+            .iter()
+            .all(|feature| primary.contains(feature)),
     }
 }
 
@@ -408,6 +415,11 @@ fn install_plan(backend: Backend) -> InstallPlan {
                 }
             }
         }
+        Backend::Opencode => InstallPlan {
+            program: "npm",
+            args: vec!["install", "-g", "opencode-ai@latest"],
+            env: Vec::new(),
+        },
     }
 }
 
@@ -433,6 +445,7 @@ fn manual_install_command(backend: Backend) -> &'static str {
                 "curl -fsSL https://claude.ai/install.sh | bash"
             }
         }
+        Backend::Opencode => "npm install -g opencode-ai@latest",
     }
 }
 
@@ -1141,6 +1154,20 @@ mod tests {
         assert_eq!(plan.env, vec![("CODEX_NON_INTERACTIVE", "1")]);
         assert!(manual_install_command(Backend::Codex).contains("CODEX_NON_INTERACTIVE=1"));
         assert!(!plan.args.iter().any(|arg| arg.contains("npm")));
+    }
+
+    #[test]
+    fn opencode_uses_the_npm_installer_and_needs_its_run_flags() {
+        let plan = install_plan(Backend::Opencode);
+        assert_eq!(plan.program, "npm");
+        assert!(plan.args.iter().any(|arg| arg.contains("opencode-ai")));
+        assert!(manual_install_command(Backend::Opencode).contains("npm install -g"));
+        assert!(capabilities_supported(
+            Backend::Opencode,
+            "run --format json --pure --dangerously-skip-permissions --agent",
+            ""
+        ));
+        assert!(!capabilities_supported(Backend::Opencode, "run --format", ""));
     }
 
     #[test]

@@ -4,12 +4,13 @@
 // module folds them into a `StreamDraft` the chat store projects onto the
 // assistant message. No Tauri imports — fully unit-testable.
 //
-// TWO backends feed this, and it dispatches on the line's own `type` rather than
-// on a backend flag threaded down from settings. That's not a shortcut: the
+// THREE backends feed this, and it dispatches on the line's own `type` rather
+// than on a backend flag threaded down from settings. That's not a shortcut: the
 // vocabularies are disjoint (Claude says `system`/`assistant`/`user`/`result`,
-// Codex says `thread.*`/`turn.*`/`item.*`), so the shape *is* the discriminator —
-// and a run started before the user flipped the picker still reduces correctly,
-// which a settings-derived flag would get wrong.
+// Codex says `thread.*`/`turn.*`/`item.*`, OpenCode says
+// `step_*`/`text`/`tool_use`), so the shape *is* the discriminator — and a run
+// started before the user flipped the picker still reduces correctly, which a
+// settings-derived flag would get wrong.
 //
 // Claude line shapes handled (verified against Claude Code 2.1.198):
 //   {type:"system", subtype:"init", session_id, tools:[...], model}
@@ -26,6 +27,7 @@
 
 import type { ToolActivity } from "@/types/chat";
 import { isCodexEvent, reduceCodex } from "./codexStream";
+import { isOpenCodeEvent, reduceOpenCode } from "./opencodeStream";
 import { toolLabel } from "./toolLabels";
 import {
   boundMcpResultText,
@@ -42,10 +44,11 @@ export interface StreamDraft {
   toolsSeen: string[];
   /** True when the MCP Unity tools are actually available this run. */
   hasUnityTools: boolean;
-  /** Final turn cost in USD. Claude only: Codex reports tokens, not dollars, so
-   *  this stays undefined there — which is the signal NOT to render "$0.00". */
+  /** Final turn cost in USD. Claude and OpenCode report it; Codex reports
+   *  tokens, so this stays undefined there — which is the signal NOT to render
+   *  "$0.00". */
   cost?: number;
-  /** Total tokens for the turn, when the backend reports them (Codex). */
+  /** Total tokens for the turn, when the backend reports them (Codex/OpenCode). */
   tokens?: number;
   isError: boolean;
   done: boolean;
@@ -70,6 +73,7 @@ export function reduceStream(draft: StreamDraft, raw: unknown): StreamDraft {
   if (!raw || typeof raw !== "object") return draft;
   const v = raw as Raw;
 
+  if (isOpenCodeEvent(v)) return reduceOpenCode(draft, v);
   if (isCodexEvent(v.type)) return reduceCodex(draft, v);
 
   switch (v.type) {

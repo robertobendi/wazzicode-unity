@@ -133,6 +133,36 @@ export function codexItemLabel(itemType: string): string {
   );
 }
 
+/** OpenCode's own tool names (`part.tool` on its JSON stream). */
+const OPENCODE_TOOL_LABELS: Record<string, string> = {
+  bash: "Running a command",
+  read: "Reading a file",
+  edit: "Editing game code",
+  write: "Editing game code",
+  patch: "Editing game code",
+  apply_patch: "Editing game code",
+  glob: "Searching the project",
+  grep: "Searching the project",
+  list: "Browsing the project",
+  webfetch: "Looking something up",
+  websearch: "Searching the web",
+  todowrite: "Planning steps",
+  todoread: "Planning steps",
+  task: "Delegating a step",
+};
+
+/**
+ * Friendly label for an OpenCode `part.tool`. Its MCP tools are namespaced
+ * `<server>_<tool>` (our server is `unity-vibe-os`), which we re-join into the
+ * shared `mcp__<server>__<tool>` form so every Unity label is reused as-is.
+ */
+export function openCodeToolLabel(name: string): string {
+  if (name in OPENCODE_TOOL_LABELS) return OPENCODE_TOOL_LABELS[name];
+  const mcp = name.match(/^unity[-_]vibe[-_]os[_:]?(.*)$/);
+  if (mcp) return toolLabel(`mcp__unity-vibe-os__${mcp[1]}`);
+  return toolLabel(name);
+}
+
 /**
  * Re-join a Codex MCP call's (server, tool) into the flat `mcp__<server>__<tool>`
  * name Claude uses, so both backends hit the same label table. Codex registers
