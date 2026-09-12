@@ -20,7 +20,7 @@ import type {
 } from "@/types/opencode";
 import type { LoopOptions, LoopState } from "@/types/loop";
 import type { RevertResult } from "@/types/revert";
-import type { SyncReport } from "@/types/gitSync";
+import type { SyncReport, SyncStatus } from "@/types/gitSync";
 import type { SessionIndexEntry, SessionPayload } from "@/types/session";
 import type { QuickAction } from "@/lib/quickActions";
 import type {
@@ -91,6 +91,9 @@ export const api = {
   // Synchronize: commit local work, fetch, fast-forward/merge the upstream, push.
   syncRepo: (project: string, message?: string) =>
     invoke<SyncReport>("git_synchronize", { project, message: message ?? null }),
+  /** Cheap "anything to sync?" probe; `fetch` contacts the remote. */
+  syncStatus: (project: string, fetch = true) =>
+    invoke<SyncStatus>("git_sync_status", { project, fetch }),
 
   // Session history: persist + resume past chats under .unity-vibe/studio.
   saveSession: (project: string, payload: SessionPayload) =>
