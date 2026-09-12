@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { useChatStore } from "@/stores/useChatStore";
 import { useStatusStore } from "@/stores/useStatusStore";
 import { formatTokens } from "@/lib/formatTokens";
@@ -12,6 +14,11 @@ export default function StatusBar() {
   const project = useChatStore((s) => s.project);
   const totalCost = useChatStore((s) => s.session.totalCostUsd);
   const totalTokens = useChatStore((s) => s.session.totalTokens);
+  const [version, setVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
 
   const label = status.compiling
     ? "Unity is recompiling — hang on…"
@@ -30,13 +37,20 @@ export default function StatusBar() {
           <OpenUnityButton project={project} />
         ) : null}
       </div>
-      {totalCost > 0 ? (
-        <span className="tabular-nums">Session ${totalCost.toFixed(4)}</span>
-      ) : totalTokens > 0 ? (
-        <span className="tabular-nums">
-          Session {formatTokens(totalTokens)} tokens
-        </span>
-      ) : null}
+      <div className="flex items-center gap-3">
+        {totalCost > 0 ? (
+          <span className="tabular-nums">Session ${totalCost.toFixed(4)}</span>
+        ) : totalTokens > 0 ? (
+          <span className="tabular-nums">
+            Session {formatTokens(totalTokens)} tokens
+          </span>
+        ) : null}
+        {version ? (
+          <span className="tabular-nums text-fg-dim/70" title="App version">
+            v{version}
+          </span>
+        ) : null}
+      </div>
     </footer>
   );
 }
