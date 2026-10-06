@@ -88,6 +88,10 @@ export const BRIDGE_METHODS = {
   assetImport: "asset.import",
   assetSliceSprite: "asset.sliceSprite",
 
+  // Unity Package Manager (add is gated by the 'asset' target)
+  packageList: "package.list",
+  packageAdd: "package.add",
+
   // Write operations (gated by safety mode at the MCP layer)
   editSetSerializedField: "edit.setSerializedField",
   editSetTransform: "edit.setTransform",

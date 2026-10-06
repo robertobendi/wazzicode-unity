@@ -235,6 +235,11 @@ namespace UnityVibeOS
                 case "asset.sliceSprite":
                     return AssetMutators.SliceSprite(p);
 
+                case "package.list":
+                    return PackageManagerBridge.List(p);
+                case "package.add":
+                    return PackageManagerBridge.Add(p);
+
                 case "edit.setSerializedField":
                     return Mutators.SetSerializedField(p);
                 case "edit.setTransform":

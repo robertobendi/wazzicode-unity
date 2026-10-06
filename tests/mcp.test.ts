@@ -13,6 +13,7 @@ describe("mcp-server/registry", () => {
     const names = allTools.map((t) => t.name).sort();
     expect(names).toEqual([
       "unity_add_component",
+      "unity_add_package",
       "unity_animator_edit_transition",
       "unity_apply_prefab_instance",
       "unity_apply_text_edits",
@@ -62,6 +63,7 @@ describe("mcp-server/registry", () => {
       "unity_install_editor",
       "unity_instantiate_prefab",
       "unity_launch_editor",
+      "unity_list_packages",
       "unity_load_scene_additive",
       "unity_manage_tools",
       "unity_open_prefab",
@@ -104,6 +106,7 @@ describe("mcp-server/registry", () => {
     const writes = allTools.filter((t) => t.write).map((t) => t.name).sort();
     expect(writes).toEqual([
       "unity_add_component",
+      "unity_add_package",
       "unity_animator_edit_transition",
       "unity_apply_prefab_instance",
       "unity_apply_text_edits",
@@ -395,6 +398,8 @@ describe("mcp-server/mockBridge", () => {
       "editor.executeMenuItem",
       "asset.import",
       "asset.sliceSprite",
+      "package.list",
+      "package.add",
       "edit.setTransform",
       "edit.reparent",
       "edit.paintTilemap",

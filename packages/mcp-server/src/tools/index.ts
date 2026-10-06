@@ -60,6 +60,7 @@ import {
 } from "./unityAnimator.js";
 import { unityExecuteMenuItem } from "./unityMenu.js";
 import { unityImportAsset, unitySliceSprite } from "./unityAsset.js";
+import { unityAddPackage, unityListPackages } from "./unityPackages.js";
 import { unityPaintTilemap } from "./unityTilemap.js";
 import { unityOrient } from "./unityOrient.js";
 import { unityVerify } from "./unityVerify.js";
@@ -171,6 +172,8 @@ export const allTools: AnyToolDef[] = [
   unityCreateMaterial,
   unityImportAsset,
   unitySliceSprite,
+  unityListPackages,
+  unityAddPackage,
   unityDeleteAsset,
   unityCreatePrefabVariant,
   unityAnimatorEditTransition,
@@ -239,6 +242,8 @@ export {
   unityExecuteMenuItem,
   unityImportAsset,
   unitySliceSprite,
+  unityListPackages,
+  unityAddPackage,
   unityPaintTilemap,
   unityOrient,
   unityDiagnoseConnection,
