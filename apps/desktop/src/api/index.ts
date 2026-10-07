@@ -21,6 +21,7 @@ import type {
 import type { LoopOptions, LoopState } from "@/types/loop";
 import type { RevertResult } from "@/types/revert";
 import type { SyncReport, SyncStatus } from "@/types/gitSync";
+import type { PyriteStatus } from "@/types/companions";
 import type { SessionIndexEntry, SessionPayload } from "@/types/session";
 import type { QuickAction } from "@/lib/quickActions";
 import type {
@@ -94,6 +95,10 @@ export const api = {
   /** Cheap "anything to sync?" probe; `fetch` contacts the remote. */
   syncStatus: (project: string, fetch = true) =>
     invoke<SyncStatus>("git_sync_status", { project, fetch }),
+
+  // Pyrite, the AI block modeler agents can use next to the engine tools.
+  pyriteStatus: () => invoke<PyriteStatus>("pyrite_status"),
+  pyriteOpen: () => invoke<void>("pyrite_open"),
 
   // Session history: persist + resume past chats under .unity-vibe/studio.
   saveSession: (project: string, payload: SessionPayload) =>

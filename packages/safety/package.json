@@ -1,6 +1,6 @@
 {
   "name": "@uvibe/safety",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -20,6 +20,6 @@
   },
   "dependencies": {
     "@uvibe/core": "workspace:*",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   }
 }

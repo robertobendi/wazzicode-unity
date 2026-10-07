@@ -7,8 +7,10 @@ export default defineConfig({
   resolve: {
     alias: {
       // pnpm keeps the MCP SDK under packages/mcp-server, so a test file at the repo root can't
-      // resolve its subpath exports. Map the prefix onto the package's own ESM output.
-      "@modelcontextprotocol/sdk/": r("./packages/mcp-server/node_modules/@modelcontextprotocol/sdk/dist/esm/"),
+      // resolve its subpath exports. Map the prefix onto the package's own ESM output. The
+      // target needs forward slashes: a Windows path (backslashes) never resolved, which failed
+      // the whole mcp-client-features suite on Windows.
+      "@modelcontextprotocol/sdk/": r("./packages/mcp-server/node_modules/@modelcontextprotocol/sdk/dist/esm/").replaceAll("\\", "/"),
       "@uvibe/bridge-client": r("./packages/bridge-client/src/index.ts"),
       "@uvibe/core": r("./packages/core/src/index.ts"),
       "@uvibe/mcp-server": r("./packages/mcp-server/src/index.ts"),

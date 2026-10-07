@@ -25,6 +25,7 @@ export const WRITE_TOOLS: Record<string, WriteTarget> = {
   unity_create_material: "asset",
   unity_import_asset: "asset",
   unity_slice_sprite: "asset",
+  unity_add_package: "asset",
   unity_create_script: "script",
   unity_apply_text_edits: "script",
   unity_script_edit: "script",

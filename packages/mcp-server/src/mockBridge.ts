@@ -666,6 +666,27 @@ export function createMockBridgeClient(): BridgeClient {
       target: "Assets/Art/hero.png",
       undoable: false,
     }),
+    "package.list": () => ({
+      count: 3,
+      packages: [
+        { name: "com.unity.render-pipelines.universal", version: "14.0.11", source: "Registry", direct: true },
+        { name: "com.unity.inputsystem", version: "1.7.0", source: "Registry", direct: true },
+        { name: "com.unity.cloud.gltfast", version: "6.20.0", source: "Registry", direct: true },
+      ],
+    }),
+    "package.add": (params) => {
+      const id = typeof params.id === "string" ? params.id : "com.unity.cloud.gltfast";
+      const [name, version] = id.split("@");
+      return {
+        applied: true,
+        status: "installed",
+        name,
+        version: version ?? "6.20.0",
+        target: "Packages/manifest.json",
+        summary: `Added ${name}@${version ?? "6.20.0"}`,
+        undoable: false,
+      };
+    },
     "asset.sliceSprite": () => ({
       applied: true,
       summary: "Sliced Assets/Art/tiles.png into 16 sprites (4x4 grid)",

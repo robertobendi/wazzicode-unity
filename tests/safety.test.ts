@@ -49,6 +49,7 @@ describe("safety/policy", () => {
     expect(writeTargetOf("unity_apply_prefab_instance")).toBe("prefab");
     expect(writeTargetOf("unity_import_asset")).toBe("asset");
     expect(writeTargetOf("unity_slice_sprite")).toBe("asset");
+    expect(writeTargetOf("unity_add_package")).toBe("asset");
     expect(writeTargetOf("unity_animator_edit_transition")).toBe("asset");
     expect(writeTargetOf("unity_execute_menu_item")).toBe("editor");
     // Deletes are gated like their create counterparts.

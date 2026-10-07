@@ -15,9 +15,10 @@ export const SERVER_INSTRUCTIONS = `Unity Vibe OS — the unity_* tools read and
 3. After ANY C# change run unity_verify (refresh → compile → console → tests → one verdict). Never say a change works until it passes.
 4. Author game code directly with the script tools — never hand C# back for the user to paste.
 5. Send a known multi-step edit as ONE unity_batch call, not many round trips.
-6. Captures return real images: unity_capture_game_view for a still, unity_capture_frames for motion (animation, movement, timing). On macOS never call unity_capture_editor_window — it returns FEATURE_UNAVAILABLE.
+6. Captures are real images: unity_capture_game_view (still), unity_capture_frames (motion/timing). On macOS never call unity_capture_editor_window — it returns FEATURE_UNAVAILABLE.
+7. 3D models: with pyrite_* tools, pyrite_generate_asset out_dir=Assets/Models/Pyrite. A .glb needs com.unity.cloud.gltfast (unity_add_package; else formats obj); then unity_refresh_assets and place it.
 
-BRIDGE STATE: UNITY_RELOADING = mid domain reload; recoverable and auto-retried, just proceed. UNITY_NOT_CONNECTED = no Editor open for this project; unity_orient already tries to start one — if it still fails, call unity_launch_editor and only ask the user when that says it cannot. UNITY_EDITOR_STALLED = Unity frozen while unfocused; retrying is USELESS — ask the user to focus Unity or enable Window ▸ Unity Vibe OS ▸ Keep Unity awake. Never retry a stalled or timed-out call more than twice.
+BRIDGE STATE: UNITY_RELOADING = domain reload; auto-retried, just proceed. UNITY_NOT_CONNECTED = no Editor for this project; unity_orient starts one — else call unity_launch_editor, and ask the user only if it says it cannot. UNITY_EDITOR_STALLED = Unity frozen while unfocused; retrying is USELESS — ask the user to focus Unity or enable Window ▸ Unity Vibe OS ▸ Keep Unity awake. Never retry a stalled or timed-out call more than twice.
 
 Architecture / ownership / "what handles this?" → unity_query_project_brain (or the unity://project-brain resource). unity_manage_tools trims unused tool groups.`;
 

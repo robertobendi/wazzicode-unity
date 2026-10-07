@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.7.2 — 2026-10-06
+
+- Unity 6.3 (6000.3) compatibility: `EditorCompat.IdToObject` uses `EditorUtility.EntityIdToObject`
+  on 6.3+ instead of the obsolete `InstanceIDToObject` (older Editors keep the old path). Verified
+  to compile on 6000.3.8f1 with zero errors and zero obsolete-API warnings from this package.
+- New `package.list` / `package.add` bridge methods (`PackageManagerBridge`) over
+  `UnityEditor.PackageManager.Client`, backing `unity_list_packages` / `unity_add_package` — e.g.
+  to install glTFast (`com.unity.cloud.gltfast`) so generated `.glb` models import. Only registry
+  names and https git URLs are accepted.
+- Added the missing `.meta` files for `FrameCapture.cs` and `FrameCapturePump.cs`.
+
 ## 0.7.1 — 2026-08-21
 
 - Version only: no C# changes. Tracks the server release that fixes the stale-lockfile launch hang.

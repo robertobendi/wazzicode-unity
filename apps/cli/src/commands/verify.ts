@@ -95,6 +95,8 @@ const ACCEPTANCE: Array<{ tool: string; args?: Record<string, unknown>; expectSh
   // Asset pipeline
   { tool: "unity_import_asset", args: { path: "Assets/Art/hero.png" }, expectShape: isString("createdPath") },
   { tool: "unity_slice_sprite", args: { texturePath: "Assets/Art/tiles.png", cellWidth: 16, cellHeight: 16 }, expectShape: isTrue("applied", "sprite not sliced") },
+  { tool: "unity_list_packages", expectShape: hasArray("packages") },
+  { tool: "unity_add_package", args: { id: "com.unity.cloud.gltfast" }, expectShape: isString("version") },
   { tool: "unity_paint_tilemap", args: { tilemapPath: "/Grid/Tilemap", tileAssetPath: "Assets/Tiles/Grass.asset", cells: [{ x: 0, y: 0 }] }, expectShape: isTrue("applied", "tilemap not painted") },
   // Composition tools (one-call orient / verify / batch)
   {
